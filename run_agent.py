@@ -3887,6 +3887,33 @@ class AIAgent:
                     )
                     return self._run_codex_create_stream_fallback(api_kwargs, client=active_client)
                 raise
+            except TypeError as exc:
+                if "'NoneType' object is not iterable" not in str(exc):
+                    raise
+                if collected_output_items:
+                    logger.debug(
+                        "Codex stream parser failed after output items; returning %d collected items. %s",
+                        len(collected_output_items),
+                        self._client_log_context(),
+                    )
+                    return SimpleNamespace(output=list(collected_output_items), status="completed")
+                if self._codex_streamed_text_parts and not has_tool_calls:
+                    assembled = "".join(self._codex_streamed_text_parts)
+                    logger.debug(
+                        "Codex stream parser failed after text deltas; synthesized %d chars. %s",
+                        len(assembled),
+                        self._client_log_context(),
+                    )
+                    return SimpleNamespace(
+                        output=[SimpleNamespace(
+                            type="message",
+                            role="assistant",
+                            status="completed",
+                            content=[SimpleNamespace(type="output_text", text=assembled)],
+                        )],
+                        status="completed",
+                    )
+                raise
 
     def _run_codex_create_stream_fallback(self, api_kwargs: dict, client: Any = None):
         """Fallback path for stream completion edge cases on Codex-style Responses backends."""
