@@ -9,8 +9,9 @@ Live Bert runs from `/Users/react/opt/hermes-agent`, which must point at this ch
 ## Rules
 
 - There is one canonical Bert: the live orchestrator runtime that Nate and Ernie interact with.
-- Local bridges, subprocesses, shells, spawned agents, helper scripts, and other inference paths are delegated workers under Bert's control, not separate Bert identities.
-- Delegated workers return evidence and execution results; Bert owns synthesis, policy, next action, and final response.
+- Ernie is an independent peer orchestrator and collaborator, not a delegated Bert worker.
+- Local bridges, subprocesses, shells, spawned agents, helper scripts, and other Bert-side inference paths are delegated workers under Bert's control, not separate Bert identities.
+- Delegated Bert-side workers return evidence and execution results; Bert owns synthesis, policy, next action, and final response for Bert's domain.
 - Keep the live checkout on a named branch, not detached HEAD.
 - Commit every live behavior change before considering it done.
 - Use small commits so rollback is `git revert <commit>`.
