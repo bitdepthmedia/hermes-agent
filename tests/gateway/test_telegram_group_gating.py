@@ -20,6 +20,7 @@ def _make_adapter(require_mention=None, free_response_chats=None, mention_patter
     adapter.platform = Platform.TELEGRAM
     adapter.config = PlatformConfig(enabled=True, token="***", extra=extra)
     adapter._bot = SimpleNamespace(id=999, username="hermes_bot")
+    adapter._other_bot_patterns = adapter._compile_other_bot_patterns()
     adapter._message_handler = AsyncMock()
     adapter._pending_text_batches = {}
     adapter._pending_text_batch_tasks = {}
@@ -28,7 +29,7 @@ def _make_adapter(require_mention=None, free_response_chats=None, mention_patter
     return adapter
 
 
-def _group_message(text="hello", *, chat_id=-100, reply_to_bot=False, entities=None, caption=None, caption_entities=None):
+def _group_message(text="hello", *, chat_id=-100, reply_to_bot=False, entities=None, caption=None, caption_entities=None, from_bot=False):
     reply_to_message = None
     if reply_to_bot:
         reply_to_message = SimpleNamespace(from_user=SimpleNamespace(id=999))
@@ -39,6 +40,23 @@ def _group_message(text="hello", *, chat_id=-100, reply_to_bot=False, entities=N
         caption_entities=caption_entities or [],
         chat=SimpleNamespace(id=chat_id, type="group"),
         reply_to_message=reply_to_message,
+        from_user=SimpleNamespace(id=111, is_bot=from_bot, full_name="Sender"),
+    )
+
+
+def _group_reply(text="hello", *, reply_text="/new", from_bot=False):
+    return SimpleNamespace(
+        text=text,
+        caption=None,
+        entities=[],
+        caption_entities=[],
+        chat=SimpleNamespace(id=-100, type="group"),
+        reply_to_message=SimpleNamespace(
+            from_user=SimpleNamespace(id=222),
+            text=reply_text,
+            caption=None,
+        ),
+        from_user=SimpleNamespace(id=111, is_bot=from_bot, full_name="Sender"),
     )
 
 
@@ -77,6 +95,35 @@ def test_regex_mention_patterns_allow_custom_wake_words():
     assert adapter._should_process_message(_group_message("hey chompy")) is False
 
 
+def test_group_message_addressed_to_other_bot_is_skipped_when_free_response_is_enabled():
+    adapter = _make_adapter(require_mention=False)
+    adapter._other_bot_patterns = [__import__("re").compile(r"\bernie\b", __import__("re").IGNORECASE)]
+
+    assert adapter._should_process_message(_group_message("hello everyone")) is True
+    assert adapter._should_process_message(_group_message("Ernie, handle this")) is False
+    assert adapter._should_process_message(_group_message("hi @other_bot")) is False
+    assert adapter._should_process_message(_group_message("hi @hermes_bot", entities=[_mention_entity("hi @hermes_bot")])) is True
+
+
+def test_group_bot_messages_default_to_mentions_only():
+    adapter = _make_adapter(require_mention=False, mention_patterns=[r"\bhermes\b"])
+
+    assert adapter._should_process_message(_group_message("plain bot update", from_bot=True)) is False
+    assert adapter._should_process_message(_group_message("hermes input?", from_bot=True)) is False
+    assert adapter._should_process_message(_group_message("replying", from_bot=True, reply_to_bot=True)) is False
+    assert adapter._should_process_message(
+        _group_message("hi @hermes_bot", from_bot=True, entities=[_mention_entity("hi @hermes_bot")])
+    ) is True
+
+
+def test_group_new_command_context_is_ignored():
+    adapter = _make_adapter(require_mention=False)
+
+    assert adapter._should_process_message(_group_message("/new"), is_command=True) is False
+    assert adapter._should_process_message(_group_message("/new@hermes_bot"), is_command=True) is False
+    assert adapter._should_process_message(_group_reply("connected reply", reply_text="/new")) is False
+
+
 def test_invalid_regex_patterns_are_ignored():
     adapter = _make_adapter(require_mention=True, mention_patterns=[r"(", r"^\s*chompy\b"])
 
@@ -93,7 +140,10 @@ def test_config_bridges_telegram_group_settings(monkeypatch, tmp_path):
         "  mention_patterns:\n"
         "    - \"^\\\\s*chompy\\\\b\"\n"
         "  free_response_chats:\n"
-        "    - \"-123\"\n",
+        "    - \"-123\"\n"
+        + "  group_allowed_chats:\n"
+        + "    - \"-100\"\n"
+        + "  group_bot_messages: mentions_only\n",
         encoding="utf-8",
     )
 
@@ -101,6 +151,8 @@ def test_config_bridges_telegram_group_settings(monkeypatch, tmp_path):
     monkeypatch.delenv("TELEGRAM_REQUIRE_MENTION", raising=False)
     monkeypatch.delenv("TELEGRAM_MENTION_PATTERNS", raising=False)
     monkeypatch.delenv("TELEGRAM_FREE_RESPONSE_CHATS", raising=False)
+    monkeypatch.delenv("TELEGRAM_GROUP_ALLOWED_CHATS", raising=False)
+    monkeypatch.delenv("TELEGRAM_GROUP_BOT_MESSAGES", raising=False)
 
     config = load_gateway_config()
 
@@ -108,3 +160,5 @@ def test_config_bridges_telegram_group_settings(monkeypatch, tmp_path):
     assert __import__("os").environ["TELEGRAM_REQUIRE_MENTION"] == "true"
     assert json.loads(__import__("os").environ["TELEGRAM_MENTION_PATTERNS"]) == [r"^\s*chompy\b"]
     assert __import__("os").environ["TELEGRAM_FREE_RESPONSE_CHATS"] == "-123"
+    assert __import__("os").environ["TELEGRAM_GROUP_ALLOWED_CHATS"] == "-100"
+    assert __import__("os").environ["TELEGRAM_GROUP_BOT_MESSAGES"] == "mentions_only"

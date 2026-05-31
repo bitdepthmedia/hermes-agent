@@ -259,12 +259,15 @@ def _deliver_result(job: dict, content: str, adapters=None, loop=None) -> Option
     # Optionally wrap the content with a header/footer so the user knows this
     # is a cron delivery.  Wrapping is on by default; set cron.wrap_response: false
     # in config.yaml for clean output.
-    wrap_response = True
-    try:
-        user_cfg = load_config()
-        wrap_response = user_cfg.get("cron", {}).get("wrap_response", True)
-    except Exception:
-        pass
+    if "wrap_response" in job:
+        wrap_response = bool(job.get("wrap_response"))
+    else:
+        wrap_response = True
+        try:
+            user_cfg = load_config()
+            wrap_response = user_cfg.get("cron", {}).get("wrap_response", True)
+        except Exception:
+            pass
 
     if wrap_response:
         task_name = job.get("name", job["id"])
@@ -311,6 +314,13 @@ def _deliver_result(job: dict, content: str, adapters=None, loop=None) -> Option
             if adapter_ok:
                 logger.info("Job '%s': delivered to %s:%s via live adapter", job["id"], platform_name, chat_id)
                 return None
+        except concurrent.futures.TimeoutError:
+            msg = (
+                f"delivery to {platform_name}:{chat_id} timed out via live adapter; "
+                "not retrying to avoid duplicate delivery"
+            )
+            logger.error("Job '%s': %s", job["id"], msg)
+            return msg
         except Exception as e:
             logger.warning(
                 "Job '%s': live adapter delivery to %s:%s failed (%s), falling back to standalone",
@@ -327,7 +337,6 @@ def _deliver_result(job: dict, content: str, adapters=None, loop=None) -> Option
         # prevent "coroutine was never awaited" RuntimeWarning, then retry in a
         # fresh thread that has no running loop.
         coro.close()
-        import concurrent.futures
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
             future = pool.submit(asyncio.run, _send_to_platform(platform, pconfig, chat_id, cleaned_delivery_content, thread_id=thread_id, media_files=media_files))
             result = future.result(timeout=30)
@@ -672,11 +681,12 @@ def run_job(job: dict) -> tuple[bool, str, str, Optional[str]]:
         # for hours if it's actively calling tools / receiving stream tokens,
         # but a hung API call or stuck tool with no activity for the configured
         # duration is caught and killed.  Default 600s (10 min inactivity);
-        # override via HERMES_CRON_TIMEOUT env var.  0 = unlimited.
+        # override via job.timeout_seconds or HERMES_CRON_TIMEOUT env var.
+        # 0 = unlimited.
         #
         # Uses the agent's built-in activity tracker (updated by
         # _touch_activity() on every tool call, API call, and stream delta).
-        _cron_timeout = float(os.getenv("HERMES_CRON_TIMEOUT", 600))
+        _cron_timeout = float(job.get("timeout_seconds") or os.getenv("HERMES_CRON_TIMEOUT", 600))
         _cron_inactivity_limit = _cron_timeout if _cron_timeout > 0 else None
         _POLL_INTERVAL = 5.0
         _cron_pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)

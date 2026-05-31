@@ -1679,6 +1679,15 @@ class GatewayRunner:
         if not user_id:
             return False
 
+        if source.platform == Platform.TELEGRAM and source.chat_type in ("group", "forum"):
+            allowed_chats = {
+                chat_id.strip()
+                for chat_id in os.getenv("TELEGRAM_GROUP_ALLOWED_CHATS", "").split(",")
+                if chat_id.strip()
+            }
+            if "*" in allowed_chats or source.chat_id in allowed_chats:
+                return True
+
         platform_env_map = {
             Platform.TELEGRAM: "TELEGRAM_ALLOWED_USERS",
             Platform.DISCORD: "DISCORD_ALLOWED_USERS",

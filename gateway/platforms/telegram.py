@@ -129,6 +129,7 @@ class TelegramAdapter(BasePlatformAdapter):
         self._bot: Optional[Bot] = None
         self._webhook_mode: bool = False
         self._mention_patterns = self._compile_mention_patterns()
+        self._other_bot_patterns = self._compile_other_bot_patterns()
         self._reply_to_mode: str = getattr(config, 'reply_to_mode', 'first') or 'first'
         # Buffer rapid/album photo updates so Telegram image bursts are handled
         # as a single MessageEvent instead of self-interrupting multiple turns.
@@ -1944,9 +1945,17 @@ class TelegramAdapter(BasePlatformAdapter):
 
     def _compile_mention_patterns(self) -> List[re.Pattern]:
         """Compile optional regex wake-word patterns for group triggers."""
-        patterns = self.config.extra.get("mention_patterns")
+        return self._compile_pattern_list("mention_patterns", "TELEGRAM_MENTION_PATTERNS")
+
+    def _compile_other_bot_patterns(self) -> List[re.Pattern]:
+        """Compile regex patterns that mean a group message targets another bot."""
+        return self._compile_pattern_list("other_bot_patterns", "TELEGRAM_OTHER_BOT_PATTERNS")
+
+    def _compile_pattern_list(self, config_key: str, env_key: str) -> List[re.Pattern]:
+        """Compile optional Telegram regex patterns from config or env."""
+        patterns = self.config.extra.get(config_key)
         if patterns is None:
-            raw = os.getenv("TELEGRAM_MENTION_PATTERNS", "").strip()
+            raw = os.getenv(env_key, "").strip()
             if raw:
                 try:
                     loaded = json.loads(raw)
@@ -1962,8 +1971,9 @@ class TelegramAdapter(BasePlatformAdapter):
             patterns = [patterns]
         if not isinstance(patterns, list):
             logger.warning(
-                "[%s] telegram mention_patterns must be a list or string; got %s",
+                "[%s] telegram %s must be a list or string; got %s",
                 self.name,
+                config_key,
                 type(patterns).__name__,
             )
             return []
@@ -1975,9 +1985,9 @@ class TelegramAdapter(BasePlatformAdapter):
             try:
                 compiled.append(re.compile(pattern, re.IGNORECASE))
             except re.error as exc:
-                logger.warning("[%s] Invalid Telegram mention pattern %r: %s", self.name, pattern, exc)
+                logger.warning("[%s] Invalid Telegram %s pattern %r: %s", self.name, config_key, pattern, exc)
         if compiled:
-            logger.info("[%s] Loaded %d Telegram mention pattern(s)", self.name, len(compiled))
+            logger.info("[%s] Loaded %d Telegram %s pattern(s)", self.name, len(compiled), config_key)
         return compiled
 
     def _is_group_chat(self, message: Message) -> bool:
@@ -2023,14 +2033,71 @@ class TelegramAdapter(BasePlatformAdapter):
         return False
 
     def _message_matches_mention_patterns(self, message: Message) -> bool:
-        if not self._mention_patterns:
+        return self._message_matches_patterns(message, self._mention_patterns)
+
+    def _message_matches_other_bot_patterns(self, message: Message) -> bool:
+        return self._message_matches_patterns(message, self._other_bot_patterns)
+
+    def _message_matches_patterns(self, message: Message, patterns: List[re.Pattern]) -> bool:
+        if not patterns:
             return False
         for candidate in (getattr(message, "text", None), getattr(message, "caption", None)):
             if not candidate:
                 continue
-            for pattern in self._mention_patterns:
+            for pattern in patterns:
                 if pattern.search(candidate):
                     return True
+        return False
+
+    def _telegram_group_bot_messages(self) -> str:
+        """Return group bot-message policy: ignore, context_only, mentions_only, or all."""
+        configured = self.config.extra.get("group_bot_messages")
+        if configured is None:
+            configured = os.getenv("TELEGRAM_GROUP_BOT_MESSAGES", "mentions_only")
+        value = str(configured).strip().lower()
+        if value in ("false", "off", "no", "ignore"):
+            return "ignore"
+        if value in ("context_only", "context-only"):
+            return "context_only"
+        if value in ("true", "on", "yes", "all"):
+            return "all"
+        return "mentions_only"
+
+    def _is_from_bot(self, message: Message) -> bool:
+        user = getattr(message, "from_user", None)
+        return bool(user and getattr(user, "is_bot", False))
+
+    def _message_mentions_other_bot_username(self, message: Message) -> bool:
+        bot_username = (getattr(self._bot, "username", None) or "").lstrip("@").lower() if self._bot else ""
+        for candidate in (getattr(message, "text", None), getattr(message, "caption", None)):
+            if not candidate:
+                continue
+            for match in re.finditer(r"@([A-Za-z0-9_]*bot)\b", candidate, flags=re.IGNORECASE):
+                if match.group(1).lower() != bot_username:
+                    return True
+        return False
+
+    def _message_targets_other_bot(self, message: Message) -> bool:
+        if self._is_reply_to_bot(message) or self._message_mentions_bot(message):
+            return False
+        return self._message_mentions_other_bot_username(message) or self._message_matches_other_bot_patterns(message)
+
+    def _message_is_new_command_context(self, message: Message) -> bool:
+        """Return True for /new or messages attached to a /new command."""
+        def _is_new_command_text(candidate: Optional[str]) -> bool:
+            if not candidate:
+                return False
+            first = candidate.strip().split(maxsplit=1)[0].lower()
+            return first == "/new" or first.startswith("/new@")
+
+        if _is_new_command_text(getattr(message, "text", None)) or _is_new_command_text(getattr(message, "caption", None)):
+            return True
+        reply = getattr(message, "reply_to_message", None)
+        if reply and (
+            _is_new_command_text(getattr(reply, "text", None))
+            or _is_new_command_text(getattr(reply, "caption", None))
+        ):
+            return True
         return False
 
     def _clean_bot_trigger_text(self, text: Optional[str]) -> Optional[str]:
@@ -2053,6 +2120,16 @@ class TelegramAdapter(BasePlatformAdapter):
         """
         if not self._is_group_chat(message):
             return True
+        if self._message_is_new_command_context(message):
+            return False
+        if self._is_from_bot(message):
+            policy = self._telegram_group_bot_messages()
+            if policy in ("ignore", "context_only"):
+                return False
+            if policy == "mentions_only":
+                return self._message_mentions_bot(message)
+        if self._message_targets_other_bot(message):
+            return False
         if str(getattr(getattr(message, "chat", None), "id", "")) in self._telegram_free_response_chats():
             return True
         if not self._telegram_require_mention():

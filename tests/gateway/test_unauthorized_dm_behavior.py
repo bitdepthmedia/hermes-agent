@@ -23,6 +23,7 @@ def _clear_auth_env(monkeypatch) -> None:
         "DINGTALK_ALLOWED_USERS", "FEISHU_ALLOWED_USERS", "WECOM_ALLOWED_USERS",
         "GATEWAY_ALLOWED_USERS",
         "TELEGRAM_ALLOW_ALL_USERS",
+        "TELEGRAM_GROUP_ALLOWED_CHATS",
         "DISCORD_ALLOW_ALL_USERS",
         "WHATSAPP_ALLOW_ALL_USERS",
         "SLACK_ALLOW_ALL_USERS",
@@ -126,6 +127,25 @@ def test_star_wildcard_works_for_any_platform(monkeypatch):
         chat_id="123456789",
         user_name="stranger",
         chat_type="dm",
+    )
+    assert runner._is_user_authorized(source) is True
+
+
+def test_telegram_group_allowed_chat_authorizes_group_sender(monkeypatch):
+    _clear_auth_env(monkeypatch)
+    monkeypatch.setenv("TELEGRAM_GROUP_ALLOWED_CHATS", "-1003829883825,-5271691408")
+
+    runner, _adapter = _make_runner(
+        Platform.TELEGRAM,
+        GatewayConfig(platforms={Platform.TELEGRAM: PlatformConfig(enabled=True, token="t")}),
+    )
+
+    source = SessionSource(
+        platform=Platform.TELEGRAM,
+        user_id="777",
+        chat_id="-1003829883825",
+        user_name="group member",
+        chat_type="group",
     )
     assert runner._is_user_authorized(source) is True
 

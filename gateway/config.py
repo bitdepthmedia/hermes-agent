@@ -577,11 +577,21 @@ def load_gateway_config() -> GatewayConfig:
                 if "mention_patterns" in telegram_cfg and not os.getenv("TELEGRAM_MENTION_PATTERNS"):
                     import json as _json
                     os.environ["TELEGRAM_MENTION_PATTERNS"] = _json.dumps(telegram_cfg["mention_patterns"])
+                if "other_bot_patterns" in telegram_cfg and not os.getenv("TELEGRAM_OTHER_BOT_PATTERNS"):
+                    import json as _json
+                    os.environ["TELEGRAM_OTHER_BOT_PATTERNS"] = _json.dumps(telegram_cfg["other_bot_patterns"])
                 frc = telegram_cfg.get("free_response_chats")
                 if frc is not None and not os.getenv("TELEGRAM_FREE_RESPONSE_CHATS"):
                     if isinstance(frc, list):
                         frc = ",".join(str(v) for v in frc)
                     os.environ["TELEGRAM_FREE_RESPONSE_CHATS"] = str(frc)
+                gac = telegram_cfg.get("group_allowed_chats")
+                if gac is not None and not os.getenv("TELEGRAM_GROUP_ALLOWED_CHATS"):
+                    if isinstance(gac, list):
+                        gac = ",".join(str(v) for v in gac)
+                    os.environ["TELEGRAM_GROUP_ALLOWED_CHATS"] = str(gac)
+                if "group_bot_messages" in telegram_cfg and not os.getenv("TELEGRAM_GROUP_BOT_MESSAGES"):
+                    os.environ["TELEGRAM_GROUP_BOT_MESSAGES"] = str(telegram_cfg["group_bot_messages"]).lower()
                 if "reactions" in telegram_cfg and not os.getenv("TELEGRAM_REACTIONS"):
                     os.environ["TELEGRAM_REACTIONS"] = str(telegram_cfg["reactions"]).lower()
 

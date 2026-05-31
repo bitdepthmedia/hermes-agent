@@ -250,6 +250,30 @@ class TestDeliverResultWrapping:
         assert "Cronjob Response" not in sent_content
         assert "The agent cannot see" not in sent_content
 
+    def test_delivery_skips_wrapping_when_job_disabled(self):
+        """A single cron job can opt out of delivery wrapper text."""
+        from gateway.config import Platform
+
+        pconfig = MagicMock()
+        pconfig.enabled = True
+        mock_cfg = MagicMock()
+        mock_cfg.platforms = {Platform.TELEGRAM: pconfig}
+
+        with patch("gateway.config.load_gateway_config", return_value=mock_cfg), \
+             patch("tools.send_message_tool._send_to_platform", new=AsyncMock(return_value={"success": True})) as send_mock:
+            job = {
+                "id": "daily-checkin",
+                "name": "daily-report",
+                "deliver": "origin",
+                "origin": {"platform": "telegram", "chat_id": "123"},
+                "wrap_response": False,
+            }
+            _deliver_result(job, "Clean output only.")
+
+        sent_content = send_mock.call_args.kwargs.get("content") or send_mock.call_args[0][-1]
+        assert sent_content == "Clean output only."
+        assert "Cronjob Response" not in sent_content
+
     def test_delivery_extracts_media_tags_before_send(self):
         """Cron delivery should pass MEDIA attachments separately to the send helper."""
         from gateway.config import Platform
@@ -458,6 +482,48 @@ class TestDeliverResultWrapping:
         text_sent = adapter.send.call_args[0][1]
         assert "MEDIA:" not in text_sent
         assert "Report" in text_sent
+
+    def test_live_adapter_timeout_does_not_fall_back_to_second_send(self):
+        """If the live adapter send times out, do not retry via standalone
+        delivery because Telegram may have accepted the first request.
+        """
+        from concurrent.futures import Future, TimeoutError
+        from gateway.config import Platform
+
+        adapter = AsyncMock()
+        pconfig = MagicMock()
+        pconfig.enabled = True
+        mock_cfg = MagicMock()
+        mock_cfg.platforms = {Platform.TELEGRAM: pconfig}
+
+        loop = MagicMock()
+        loop.is_running.return_value = True
+
+        def fake_run_coro(coro, _loop):
+            coro.close()
+            future = MagicMock(spec=Future)
+            future.result.side_effect = TimeoutError()
+            return future
+
+        job = {
+            "id": "daily-checkin",
+            "deliver": "origin",
+            "origin": {"platform": "telegram", "chat_id": "-1001"},
+        }
+
+        with patch("gateway.config.load_gateway_config", return_value=mock_cfg), \
+             patch("cron.scheduler.load_config", return_value={"cron": {"wrap_response": False}}), \
+             patch("asyncio.run_coroutine_threadsafe", side_effect=fake_run_coro), \
+             patch("tools.send_message_tool._send_to_platform", new=AsyncMock()) as send_mock:
+            error = _deliver_result(
+                job,
+                "daily check-in",
+                adapters={Platform.TELEGRAM: adapter},
+                loop=loop,
+            )
+
+        assert "timed out via live adapter" in error
+        send_mock.assert_not_awaited()
 
     def test_no_mirror_to_session_call(self):
         """Cron deliveries should NOT mirror into the gateway session."""

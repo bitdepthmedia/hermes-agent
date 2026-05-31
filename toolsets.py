@@ -192,6 +192,12 @@ TOOLSETS = {
         "includes": []
     },
 
+    "bert": {
+        "description": "Call the local Bert Hermes API server through a narrow bridge",
+        "tools": ["call_bert"],
+        "includes": []
+    },
+
     # "honcho" toolset removed — Honcho is now a memory provider plugin.
     # Tools are injected via MemoryManager, not the toolset system.
 

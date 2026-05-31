@@ -440,7 +440,38 @@ async def _send_telegram(token, chat_id, message, media_files=None, thread_id=No
                 formatted = message
             send_parse_mode = ParseMode.MARKDOWN_V2
 
-        bot = Bot(token=token)
+        request = None
+        try:
+            from telegram.request import HTTPXRequest
+            from gateway.platforms.telegram_network import (
+                TelegramFallbackTransport,
+                discover_fallback_ips,
+                parse_fallback_ip_env,
+            )
+
+            fallback_ips = parse_fallback_ip_env(os.getenv("TELEGRAM_FALLBACK_IPS"))
+            if not fallback_ips:
+                fallback_ips = await discover_fallback_ips()
+            httpx_kwargs = {
+                "timeout": 20.0,
+            }
+            if fallback_ips:
+                httpx_kwargs["transport"] = TelegramFallbackTransport(fallback_ips)
+            request = HTTPXRequest(
+                connection_pool_size=4,
+                connect_timeout=10.0,
+                read_timeout=20.0,
+                write_timeout=20.0,
+                pool_timeout=5.0,
+                httpx_kwargs=httpx_kwargs,
+            )
+        except Exception as request_error:
+            logger.warning(
+                "Telegram one-shot request setup fell back to default transport: %s",
+                _sanitize_error_text(request_error),
+            )
+
+        bot = Bot(token=token, request=request) if request is not None else Bot(token=token)
         int_chat_id = int(chat_id)
         media_files = media_files or []
         thread_kwargs = {}

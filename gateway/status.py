@@ -206,6 +206,8 @@ def write_runtime_status(
         payload["gateway_state"] = gateway_state
     if exit_reason is not None:
         payload["exit_reason"] = exit_reason
+    elif gateway_state in {"starting", "running"}:
+        payload["exit_reason"] = None
 
     if platform is not None:
         platform_payload = payload["platforms"].get(platform, {})
@@ -213,8 +215,12 @@ def write_runtime_status(
             platform_payload["state"] = platform_state
         if error_code is not None:
             platform_payload["error_code"] = error_code
+        elif platform_state == "connected":
+            platform_payload.pop("error_code", None)
         if error_message is not None:
             platform_payload["error_message"] = error_message
+        elif platform_state == "connected":
+            platform_payload.pop("error_message", None)
         platform_payload["updated_at"] = _utc_now_iso()
         payload["platforms"][platform] = platform_payload
 

@@ -564,8 +564,12 @@ class APIServerAdapter(BasePlatformAdapter):
                 if delta is not None:
                     _stream_q.put(delta)
 
+            stream_tool_progress = os.getenv("HERMES_API_STREAM_TOOL_PROGRESS", "").lower() in {"1", "true", "yes", "on"}
+
             def _on_tool_progress(event_type, name, preview, args, **kwargs):
-                """Inject tool progress into the SSE stream for Open WebUI."""
+                """Optionally inject tool progress into the SSE stream for Open WebUI."""
+                if not stream_tool_progress:
+                    return
                 if event_type != "tool.started":
                     return  # Only show tool start events in chat stream
                 if name.startswith("_"):
