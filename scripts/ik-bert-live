@@ -5,6 +5,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HERMES_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 STACK_ROOT="$(cd "${HERMES_ROOT}/../.." && pwd)"
 ERNIE_HOME="${STACK_ROOT}/config/ik-agents/hermes-ernie"
+BERT_HOME="${STACK_ROOT}/config/ik-agents/hermes-bert"
+BERT_PROFILE_SOURCE="${HERMES_ROOT}/ik_profiles/hermes-bert"
 BERT_LABEL="com.ik.hermes-bert"
 BERT_URL="http://127.0.0.1:8643/v1"
 HEARTBEAT_JOB_ID="1c4376c9c569"
@@ -13,13 +15,15 @@ cd "${HERMES_ROOT}"
 
 usage() {
   cat <<'EOF'
-Usage: scripts/ik-bert-live <status|restart|heartbeat|rollback> [ref]
+Usage: scripts/ik-bert-live <status|profile-check|profile-deploy|restart|heartbeat|rollback> [ref]
 
 Commands:
-  status       Show git cleanliness, live symlink, launchd state, and API probe.
-  restart      Restart the live Bert LaunchAgent.
-  heartbeat    Trigger the bert-codex-heartbeat cron and show its status.
-  rollback REF Revert REF, restart Bert, then run heartbeat.
+  status         Show git cleanliness, profile drift, live symlink, launchd state, and API probe.
+  profile-check  Compare versioned Bert profile source with the live profile files.
+  profile-deploy Deploy versioned Bert profile source to the live profile with backups.
+  restart        Restart the live Bert LaunchAgent.
+  heartbeat      Trigger the bert-codex-heartbeat cron and show its status.
+  rollback REF   Revert REF, restart Bert, then run heartbeat.
 EOF
 }
 
@@ -39,6 +43,60 @@ python_bin() {
   fi
 }
 
+profile_files() {
+  printf '%s\n' \
+    "SOUL.md" \
+    "memories/USER.md" \
+    "memories/MEMORY.md"
+}
+
+profile_check_cmd() {
+  local drift=0
+  while IFS= read -r rel; do
+    local src="${BERT_PROFILE_SOURCE}/${rel}"
+    local dst="${BERT_HOME}/${rel}"
+    if [[ ! -f "${src}" ]]; then
+      echo "profile-source-missing: ${rel}"
+      drift=1
+      continue
+    fi
+    if [[ ! -f "${dst}" ]]; then
+      echo "profile-live-missing: ${rel}"
+      drift=1
+      continue
+    fi
+    if cmp -s "${src}" "${dst}"; then
+      echo "profile-ok: ${rel}"
+    else
+      echo "profile-drift: ${rel}"
+      drift=1
+    fi
+  done < <(profile_files)
+  return "${drift}"
+}
+
+profile_deploy_cmd() {
+  require_clean_tree
+  local stamp backup_dir
+  stamp="$(date +%Y%m%d-%H%M%S)"
+  backup_dir="${BERT_HOME}/backups/profile-sync-${stamp}"
+  mkdir -p "${backup_dir}/memories" "${BERT_HOME}/memories"
+  while IFS= read -r rel; do
+    local src="${BERT_PROFILE_SOURCE}/${rel}"
+    local dst="${BERT_HOME}/${rel}"
+    if [[ ! -f "${src}" ]]; then
+      echo "ERROR: missing profile source ${src}" >&2
+      exit 1
+    fi
+    if [[ -f "${dst}" ]]; then
+      cp -p "${dst}" "${backup_dir}/${rel}"
+    fi
+    install -m 600 "${src}" "${dst}"
+    echo "deployed: ${rel}"
+  done < <(profile_files)
+  echo "backup: ${backup_dir}"
+}
+
 status_cmd() {
   echo "branch: $(git branch --show-current || true)"
   echo "head: $(git rev-parse --short HEAD) $(git log -1 --pretty=%s)"
@@ -48,6 +106,13 @@ status_cmd() {
     echo "git: dirty"
     git status --short
   fi
+
+  if profile_check_cmd >/tmp/ik-bert-live-profile-check.txt; then
+    echo "profile: synced"
+  else
+    echo "profile: drift"
+  fi
+  cat /tmp/ik-bert-live-profile-check.txt
 
   if [[ -L /Users/react/opt/hermes-agent ]]; then
     echo "live-symlink: $(readlink /Users/react/opt/hermes-agent)"
@@ -112,6 +177,12 @@ rollback_cmd() {
 case "${1:-}" in
   status)
     status_cmd
+    ;;
+  profile-check)
+    profile_check_cmd
+    ;;
+  profile-deploy)
+    profile_deploy_cmd
     ;;
   restart)
     restart_cmd
