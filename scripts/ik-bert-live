@@ -1,0 +1,134 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HERMES_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+STACK_ROOT="$(cd "${HERMES_ROOT}/../.." && pwd)"
+ERNIE_HOME="${STACK_ROOT}/config/ik-agents/hermes-ernie"
+BERT_LABEL="com.ik.hermes-bert"
+BERT_URL="http://127.0.0.1:8643/v1"
+HEARTBEAT_JOB_ID="1c4376c9c569"
+
+cd "${HERMES_ROOT}"
+
+usage() {
+  cat <<'EOF'
+Usage: scripts/ik-bert-live <status|restart|heartbeat|rollback> [ref]
+
+Commands:
+  status       Show git cleanliness, live symlink, launchd state, and API probe.
+  restart      Restart the live Bert LaunchAgent.
+  heartbeat    Trigger the bert-codex-heartbeat cron and show its status.
+  rollback REF Revert REF, restart Bert, then run heartbeat.
+EOF
+}
+
+require_clean_tree() {
+  if [[ -n "$(git status --porcelain)" ]]; then
+    echo "ERROR: Hermes checkout is dirty. Commit, revert, or stash first." >&2
+    git status --short
+    exit 1
+  fi
+}
+
+python_bin() {
+  if [[ -x "${HERMES_ROOT}/.venv/bin/python" ]]; then
+    printf '%s\n' "${HERMES_ROOT}/.venv/bin/python"
+  else
+    command -v python3
+  fi
+}
+
+status_cmd() {
+  echo "branch: $(git branch --show-current || true)"
+  echo "head: $(git rev-parse --short HEAD) $(git log -1 --pretty=%s)"
+  if [[ -z "$(git status --porcelain)" ]]; then
+    echo "git: clean"
+  else
+    echo "git: dirty"
+    git status --short
+  fi
+
+  if [[ -L /Users/react/opt/hermes-agent ]]; then
+    echo "live-symlink: $(readlink /Users/react/opt/hermes-agent)"
+  else
+    echo "live-symlink: missing or not a symlink"
+  fi
+
+  launchctl print "gui/$(id -u)/${BERT_LABEL}" 2>/dev/null | sed -n '1,18p' || true
+  code="$(curl -sS -o /tmp/ik-bert-live-models.json -w '%{http_code}' \
+    -H 'Authorization: Bearer invalid' "${BERT_URL}/models" || true)"
+  echo "bert-api-invalid-key-probe: ${code}"
+}
+
+restart_cmd() {
+  launchctl kickstart -k "gui/$(id -u)/${BERT_LABEL}"
+  sleep 2
+  launchctl print "gui/$(id -u)/${BERT_LABEL}" | sed -n '1,24p'
+}
+
+heartbeat_cmd() {
+  if [[ ! -f "${ERNIE_HOME}/.env" ]]; then
+    echo "ERROR: missing ${ERNIE_HOME}/.env" >&2
+    exit 1
+  fi
+
+  set -a
+  # shellcheck disable=SC1091
+  source "${ERNIE_HOME}/.env"
+  set +a
+  export HERMES_HOME="${ERNIE_HOME}"
+
+  "$(python_bin)" - <<PY
+from cron.jobs import trigger_job, get_job
+from cron.scheduler import tick
+
+job_id = "${HEARTBEAT_JOB_ID}"
+job = trigger_job(job_id)
+print("triggered", bool(job), job.get("name") if job else None)
+executed = tick(verbose=True)
+print("executed", executed)
+job = get_job(job_id)
+print("last_status", job.get("last_status"))
+print("last_error", job.get("last_error"))
+print("last_run_at", job.get("last_run_at"))
+print("next_run_at", job.get("next_run_at"))
+PY
+}
+
+rollback_cmd() {
+  ref="${1:-}"
+  if [[ -z "${ref}" ]]; then
+    echo "ERROR: rollback requires a commit/ref to revert." >&2
+    usage
+    exit 1
+  fi
+  require_clean_tree
+  git revert --no-edit "${ref}"
+  restart_cmd
+  heartbeat_cmd
+}
+
+case "${1:-}" in
+  status)
+    status_cmd
+    ;;
+  restart)
+    restart_cmd
+    ;;
+  heartbeat)
+    heartbeat_cmd
+    ;;
+  rollback)
+    shift
+    rollback_cmd "${1:-}"
+    ;;
+  -h|--help|help|"")
+    usage
+    ;;
+  *)
+    echo "ERROR: unknown command: $1" >&2
+    usage
+    exit 1
+    ;;
+esac
