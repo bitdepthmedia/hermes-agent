@@ -866,8 +866,31 @@ class _CodexCompletionsAdapter:
         except Exception as exc:
             if timed_out.is_set():
                 raise TimeoutError(_timeout_message()) from exc
-            logger.debug("Codex auxiliary Responses API call failed: %s", exc)
-            raise
+            if isinstance(exc, TypeError) and "NoneType" in str(exc) and "iterable" in str(exc):
+                # The Codex backend can stream valid text, then return a
+                # terminal response with output=None that the SDK parser rejects.
+                if collected_text_deltas and not has_function_calls:
+                    text_parts.append("".join(collected_text_deltas))
+                elif collected_output_items:
+                    for item in collected_output_items:
+                        content = getattr(item, "content", None)
+                        if content is None and isinstance(item, dict):
+                            content = item.get("content")
+                        for part in content or []:
+                            ptype = getattr(part, "type", None)
+                            if ptype is None and isinstance(part, dict):
+                                ptype = part.get("type")
+                            if ptype in ("output_text", "text"):
+                                text_parts.append(
+                                    getattr(part, "text", None)
+                                    or (part.get("text", "") if isinstance(part, dict) else "")
+                                )
+                else:
+                    logger.debug("Codex auxiliary Responses parser failed without recoverable stream data: %s", exc)
+                    raise
+            else:
+                logger.debug("Codex auxiliary Responses API call failed: %s", exc)
+                raise
         finally:
             if timeout_timer is not None:
                 timeout_timer.cancel()
