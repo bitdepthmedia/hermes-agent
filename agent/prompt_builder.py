@@ -723,7 +723,8 @@ def build_skills_system_prompt(
         result = (
             "## Skills (mandatory)\n"
             "Before replying, scan the skills below. If one clearly matches your task, "
-            "load it with skill_view(name) and follow its instructions. "
+            "your first action must be to load it with skill_view(name), then follow its instructions. "
+            "Do not proceed from the short skill description alone when a matching skill exists. "
             "If a skill has issues, fix it with skill_manage(action='patch').\n"
             "After difficult/iterative tasks, offer to save as a skill. "
             "If a skill you loaded was missing steps, had wrong commands, or needed "

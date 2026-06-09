@@ -2929,6 +2929,23 @@ class GatewayRunner:
                 pass
 
             response = agent_result.get("final_response") or ""
+            if response.strip() == "(empty)":
+                response = (
+                    "Ernie got an empty model response and did not complete the request. "
+                    "Please resend the task."
+                )
+                agent_result["final_response"] = response
+                for msg in reversed(agent_result.get("messages", [])):
+                    if msg.get("role") == "assistant" and str(msg.get("content", "")).strip() == "(empty)":
+                        msg["content"] = response
+                        break
+                logger.warning(
+                    "agent returned empty sentinel; converted to user-visible failure: "
+                    "platform=%s chat=%s session=%s",
+                    _platform_name,
+                    source.chat_id or "unknown",
+                    session_entry.session_id,
+                )
             agent_messages = agent_result.get("messages", [])
             _response_time = time.time() - _msg_start_time
             _api_calls = agent_result.get("api_calls", 0)
