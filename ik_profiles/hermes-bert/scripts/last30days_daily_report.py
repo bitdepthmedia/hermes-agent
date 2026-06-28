@@ -21,6 +21,13 @@ def hermes_home() -> Path:
     return Path(os.environ.get("HERMES_HOME", Path.home() / ".hermes")).expanduser()
 
 
+def ensure_user_bin_on_path() -> None:
+    user_bin = Path.home() / ".local" / "bin"
+    path_parts = os.environ.get("PATH", "").split(os.pathsep)
+    if str(user_bin) not in path_parts:
+        os.environ["PATH"] = os.pathsep.join([str(user_bin), *[part for part in path_parts if part]])
+
+
 def find_python() -> str:
     override = os.environ.get("LAST30DAYS_PYTHON")
     candidates = [override] if override else []
@@ -75,6 +82,7 @@ def run_last30days(home: Path, topic: str, save_dir: Path) -> str:
 
 
 def main() -> int:
+    ensure_user_bin_on_path()
     home = hermes_home()
     save_dir = Path(os.environ.get("BERT_LAST30DAYS_SAVE_DIR", home / "last30days" / "reports")).expanduser()
     save_dir.mkdir(parents=True, exist_ok=True)
