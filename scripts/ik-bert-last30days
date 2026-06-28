@@ -48,6 +48,8 @@ import os
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
+from hermes_time import now as hermes_now
+
 home = Path(os.environ["HERMES_HOME"]).expanduser()
 job_src = Path("ik_profiles/hermes-bert/cron/last30days-daily-job.json")
 job = json.loads(job_src.read_text(encoding="utf-8"))
@@ -72,10 +74,10 @@ if existing is not None:
     }
 job.update(preserve)
 
-now_local = datetime.now().astimezone()
+now_local = hermes_now()
 next_run = now_local.replace(hour=6, minute=30, second=0, microsecond=0)
 if next_run <= now_local:
-    next_run = next_run + timedelta(days=1)
+    next_run += timedelta(days=1)
 job["next_run_at"] = next_run.isoformat()
 if existing is None:
     jobs.append(job)
