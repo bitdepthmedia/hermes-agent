@@ -1,0 +1,143 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HERMES_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+PROFILE_SRC="${HERMES_ROOT}/ik_profiles/hermes-bert"
+HERMES_HOME_DIR="${HERMES_HOME:-${HOME}/.hermes}"
+JOB_ID="b30d6c30a000"
+
+cd "${HERMES_ROOT}"
+
+usage() {
+  cat <<'EOF'
+Usage: scripts/ik-bert-last30days <deploy|sync|test-script|upsert-cron|status>
+
+Deploys Bert's profile-owned Last30Days scripts, helper skill, and 6:30a daily cron job.
+Set HERMES_HOME to target a non-default Bert profile before running.
+EOF
+}
+
+copy_tree() {
+  local src="$1"
+  local dst="$2"
+  [[ -d "${src}" ]] || return 0
+  mkdir -p "${dst}"
+  rsync -a "${src}/" "${dst}/"
+}
+
+deploy_assets() {
+  mkdir -p "${HERMES_HOME_DIR}/scripts" "${HERMES_HOME_DIR}/skills" "${HERMES_HOME_DIR}/cron"
+  copy_tree "${PROFILE_SRC}/scripts" "${HERMES_HOME_DIR}/scripts"
+  copy_tree "${PROFILE_SRC}/skills" "${HERMES_HOME_DIR}/skills"
+  chmod 700 "${HERMES_HOME_DIR}/scripts"
+  find "${HERMES_HOME_DIR}/scripts" -type f -name '*.py' -exec chmod 700 {} +
+  echo "deployed-assets: ${HERMES_HOME_DIR}"
+}
+
+sync_skill() {
+  deploy_assets
+  "${PYTHON:-python3}" "${HERMES_HOME_DIR}/scripts/last30days_sync.py" --home "${HERMES_HOME_DIR}"
+}
+
+upsert_cron() {
+  deploy_assets
+  HERMES_HOME="${HERMES_HOME_DIR}" "${PYTHON:-python3}" - <<'PY'
+import json
+import os
+from pathlib import Path
+from datetime import datetime, timezone
+
+from cron.jobs import compute_next_run
+
+home = Path(os.environ["HERMES_HOME"]).expanduser()
+job_src = Path("ik_profiles/hermes-bert/cron/last30days-daily-job.json")
+job = json.loads(job_src.read_text(encoding="utf-8"))
+
+cron_dir = home / "cron"
+cron_dir.mkdir(parents=True, exist_ok=True)
+jobs_file = cron_dir / "jobs.json"
+if jobs_file.exists():
+    data = json.loads(jobs_file.read_text(encoding="utf-8"))
+else:
+    data = {"jobs": []}
+jobs = data.setdefault("jobs", [])
+
+existing = next((idx for idx, item in enumerate(jobs) if item.get("id") == job["id"] or item.get("name") == job["name"]), None)
+preserve = {}
+if existing is not None:
+    old = jobs[existing]
+    preserve = {
+        key: old.get(key)
+        for key in ("created_at", "last_run_at", "last_status", "last_error", "last_delivery_error")
+        if old.get(key) is not None
+    }
+job.update(preserve)
+
+job["next_run_at"] = compute_next_run(job["schedule"])
+if not job["next_run_at"]:
+    raise RuntimeError("Hermes cron scheduler could not compute next_run_at; check that croniter is installed in the selected runtime")
+if existing is None:
+    jobs.append(job)
+    action = "created"
+else:
+    jobs[existing] = job
+    action = "updated"
+data["updated_at"] = datetime.now(timezone.utc).isoformat()
+jobs_file.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+os.chmod(jobs_file, 0o600)
+print(json.dumps({"action": action, "job_id": job["id"], "next_run_at": job["next_run_at"], "jobs_file": str(jobs_file)}, indent=2))
+PY
+}
+
+status_cmd() {
+  echo "HERMES_HOME=${HERMES_HOME_DIR}"
+  if [[ -f "${HERMES_HOME_DIR}/last30days/state.json" ]]; then
+    cat "${HERMES_HOME_DIR}/last30days/state.json"
+  else
+    echo "last30days-state: missing"
+  fi
+  if [[ -f "${HERMES_HOME_DIR}/cron/jobs.json" ]]; then
+    HERMES_HOME="${HERMES_HOME_DIR}" "${PYTHON:-python3}" - <<'PY'
+import json, os
+from pathlib import Path
+home = Path(os.environ["HERMES_HOME"])
+data = json.loads((home / "cron" / "jobs.json").read_text())
+for job in data.get("jobs", []):
+    if job.get("id") == "b30d6c30a000" or job.get("name") == "bert-last30days-daily-brief":
+        print(json.dumps(job, indent=2))
+        break
+else:
+    print("last30days-job: missing")
+PY
+  fi
+}
+
+case "${1:-}" in
+  deploy)
+    deploy_assets
+    sync_skill
+    upsert_cron
+    ;;
+  sync)
+    sync_skill
+    ;;
+  test-script)
+    deploy_assets
+    HERMES_HOME="${HERMES_HOME_DIR}" "${PYTHON:-python3}" "${HERMES_HOME_DIR}/scripts/last30days_daily_report.py"
+    ;;
+  upsert-cron)
+    upsert_cron
+    ;;
+  status)
+    status_cmd
+    ;;
+  -h|--help|help|"")
+    usage
+    ;;
+  *)
+    echo "ERROR: unknown command: $1" >&2
+    usage
+    exit 1
+    ;;
+esac
