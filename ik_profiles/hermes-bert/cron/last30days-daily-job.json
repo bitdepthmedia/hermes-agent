@@ -9,11 +9,11 @@
   "base_url": null,
   "script": "last30days_daily_report.py",
   "schedule": {
-    "kind": "interval",
-    "minutes": 1440,
-    "display": "daily at 6:30 America/Detroit"
+    "kind": "cron",
+    "expr": "30 6 * * *",
+    "display": "30 6 * * *"
   },
-  "schedule_display": "daily at 6:30 America/Detroit",
+  "schedule_display": "30 6 * * *",
   "repeat": {
     "times": null,
     "completed": 0

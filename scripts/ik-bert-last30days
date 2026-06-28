@@ -46,9 +46,9 @@ upsert_cron() {
 import json
 import os
 from pathlib import Path
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
-from hermes_time import now as hermes_now
+from cron.jobs import compute_next_run
 
 home = Path(os.environ["HERMES_HOME"]).expanduser()
 job_src = Path("ik_profiles/hermes-bert/cron/last30days-daily-job.json")
@@ -74,11 +74,9 @@ if existing is not None:
     }
 job.update(preserve)
 
-now_local = hermes_now()
-next_run = now_local.replace(hour=6, minute=30, second=0, microsecond=0)
-if next_run <= now_local:
-    next_run += timedelta(days=1)
-job["next_run_at"] = next_run.isoformat()
+job["next_run_at"] = compute_next_run(job["schedule"])
+if not job["next_run_at"]:
+    raise RuntimeError("Hermes cron scheduler could not compute next_run_at; check that croniter is installed in the selected runtime")
 if existing is None:
     jobs.append(job)
     action = "created"
