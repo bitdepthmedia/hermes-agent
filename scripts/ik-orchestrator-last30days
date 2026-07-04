@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HERMES_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-PROFILE_SRC="${HERMES_ROOT}/ik_profiles/hermes-bert"
+PROFILE_SRC="${HERMES_ROOT}/ik_profiles/orchestrator-access-node"
 HERMES_HOME_DIR="${HERMES_HOME:-${HOME}/.hermes}"
 JOB_ID="b30d6c30a000"
 
@@ -11,10 +11,10 @@ cd "${HERMES_ROOT}"
 
 usage() {
   cat <<'EOF'
-Usage: scripts/ik-bert-last30days <deploy|sync|test-script|upsert-cron|status>
+Usage: scripts/ik-orchestrator-last30days <deploy|sync|test-script|upsert-cron|status>
 
-Deploys Bert's profile-owned Last30Days scripts, helper skill, and 6:30a daily cron job.
-Set HERMES_HOME to target a non-default Bert profile before running.
+Deploys the access-node profile-owned Last30Days scripts, helper skill, and 6:30a daily cron job.
+Set HERMES_HOME to target a non-default access-node profile before running.
 EOF
 }
 
@@ -51,7 +51,7 @@ from datetime import datetime, timezone
 from cron.jobs import compute_next_run
 
 home = Path(os.environ["HERMES_HOME"]).expanduser()
-job_src = Path("ik_profiles/hermes-bert/cron/last30days-daily-job.json")
+job_src = Path("ik_profiles/orchestrator-access-node/cron/last30days-daily-job.json")
 job = json.loads(job_src.read_text(encoding="utf-8"))
 
 cron_dir = home / "cron"
@@ -104,7 +104,7 @@ from pathlib import Path
 home = Path(os.environ["HERMES_HOME"])
 data = json.loads((home / "cron" / "jobs.json").read_text())
 for job in data.get("jobs", []):
-    if job.get("id") == "b30d6c30a000" or job.get("name") == "bert-last30days-daily-brief":
+    if job.get("id") == "b30d6c30a000" or job.get("name") == "orchestrator-last30days-daily-brief":
         print(json.dumps(job, indent=2))
         break
 else:

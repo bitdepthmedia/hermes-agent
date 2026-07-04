@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Install/update Bert's Last30Days skill one tagged version behind upstream."""
+"""Install/update the Last30Days skill one tagged version behind upstream."""
 
 from __future__ import annotations
 
@@ -149,7 +149,7 @@ def install(ref: TagRef, home: Path, *, force: bool = False) -> dict:
     if not force and current.get("tag") == ref.tag and dest.exists():
         return {"changed": False, "tag": ref.tag, "commit": ref.commit_sha, "path": str(dest)}
 
-    with tempfile.TemporaryDirectory(prefix="bert-last30days-") as tmp:
+    with tempfile.TemporaryDirectory(prefix="orchestrator-last30days-") as tmp:
         repo_dir = Path(tmp) / "repo"
         run(["git", "clone", "--depth", "1", "--branch", ref.tag, REPO_URL, str(repo_dir)])
         src = repo_dir / SKILL_SUBDIR
@@ -184,7 +184,7 @@ def install(ref: TagRef, home: Path, *, force: bool = False) -> dict:
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--home", default=str(hermes_home()))
-    parser.add_argument("--pin-tag", default=os.getenv("BERT_LAST30DAYS_PIN_TAG"))
+    parser.add_argument("--pin-tag", default=os.getenv("ORCHESTRATOR_LAST30DAYS_PIN_TAG"))
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--status", action="store_true")
     args = parser.parse_args(argv)

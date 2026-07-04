@@ -1,9 +1,9 @@
 {
   "id": "b30d6c30a000",
-  "name": "bert-last30days-daily-brief",
-  "prompt": "Format the supplied Last30Days evidence into Nate's morning report. Follow the bert-last30days-brief skill exactly. Keep the report concise, evidence-backed, and readable on Telegram. Do not include raw evidence clusters unless the script failed.",
-  "skills": ["bert-last30days-brief"],
-  "skill": "bert-last30days-brief",
+  "name": "orchestrator-last30days-daily-brief",
+  "prompt": "Format the supplied Last30Days evidence into Nate's morning report. Follow the orchestrator-last30days-brief skill exactly. Keep the report concise, evidence-backed, and readable on Telegram. Do not include raw evidence clusters unless the script failed.",
+  "skills": ["orchestrator-last30days-brief"],
+  "skill": "orchestrator-last30days-brief",
   "model": null,
   "provider": null,
   "base_url": null,

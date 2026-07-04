@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Collect Bert's daily Last30Days evidence for the cron report."""
+"""Collect daily Last30Days evidence for the cron report."""
 
 from __future__ import annotations
 
@@ -66,7 +66,7 @@ def run_last30days(home: Path, topic: str, save_dir: Path) -> str:
         "--save-dir",
         str(save_dir),
         "--save-suffix",
-        datetime.now().strftime("bert-daily-%Y%m%d"),
+        datetime.now().strftime("orchestrator-daily-%Y%m%d"),
     ]
     proc = subprocess.run(
         cmd,
@@ -74,7 +74,7 @@ def run_last30days(home: Path, topic: str, save_dir: Path) -> str:
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         env=env,
-        timeout=int(os.environ.get("BERT_LAST30DAYS_TIMEOUT", "420")),
+        timeout=int(os.environ.get("ORCHESTRATOR_LAST30DAYS_TIMEOUT", "420")),
     )
     if proc.returncode != 0:
         raise RuntimeError(f"Last30Days failed with exit {proc.returncode}:\n{proc.stdout}")
@@ -84,16 +84,16 @@ def run_last30days(home: Path, topic: str, save_dir: Path) -> str:
 def main() -> int:
     ensure_user_bin_on_path()
     home = hermes_home()
-    save_dir = Path(os.environ.get("BERT_LAST30DAYS_SAVE_DIR", home / "last30days" / "reports")).expanduser()
+    save_dir = Path(os.environ.get("ORCHESTRATOR_LAST30DAYS_SAVE_DIR", home / "last30days" / "reports")).expanduser()
     save_dir.mkdir(parents=True, exist_ok=True)
 
-    ref = last30days_sync.target_ref(os.environ.get("BERT_LAST30DAYS_PIN_TAG"))
+    ref = last30days_sync.target_ref(os.environ.get("ORCHESTRATOR_LAST30DAYS_PIN_TAG"))
     sync_result = last30days_sync.install(ref, home)
-    topic = os.environ.get("BERT_LAST30DAYS_TOPIC", DEFAULT_TOPIC).strip() or DEFAULT_TOPIC
+    topic = os.environ.get("ORCHESTRATOR_LAST30DAYS_TOPIC", DEFAULT_TOPIC).strip() or DEFAULT_TOPIC
     ytdlp_status = "available" if shutil.which("yt-dlp") else "missing"
     raw = run_last30days(home, topic, save_dir)
 
-    print(f"# Bert Last30Days Daily Brief Input - {datetime.now().strftime('%Y-%m-%d')}")
+    print(f"# Orchestrator Last30Days Daily Brief Input - {datetime.now().strftime('%Y-%m-%d')}")
     print()
     print("## Runtime Status")
     print(f"- Last30Days tag: {sync_result.get('tag')} ({sync_result.get('commit')})")
@@ -113,5 +113,5 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except Exception as exc:
-        print(f"# Bert Last30Days Daily Brief Failed\n\n{exc}", file=sys.stderr)
+        print(f"# Orchestrator Last30Days Daily Brief Failed\n\n{exc}", file=sys.stderr)
         raise

@@ -192,9 +192,9 @@ TOOLSETS = {
         "includes": []
     },
 
-    "bert": {
-        "description": "Call the local Bert Hermes API server through a narrow bridge",
-        "tools": ["call_bert"],
+    "orchestrator": {
+        "description": "Call the primary orchestrator runtime through the local Hermes access endpoint",
+        "tools": ["call_orchestrator"],
         "includes": []
     },
 
