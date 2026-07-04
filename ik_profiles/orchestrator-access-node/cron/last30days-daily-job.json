@@ -1,0 +1,33 @@
+{
+  "id": "b30d6c30a000",
+  "name": "orchestrator-last30days-daily-brief",
+  "prompt": "Format the supplied Last30Days evidence into Nate's morning report. Follow the orchestrator-last30days-brief skill exactly. Keep the report concise, evidence-backed, and readable on Telegram. Do not include raw evidence clusters unless the script failed.",
+  "skills": ["orchestrator-last30days-brief"],
+  "skill": "orchestrator-last30days-brief",
+  "model": null,
+  "provider": null,
+  "base_url": null,
+  "script": "last30days_daily_report.py",
+  "schedule": {
+    "kind": "cron",
+    "expr": "30 6 * * *",
+    "display": "30 6 * * *"
+  },
+  "schedule_display": "30 6 * * *",
+  "repeat": {
+    "times": null,
+    "completed": 0
+  },
+  "enabled": true,
+  "state": "scheduled",
+  "paused_at": null,
+  "paused_reason": null,
+  "created_at": "2026-06-28T00:00:00+00:00",
+  "next_run_at": null,
+  "last_run_at": null,
+  "last_status": null,
+  "last_error": null,
+  "deliver": "telegram",
+  "origin": null,
+  "wrap_response": false
+}
