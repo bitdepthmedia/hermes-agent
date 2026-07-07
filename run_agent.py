@@ -8626,6 +8626,14 @@ class AIAgent:
                             messages.append(interim_msg)
 
                     if self._codex_incomplete_retries < 3:
+                        messages.append({
+                            "role": "user",
+                            "content": (
+                                "[System: Continue from the incomplete Codex response. "
+                                "Use any preserved reasoning state, then produce the final answer directly. "
+                                "Do not restart or repeat prior text.]"
+                            ),
+                        })
                         if not self.quiet_mode:
                             self._vprint(f"{self.log_prefix}↻ Codex response incomplete; continuing turn ({self._codex_incomplete_retries}/3)")
                         self._session_messages = messages

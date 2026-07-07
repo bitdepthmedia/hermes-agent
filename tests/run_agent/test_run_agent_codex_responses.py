@@ -1009,6 +1009,29 @@ def test_run_conversation_codex_continues_after_reasoning_only_response(monkeypa
     )
 
 
+def test_run_conversation_codex_incomplete_adds_finalize_prompt(monkeypatch):
+    """Incomplete Codex turns need an explicit continuation nudge on replay."""
+    agent = _build_agent(monkeypatch)
+    responses = [
+        _codex_reasoning_only_response(),
+        _codex_message_response("The final answer is 42."),
+    ]
+    requests = []
+
+    def _fake_api_call(api_kwargs):
+        requests.append(api_kwargs)
+        return responses.pop(0)
+
+    monkeypatch.setattr(agent, "_interruptible_api_call", _fake_api_call)
+
+    result = agent.run_conversation("what is the answer?")
+
+    assert result["completed"] is True
+    replay_input = requests[1]["input"]
+    assert replay_input[-1]["role"] == "user"
+    assert "produce the final answer" in replay_input[-1]["content"]
+
+
 def test_run_conversation_codex_preserves_encrypted_reasoning_in_interim(monkeypatch):
     """Encrypted codex_reasoning_items must be preserved in interim messages
     even when there is no visible reasoning text or content."""
