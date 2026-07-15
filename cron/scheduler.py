@@ -813,6 +813,7 @@ def _deliver_result(job: dict, content: str, adapters=None, loop=None) -> Option
 _DEFAULT_SCRIPT_TIMEOUT = 120  # seconds
 # Backward-compatible module override used by tests and emergency monkeypatches.
 _SCRIPT_TIMEOUT = _DEFAULT_SCRIPT_TIMEOUT
+_DIRECT_CRON_TOOLS = {"call_orchestrator"}
 
 
 def _get_script_timeout() -> int:
@@ -846,6 +847,63 @@ def _get_script_timeout() -> int:
         logger.debug("Failed to load cron script timeout from config: %s", exc)
 
     return _DEFAULT_SCRIPT_TIMEOUT
+
+
+def _format_job_success_output(job: dict, prompt: str, final_response: str) -> str:
+    logged_response = final_response if final_response else "(No response generated)"
+    return f"""# Cron Job: {job["name"]}
+
+**Job ID:** {job["id"]}
+**Run Time:** {_hermes_now().strftime('%Y-%m-%d %H:%M:%S')}
+**Schedule:** {job.get('schedule_display', 'N/A')}
+
+## Prompt
+
+{prompt}
+
+## Response
+
+{logged_response}
+"""
+
+
+def _run_direct_cron_tool(job: dict) -> Optional[str]:
+    """Run a tightly allowlisted tool-backed cron job without a model hop."""
+    direct_tool = job.get("direct_tool")
+    if not direct_tool:
+        return None
+
+    if isinstance(direct_tool, str):
+        tool_name = direct_tool
+        tool_args = job.get("direct_tool_args") or {}
+    elif isinstance(direct_tool, dict):
+        tool_name = str(direct_tool.get("name") or "")
+        tool_args = direct_tool.get("args") or {}
+    else:
+        raise ValueError("direct_tool must be a string or object")
+
+    if tool_name not in _DIRECT_CRON_TOOLS:
+        raise ValueError(f"Unsupported direct cron tool: {tool_name}")
+    if not isinstance(tool_args, dict):
+        raise ValueError("direct_tool args must be an object")
+
+    if tool_name == "call_orchestrator":
+        import tools.call_orchestrator_tool  # noqa: F401 - registers the tool
+
+    from tools.registry import registry
+    raw = registry.dispatch(tool_name, tool_args)
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return str(raw).strip()
+
+    if data.get("success") is True:
+        return str(data.get("content") or raw).strip()
+
+    error = str(data.get("error") or raw).strip()
+    if tool_name == "call_orchestrator":
+        return f"ORCHESTRATOR_HEARTBEAT_FAILED {error}"
+    return error
 
 
 def _run_job_script(script_path: str) -> tuple[bool, str]:
@@ -1491,6 +1549,12 @@ def _run_job_impl(job: dict) -> tuple[bool, str, str, Optional[str]]:
                 else str(delivery_target["thread_id"])
             )
 
+        direct_response = _run_direct_cron_tool(job)
+        if direct_response is not None:
+            output = _format_job_success_output(job, prompt, direct_response)
+            logger.info("Job '%s' completed successfully via direct tool", job_name)
+            return True, output, direct_response, None
+
         model = job.get("model") or os.getenv("HERMES_MODEL") or ""
 
         # Load config.yaml for model, reasoning, prefill, toolsets, provider routing
@@ -1630,6 +1694,7 @@ def _run_job_impl(job: dict) -> tuple[bool, str, str, Optional[str]]:
                 job_id, _mcp_exc,
             )
 
+        from run_agent import AIAgent
         agent = AIAgent(
             model=model,
             api_key=runtime.get("api_key"),
@@ -1776,24 +1841,7 @@ def _run_job_impl(job: dict) -> tuple[bool, str, str, Optional[str]]:
         # Strip leaked placeholder text that upstream may inject on empty completions.
         if final_response.strip() == "(No response generated)":
             final_response = ""
-        # Use a separate variable for log display; keep final_response clean
-        # for delivery logic (empty response = no delivery).
-        logged_response = final_response if final_response else "(No response generated)"
-        
-        output = f"""# Cron Job: {job_name}
-
-**Job ID:** {job_id}
-**Run Time:** {_hermes_now().strftime('%Y-%m-%d %H:%M:%S')}
-**Schedule:** {job.get('schedule_display', 'N/A')}
-
-## Prompt
-
-{prompt}
-
-## Response
-
-{logged_response}
-"""
+        output = _format_job_success_output(job, prompt, final_response)
         
         logger.info("Job '%s' completed successfully", job_name)
         return True, output, final_response, None

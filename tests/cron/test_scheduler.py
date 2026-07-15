@@ -3,6 +3,8 @@
 import json
 import logging
 import os
+import sys
+import types
 from unittest.mock import AsyncMock, patch, MagicMock
 
 import pytest
@@ -1433,6 +1435,105 @@ class TestRunJobSessionPersistence:
         assert os.getenv("HERMES_CRON_AUTO_DELIVER_CHAT_ID") is None
         assert os.getenv("HERMES_CRON_AUTO_DELIVER_THREAD_ID") is None
         assert fake_db.close.call_count == 2
+
+
+class TestRunJobDirectTool:
+    def test_call_orchestrator_direct_tool_bypasses_agent(self, tmp_path):
+        job = {
+            "id": "1c4376c9c569",
+            "name": "primary-orchestrator-heartbeat",
+            "prompt": "Use call_orchestrator.",
+            "schedule_display": "every 360m",
+            "direct_tool": {
+                "name": "call_orchestrator",
+                "args": {
+                    "task": "reply exactly ORCHESTRATOR_HEARTBEAT_OK and nothing else",
+                    "max_tokens": 64,
+                },
+            },
+        }
+        fake_db = MagicMock()
+        fake_agent_cls = MagicMock()
+        fake_run_agent = types.SimpleNamespace(AIAgent=fake_agent_cls)
+
+        with patch("cron.scheduler._hermes_home", tmp_path), \
+             patch("cron.scheduler._resolve_origin", return_value=None), \
+             patch("dotenv.load_dotenv"), \
+             patch("hermes_state.SessionDB", return_value=fake_db), \
+             patch("tools.call_orchestrator_tool.call_orchestrator", return_value=json.dumps({
+                 "success": True,
+                 "content": "ORCHESTRATOR_HEARTBEAT_OK",
+             })) as call_mock, \
+             patch.dict(sys.modules, {"run_agent": fake_run_agent}):
+            success, output, final_response, error = run_job(job)
+
+        assert success is True
+        assert error is None
+        assert final_response == "ORCHESTRATOR_HEARTBEAT_OK"
+        assert "ORCHESTRATOR_HEARTBEAT_OK" in output
+        call_mock.assert_called_once_with(
+            task="reply exactly ORCHESTRATOR_HEARTBEAT_OK and nothing else",
+            max_tokens=64,
+        )
+        fake_agent_cls.assert_not_called()
+        fake_db.end_session.assert_called_once()
+        fake_db.close.assert_called_once()
+
+    def test_call_orchestrator_direct_tool_formats_failure_response(self, tmp_path):
+        job = {
+            "id": "1c4376c9c569",
+            "name": "primary-orchestrator-heartbeat",
+            "prompt": "Use call_orchestrator.",
+            "direct_tool": {
+                "name": "call_orchestrator",
+                "args": {"task": "reply exactly ORCHESTRATOR_HEARTBEAT_OK and nothing else"},
+            },
+        }
+        fake_agent_cls = MagicMock()
+        fake_run_agent = types.SimpleNamespace(AIAgent=fake_agent_cls)
+
+        with patch("cron.scheduler._hermes_home", tmp_path), \
+             patch("cron.scheduler._resolve_origin", return_value=None), \
+             patch("dotenv.load_dotenv"), \
+             patch("hermes_state.SessionDB", return_value=MagicMock()), \
+             patch("tools.call_orchestrator_tool.call_orchestrator", return_value=json.dumps({
+                 "success": False,
+                 "error": "Orchestrator API request failed: connection refused",
+             })), \
+             patch.dict(sys.modules, {"run_agent": fake_run_agent}):
+            success, output, final_response, error = run_job(job)
+
+        assert success is True
+        assert error is None
+        assert final_response == (
+            "ORCHESTRATOR_HEARTBEAT_FAILED "
+            "Orchestrator API request failed: connection refused"
+        )
+        assert final_response in output
+        fake_agent_cls.assert_not_called()
+
+    def test_direct_tool_rejects_unknown_tool_before_agent(self, tmp_path):
+        job = {
+            "id": "bad-direct",
+            "name": "bad direct",
+            "prompt": "run something",
+            "direct_tool": {"name": "terminal", "args": {"cmd": "echo unsafe"}},
+        }
+        fake_agent_cls = MagicMock()
+        fake_run_agent = types.SimpleNamespace(AIAgent=fake_agent_cls)
+
+        with patch("cron.scheduler._hermes_home", tmp_path), \
+             patch("cron.scheduler._resolve_origin", return_value=None), \
+             patch("dotenv.load_dotenv"), \
+             patch("hermes_state.SessionDB", return_value=MagicMock()), \
+             patch.dict(sys.modules, {"run_agent": fake_run_agent}):
+            success, output, final_response, error = run_job(job)
+
+        assert success is False
+        assert final_response == ""
+        assert "Unsupported direct cron tool: terminal" in error
+        assert "Unsupported direct cron tool: terminal" in output
+        fake_agent_cls.assert_not_called()
 
 
 class TestRunJobConfigLogging:
