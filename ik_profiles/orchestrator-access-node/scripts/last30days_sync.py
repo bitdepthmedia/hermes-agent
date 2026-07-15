@@ -19,11 +19,36 @@ from pathlib import Path
 REPO_URL = "https://github.com/mvanhorn/last30days-skill.git"
 SKILL_SUBDIR = Path("skills") / "last30days"
 STATE_PATH = Path("last30days") / "state.json"
-BLOCKED_PATTERNS = (
-    "axios@1.14.1",
-    "axios@0.30.4",
-    "plain-crypto-js",
-    '"plain-crypto-js"',
+FORBIDDEN_PACKAGE_SPECS = {
+    "axios": ("1.14.1", "0.30.4"),
+    "plain-crypto-js": ("4.2.1",),
+}
+LOCKFILE_NAMES = {
+    "package-lock.json",
+    "pnpm-lock.yaml",
+    "yarn.lock",
+    "npm-shrinkwrap.json",
+}
+PASSIVE_REFERENCE_DIR_NAMES = {
+    "archives",
+    "archive",
+    "sessions",
+    "session",
+    "state",
+    "states",
+    "__pycache__",
+}
+PACKAGE_MANAGER_CACHE_DIR_NAMES = {
+    ".npm",
+    ".pnpm-store",
+    ".yarn",
+    "npm-cache",
+    "pnpm-store",
+    "yarn-cache",
+}
+PACKAGE_MANAGER_INSTALL_RE = re.compile(
+    r"\b(?:npm|pnpm|yarn|bun)\s+(?:install|i|add)\b[^\r\n]*",
+    flags=re.IGNORECASE,
 )
 
 
@@ -99,20 +124,83 @@ def target_ref(pin_tag: str | None = None) -> TagRef:
     return refs[1]
 
 
+def is_passive_reference_artifact(path: Path) -> bool:
+    parts = set(path.parts)
+    return bool(parts & PASSIVE_REFERENCE_DIR_NAMES) or path.suffix in {".cache", ".pyc", ".pyo"}
+
+
+def forbidden_versions_in_text(text: str) -> list[str]:
+    return [
+        f"{package}@{version}"
+        for package, versions in FORBIDDEN_PACKAGE_SPECS.items()
+        for version in versions
+        if f"{package}@{version}" in text
+    ]
+
+
+def forbidden_versions_in_manifest(text: str) -> list[str]:
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        return []
+
+    findings: list[str] = []
+    for field in ("dependencies", "devDependencies", "optionalDependencies", "peerDependencies"):
+        dependencies = payload.get(field)
+        if not isinstance(dependencies, dict):
+            continue
+        for package, versions in FORBIDDEN_PACKAGE_SPECS.items():
+            spec = dependencies.get(package)
+            if isinstance(spec, str):
+                findings.extend(
+                    f"{package}@{version}" for version in versions if version in spec
+                )
+    return findings
+
+
+def forbidden_versions_in_installed_manifest(text: str) -> list[str]:
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        return []
+
+    package = payload.get("name")
+    version = payload.get("version")
+    if not isinstance(package, str) or not isinstance(version, str):
+        return []
+    return [
+        f"{package}@{blocked_version}"
+        for blocked_version in FORBIDDEN_PACKAGE_SPECS.get(package, ())
+        if blocked_version == version
+    ]
+
+
+def forbidden_versions_in_install_commands(text: str) -> list[str]:
+    findings: list[str] = []
+    for command in PACKAGE_MANAGER_INSTALL_RE.findall(text):
+        findings.extend(forbidden_versions_in_text(command))
+    return findings
+
+
+def is_package_manager_log(path: Path) -> bool:
+    return path.suffix == ".log" and any(name in path.name.lower() for name in ("npm", "pnpm", "yarn"))
+
+
 def scan_tree(path: Path) -> None:
     findings: list[str] = []
     for fpath in path.rglob("*"):
-        if not fpath.is_file():
+        if not fpath.is_file() or is_passive_reference_artifact(fpath):
             continue
         try:
             text = fpath.read_text(encoding="utf-8")
         except UnicodeDecodeError:
             continue
-        for pattern in BLOCKED_PATTERNS:
-            if pattern in text:
-                findings.append(f"{fpath.relative_to(path)} contains {pattern}")
 
         if fpath.name == "package.json":
+            package_versions = forbidden_versions_in_manifest(text)
+            if "node_modules" in fpath.parts:
+                package_versions.extend(forbidden_versions_in_installed_manifest(text))
+            package_versions.extend(forbidden_versions_in_install_commands(text))
             try:
                 payload = json.loads(text)
             except json.JSONDecodeError:
@@ -125,6 +213,13 @@ def scan_tree(path: Path) -> None:
                         findings.append(
                             f"{fpath.relative_to(path)} defines scripts.{hook}"
                         )
+        elif fpath.name in LOCKFILE_NAMES or set(fpath.parts) & PACKAGE_MANAGER_CACHE_DIR_NAMES or is_package_manager_log(fpath):
+            package_versions = forbidden_versions_in_text(text)
+        else:
+            package_versions = forbidden_versions_in_install_commands(text)
+
+        for package_version in sorted(set(package_versions)):
+            findings.append(f"{fpath.relative_to(path)} contains {package_version}")
 
     if findings:
         joined = "\n".join(f"- {finding}" for finding in findings)
