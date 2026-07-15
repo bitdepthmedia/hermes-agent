@@ -1784,6 +1784,12 @@ class GatewayRunner:
         global _gateway_runner_ref
         self.config = config or load_gateway_config()
         self.adapters: Dict[Platform, BasePlatformAdapter] = {}
+        self._shared_core_adapter = None
+        try:
+            from gateway.shared_core_adapter import adapter_from_environment
+            self._shared_core_adapter = adapter_from_environment()
+        except Exception as exc:
+            logger.warning("Shared Core shadow adapter unavailable: %s", exc)
         self._warn_if_docker_media_delivery_is_risky()
         _gateway_runner_ref = _weakref.ref(self)
 
@@ -8743,6 +8749,20 @@ class GatewayRunner:
             self._set_session_reasoning_override(session_key, None)
             if hasattr(self, "_pending_model_notes"):
                 self._pending_model_notes.pop(session_key, None)
+        shared_core = getattr(self, "_shared_core_adapter", None)
+        if shared_core is not None:
+            try:
+                from shared_core import ActionClass
+                shared_core.ingest(
+                    session_id=session_entry.session_id,
+                    request=event.text or "",
+                    requested_owner=shared_core.primary,
+                    action_class=ActionClass.READ_ONLY,
+                    offline=os.getenv("ERNIE_OFFLINE_MODE", "").lower() in {"1", "true", "yes", "on"},
+                    contains_local_data=bool(event.media_urls),
+                )
+            except Exception as exc:
+                logger.warning("Shared Core shadow ingestion failed: %s", exc)
         
         # Emit session:start for new or auto-reset sessions
         _is_new_session = (
