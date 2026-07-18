@@ -193,8 +193,8 @@ TOOLSETS = {
     },
 
     "orchestrator": {
-        "description": "Call the primary orchestrator runtime through the local Hermes access endpoint",
-        "tools": ["call_orchestrator"],
+        "description": "Call the primary orchestrator and run the strict daily goal coordinator",
+        "tools": ["call_orchestrator", "daily_goal_coordinator"],
         "includes": []
     },
 

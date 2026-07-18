@@ -898,6 +898,207 @@ class TestRunJobDirectTool:
         assert "Unsupported direct cron tool: terminal" in output
         fake_agent_cls.assert_not_called()
 
+    def test_daily_goal_direct_tool_bypasses_agent(self, tmp_path):
+        job = {
+            "id": "bcfc1f4e449e",
+            "name": "ernie-telegram-daily-checkin",
+            "prompt": "Run daily coordinator.",
+            "direct_tool": {
+                "name": "daily_goal_coordinator",
+                "args": {"mode": "checkin", "dry_run": True},
+            },
+        }
+        fake_agent_cls = MagicMock()
+        fake_run_agent = types.SimpleNamespace(AIAgent=fake_agent_cls)
+        with (
+            patch("cron.scheduler._hermes_home", tmp_path),
+            patch("cron.scheduler._resolve_origin", return_value=None),
+            patch("dotenv.load_dotenv"),
+            patch("hermes_state.SessionDB", return_value=MagicMock()),
+            patch(
+                "tools.daily_goal_coordinator_tool.run_daily_goal_coordinator",
+                return_value=json.dumps(
+                    {
+                        "success": True,
+                        "content": "Daily tracker dry run complete",
+                        "cycle_id": "daily-goal:2026-07-18",
+                    }
+                ),
+            ),
+            patch.dict(sys.modules, {"run_agent": fake_run_agent}),
+        ):
+            success, _, final_response, error = run_job(job)
+        assert success is True
+        assert error is None
+        assert final_response == "Daily tracker dry run complete"
+        assert job["_daily_goal_cycle_id"] == "daily-goal:2026-07-18"
+        fake_agent_cls.assert_not_called()
+
+    def test_daily_goal_direct_tool_rejects_malformed_result(self, tmp_path):
+        job = {
+            "id": "bcfc1f4e449e",
+            "name": "ernie-telegram-daily-checkin",
+            "prompt": "Run daily coordinator.",
+            "direct_tool": {
+                "name": "daily_goal_coordinator",
+                "args": {"mode": "checkin", "dry_run": True},
+            },
+        }
+        with (
+            patch("cron.scheduler._hermes_home", tmp_path),
+            patch("cron.scheduler._resolve_origin", return_value=None),
+            patch("dotenv.load_dotenv"),
+            patch("hermes_state.SessionDB", return_value=MagicMock()),
+            patch(
+                "tools.daily_goal_coordinator_tool.run_daily_goal_coordinator",
+                return_value="not json",
+            ),
+        ):
+            success, output, final_response, error = run_job(job)
+
+        assert success is False
+        assert final_response == ""
+        assert "malformed result" in error
+        assert "malformed result" in output
+
+    def test_daily_goal_direct_tool_rejects_missing_result(self, tmp_path):
+        job = {
+            "id": "bcfc1f4e449e",
+            "name": "ernie-telegram-daily-checkin",
+            "prompt": "Run daily coordinator.",
+            "direct_tool": {
+                "name": "daily_goal_coordinator",
+                "args": {"mode": "checkin", "dry_run": True},
+            },
+        }
+        with (
+            patch("cron.scheduler._hermes_home", tmp_path),
+            patch("cron.scheduler._resolve_origin", return_value=None),
+            patch("dotenv.load_dotenv"),
+            patch("hermes_state.SessionDB", return_value=MagicMock()),
+            patch(
+                "tools.daily_goal_coordinator_tool.run_daily_goal_coordinator",
+                return_value=None,
+            ),
+        ):
+            success, output, final_response, error = run_job(job)
+
+        assert success is False
+        assert final_response == ""
+        assert "malformed result" in error
+        assert "malformed result" in output
+
+
+class TestDailyGoalDeliveryReconciliation:
+    def _job(self):
+        return {
+            "id": "bcfc1f4e449e",
+            "name": "ernie-telegram-daily-checkin",
+            "schedule": {"kind": "cron", "expr": "5 9 * * *"},
+        }
+
+    @staticmethod
+    def _fake_run(current):
+        current["_daily_goal_cycle_id"] = "daily-goal:2026-07-18"
+        return True, "output", "Daily tracker complete", None
+
+    def test_receipt_records_real_delivery_result(self, tmp_path):
+        call_order = []
+
+        def deliver(*_args, **_kwargs):
+            call_order.append("deliver")
+
+        def record(*_args, **_kwargs):
+            call_order.append("record")
+
+        with (
+            patch("cron.scheduler.get_due_jobs", return_value=[self._job()]),
+            patch("cron.scheduler.advance_next_run"),
+            patch("cron.scheduler.run_job", side_effect=self._fake_run),
+            patch(
+                "cron.scheduler.save_job_output", return_value=tmp_path / "out.md"
+            ),
+            patch("cron.scheduler._deliver_result", side_effect=deliver),
+            patch("cron.scheduler.mark_job_run"),
+            patch(
+                "tools.daily_goal_coordinator_tool.record_daily_goal_delivery",
+                side_effect=record,
+            ) as record_mock,
+        ):
+            from cron.scheduler import tick
+
+            tick(verbose=False)
+
+        record_mock.assert_called_once_with(
+            "daily-goal:2026-07-18", "delivered"
+        )
+        assert call_order == ["deliver", "record"]
+
+    def test_receipt_records_delivery_failure(self, tmp_path):
+        with (
+            patch("cron.scheduler.get_due_jobs", return_value=[self._job()]),
+            patch("cron.scheduler.advance_next_run"),
+            patch("cron.scheduler.run_job", side_effect=self._fake_run),
+            patch(
+                "cron.scheduler.save_job_output", return_value=tmp_path / "out.md"
+            ),
+            patch(
+                "cron.scheduler._deliver_result", return_value="network down"
+            ),
+            patch("cron.scheduler.mark_job_run"),
+            patch(
+                "tools.daily_goal_coordinator_tool.record_daily_goal_delivery"
+            ) as record,
+        ):
+            from cron.scheduler import tick
+
+            tick(verbose=False)
+
+        record.assert_called_once_with("daily-goal:2026-07-18", "failed")
+
+    def test_reconciliation_error_does_not_break_other_jobs(
+        self, tmp_path, caplog
+    ):
+        first = self._job()
+        second = {
+            "id": "unrelated",
+            "name": "unrelated",
+            "schedule": {"kind": "cron", "expr": "10 9 * * *"},
+        }
+
+        def run(current):
+            if current["id"] == first["id"]:
+                return self._fake_run(current)
+            return True, "other output", "other response", None
+
+        with (
+            patch(
+                "cron.scheduler.get_due_jobs", return_value=[first, second]
+            ),
+            patch("cron.scheduler.advance_next_run"),
+            patch("cron.scheduler.run_job", side_effect=run),
+            patch(
+                "cron.scheduler.save_job_output", return_value=tmp_path / "out.md"
+            ),
+            patch("cron.scheduler._deliver_result", return_value=None),
+            patch("cron.scheduler.mark_job_run") as mark,
+            patch(
+                "tools.daily_goal_coordinator_tool.record_daily_goal_delivery",
+                side_effect=OSError("database unavailable"),
+            ),
+        ):
+            from cron.scheduler import tick
+
+            with caplog.at_level(logging.ERROR, logger="cron.scheduler"):
+                executed = tick(verbose=False)
+
+        assert executed == 2
+        assert mark.call_count == 2
+        assert any(
+            "delivery reconciliation failed" in record.message
+            for record in caplog.records
+        )
+
 
 class TestRunJobConfigLogging:
     """Verify that config.yaml parse failures are logged, not silently swallowed."""

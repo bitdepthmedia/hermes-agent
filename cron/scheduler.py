@@ -355,7 +355,7 @@ def _deliver_result(job: dict, content: str, adapters=None, loop=None) -> Option
 
 
 _SCRIPT_TIMEOUT = 120  # seconds
-_DIRECT_CRON_TOOLS = {"call_orchestrator"}
+_DIRECT_CRON_TOOLS = {"call_orchestrator", "daily_goal_coordinator"}
 
 
 def _format_job_success_output(job: dict, prompt: str, final_response: str) -> str:
@@ -398,20 +398,47 @@ def _run_direct_cron_tool(job: dict) -> Optional[str]:
 
     if tool_name == "call_orchestrator":
         import tools.call_orchestrator_tool  # noqa: F401 - registers the tool
+    elif tool_name == "daily_goal_coordinator":
+        import tools.daily_goal_coordinator_tool  # noqa: F401 - registers the tool
 
     from tools.registry import registry
     raw = registry.dispatch(tool_name, tool_args)
     try:
         data = json.loads(raw)
-    except json.JSONDecodeError:
+    except (TypeError, json.JSONDecodeError):
+        if tool_name == "daily_goal_coordinator":
+            raise ValueError(
+                "daily_goal_coordinator returned a malformed result"
+            )
+        return str(raw).strip()
+
+    if not isinstance(data, dict):
+        if tool_name == "daily_goal_coordinator":
+            raise ValueError(
+                "daily_goal_coordinator returned a malformed result"
+            )
         return str(raw).strip()
 
     if data.get("success") is True:
+        if tool_name == "daily_goal_coordinator":
+            content = data.get("content")
+            cycle_id = data.get("cycle_id")
+            if not isinstance(content, str) or not isinstance(cycle_id, str):
+                raise ValueError(
+                    "daily_goal_coordinator returned a malformed result"
+                )
+            if not cycle_id:
+                raise ValueError(
+                    "daily_goal_coordinator returned a malformed result"
+                )
+            job["_daily_goal_cycle_id"] = cycle_id
         return str(data.get("content") or raw).strip()
 
     error = str(data.get("error") or raw).strip()
     if tool_name == "call_orchestrator":
         return f"ORCHESTRATOR_HEARTBEAT_FAILED {error}"
+    if tool_name == "daily_goal_coordinator":
+        raise ValueError(f"daily_goal_coordinator failed: {error}")
     return error
 
 
@@ -936,6 +963,24 @@ def tick(verbose: bool = True, adapters=None, loop=None) -> int:
                     except Exception as de:
                         delivery_error = str(de)
                         logger.error("Delivery failed for job %s: %s", job["id"], de)
+
+                cycle_id = job.get("_daily_goal_cycle_id")
+                if cycle_id and should_deliver:
+                    try:
+                        from tools.daily_goal_coordinator_tool import (
+                            record_daily_goal_delivery,
+                        )
+
+                        record_daily_goal_delivery(
+                            cycle_id,
+                            "failed" if delivery_error else "delivered",
+                        )
+                    except Exception as re:
+                        logger.error(
+                            "Job '%s': daily goal delivery reconciliation failed: %s",
+                            job["id"],
+                            re,
+                        )
 
                 mark_job_run(job["id"], success, error, delivery_error=delivery_error)
                 executed += 1
