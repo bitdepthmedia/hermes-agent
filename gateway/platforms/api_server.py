@@ -1482,6 +1482,45 @@ class APIServerAdapter(BasePlatformAdapter):
                 raise RuntimeError("read-only agent returned non-text output")
             if len(content) > max_tokens * 8:
                 raise RuntimeError("read-only agent output exceeded the requested bound")
+            if purpose == "status":
+                derived_status = source_receipts.get("derived_status")
+                if (
+                    not isinstance(derived_status, dict)
+                    or derived_status.get("status")
+                    not in {"PENDING_WORK", "NO_PENDING_WORK", "UNKNOWN"}
+                    or not isinstance(derived_status.get("evidence_refs"), list)
+                ):
+                    raise RuntimeError(
+                        "read-only status receipt is missing an authoritative result"
+                    )
+                try:
+                    proposed = json.loads(content)
+                except json.JSONDecodeError:
+                    proposed = {}
+                if not isinstance(proposed, dict):
+                    proposed = {}
+                summary = str(
+                    proposed.get("summary")
+                    or f"Server-derived status: {derived_status['status']}"
+                )[:240]
+                candidates = proposed.get("candidates")
+                if not isinstance(candidates, list):
+                    candidates = []
+                content = json.dumps(
+                    {
+                        "status": derived_status["status"],
+                        "summary": summary,
+                        "evidence": derived_status["evidence_refs"],
+                        "candidates": candidates,
+                    },
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    ensure_ascii=False,
+                )
+                if len(content) > max_tokens * 8:
+                    raise RuntimeError(
+                        "normalized read-only output exceeded the requested bound"
+                    )
             tool_calls = self._read_only_tool_call_count(result.get("messages"))
             if tool_calls:
                 raise RuntimeError("read-only agent result contained tool activity")
