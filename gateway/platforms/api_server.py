@@ -1061,7 +1061,6 @@ class APIServerAdapter(BasePlatformAdapter):
             {
                 "model": _resolve_gateway_model(),
                 "max_iterations": 1,
-                "max_tokens": max_tokens,
                 "quiet_mode": True,
                 "verbose_logging": False,
                 "ephemeral_system_prompt": ephemeral_system_prompt,
@@ -1481,6 +1480,8 @@ class APIServerAdapter(BasePlatformAdapter):
             content = result.get("final_response")
             if not isinstance(content, str):
                 raise RuntimeError("read-only agent returned non-text output")
+            if len(content) > max_tokens * 8:
+                raise RuntimeError("read-only agent output exceeded the requested bound")
             tool_calls = self._read_only_tool_call_count(result.get("messages"))
             if tool_calls:
                 raise RuntimeError("read-only agent result contained tool activity")

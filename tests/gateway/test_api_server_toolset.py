@@ -186,6 +186,7 @@ class TestApiServerAdapterToolset:
         assert kwargs["skip_memory"] is True
         assert kwargs["skip_context_files"] is True
         assert kwargs["persist_session"] is False
+        assert "max_tokens" not in kwargs
 
     @patch("gateway.platforms.api_server.AIOHTTP_AVAILABLE", True)
     def test_status_receipts_page_through_complete_seven_day_window(self):
@@ -398,6 +399,46 @@ class TestApiServerAdapterToolset:
         assert attestation["source_receipts_sha256"] == _canonical_sha256(
             source_receipts
         )
+
+    @patch("gateway.platforms.api_server.AIOHTTP_AVAILABLE", True)
+    def test_read_only_endpoint_fails_closed_when_output_exceeds_requested_bound(self):
+        from gateway.platforms.api_server import APIServerAdapter
+        from gateway.config import PlatformConfig
+
+        adapter = APIServerAdapter(
+            PlatformConfig(extra={"key": "test-secret", "host": "127.0.0.1", "port": 8643})
+        )
+        payload = {
+            "purpose": "status",
+            "input": "Return strict status JSON.",
+            "max_tokens": 64,
+        }
+        fake_agent = MagicMock()
+        fake_agent.tools = []
+        fake_agent.valid_tool_names = set()
+        fake_agent.run_conversation.return_value = {
+            "final_response": "x" * 513,
+            "messages": [],
+        }
+        request = types.SimpleNamespace(
+            remote="127.0.0.1",
+            headers={"Authorization": "Bearer test-secret"},
+            json=AsyncMock(return_value=payload),
+        )
+
+        with patch.object(
+            adapter,
+            "_collect_read_only_status_receipts",
+            return_value={"purpose": "status", "items": []},
+        ), patch.object(
+            adapter,
+            "_create_read_only_agent",
+            return_value=fake_agent,
+        ):
+            response = asyncio.run(adapter._handle_orchestrator_read_only(request))
+
+        assert response.status == 500
+        assert "failed closed" in response.text.lower()
 
     @patch("gateway.platforms.api_server.AIOHTTP_AVAILABLE", True)
     def test_review_endpoint_rejects_tampered_caller_receipt(self):
