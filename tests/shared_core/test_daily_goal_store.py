@@ -104,6 +104,28 @@ def test_delivery_status_can_be_reconciled_by_watchdog(tmp_path):
     )
 
 
+def test_ambiguous_delivery_enqueues_one_operator_alert(tmp_path):
+    store = DailyGoalStore(tmp_path / "shared-core.db")
+    cycle = store.get_or_create_cycle(date(2026, 7, 18))
+    store.save_receipt(
+        DailyReceipt(
+            cycle.cycle_id, "PENDING_WORK", "NO_PENDING_WORK", "normal_work",
+            (), None, None, None, None, (), (), (), "pending",
+        )
+    )
+    assert store.begin_delivery(cycle.cycle_id) is not None
+    store.update_delivery(cycle.cycle_id, "unknown", error="send timed out")
+    store.update_delivery(cycle.cycle_id, "unknown", error="duplicate callback")
+    alert = store.get_alert(cycle.cycle_id)
+    assert alert["state"] == "pending"
+    assert "send timed out" in alert["last_error"]
+    assert store.begin_delivery(cycle.cycle_id) is None
+    assert store.begin_alert_delivery(cycle.cycle_id) is True
+    assert store.begin_alert_delivery(cycle.cycle_id) is False
+    store.update_alert_delivery(cycle.cycle_id, "delivered")
+    assert store.get_alert(cycle.cycle_id)["state"] == "delivered"
+
+
 def test_tampered_structured_review_receipt_is_rejected(tmp_path):
     store = DailyGoalStore(tmp_path / "shared-core.db")
     cycle = store.get_or_create_cycle(date(2026, 7, 18))
@@ -140,6 +162,7 @@ def test_tampered_structured_review_receipt_is_rejected(tmp_path):
         review_hash=review_hash,
         review_source=source,
         review_metrics_hash=metrics_hash,
+        review_observations=(("metric", "audit"),),
     )
     store.save_receipt(receipt)
     raw = store._conn.execute(
@@ -154,7 +177,7 @@ def test_tampered_structured_review_receipt_is_rejected(tmp_path):
     )
     store._conn.commit()
 
-    with pytest.raises(ValueError, match="review receipt hash mismatch"):
+    with pytest.raises(ValueError, match="integrity hash mismatch"):
         store.get_receipt(cycle.cycle_id)
 
 
@@ -195,6 +218,7 @@ def test_tampered_review_source_is_rejected(tmp_path):
             review_hash=review_hash,
             review_source=source,
             review_metrics_hash=metrics_hash,
+            review_observations=(("metric", "audit"),),
         )
     )
     raw = store._conn.execute(
@@ -209,7 +233,32 @@ def test_tampered_review_source_is_rejected(tmp_path):
     )
     store._conn.commit()
 
-    with pytest.raises(ValueError, match="review receipt hash mismatch"):
+    with pytest.raises(ValueError, match="integrity hash mismatch"):
+        store.get_receipt(cycle.cycle_id)
+
+
+def test_completed_review_fields_cannot_be_deleted(tmp_path):
+    store = DailyGoalStore(tmp_path / "shared-core.db")
+    cycle = store.get_or_create_cycle(date(2026, 7, 18))
+    receipt = DailyReceipt(
+        cycle.cycle_id, "NO_PENDING_WORK", "NO_PENDING_WORK", "improvement",
+        (), "Audit", "selected", "ernie", "bert", ("audit complete",),
+        ("verified",), (), "pending", outcome="completed",
+        review_statement="Structured observations support this fixed audit.",
+        review_hash="a" * 64,
+        review_source="bert-no-tools:receipt",
+        review_metrics_hash="b" * 64,
+    )
+    # Persist a syntactically complete receipt, then simulate field deletion.
+    data = json.loads(json.dumps(receipt.__dict__))
+    data["decision_integrity_hash"] = ""
+    data["review_statement"] = None
+    store._conn.execute(
+        "INSERT INTO daily_goal_receipts VALUES (?, ?, ?)",
+        (cycle.cycle_id, json.dumps(data), datetime.now(UTC).isoformat()),
+    )
+    store._conn.commit()
+    with pytest.raises(ValueError, match="lacks decision integrity"):
         store.get_receipt(cycle.cycle_id)
 
 
@@ -236,6 +285,18 @@ def test_stale_claim_can_be_taken_over_exactly_once(tmp_path):
     assert first.try_claim(cycle.cycle_id, "checkin", now=claimed_at) is True
     assert second.try_claim(cycle.cycle_id, "checkin", now=takeover_at) is True
     assert third.try_claim(cycle.cycle_id, "checkin", now=takeover_at) is False
+
+
+def test_unknown_retry_is_durable_after_lease_window(tmp_path):
+    store = DailyGoalStore(tmp_path / "shared-core.db")
+    cycle = store.get_or_create_cycle(date(2026, 7, 18))
+    first = datetime(2026, 7, 18, 13, 0, tzinfo=UTC)
+    much_later = first + timedelta(hours=4)
+    assert store.try_claim(cycle.cycle_id, "unknown_retry", now=first) is True
+    assert (
+        store.try_claim(cycle.cycle_id, "unknown_retry", now=much_later)
+        is False
+    )
 
 
 def test_new_semantic_receipt_resets_delivery_state(tmp_path):

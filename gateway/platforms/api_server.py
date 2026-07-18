@@ -586,11 +586,9 @@ class APIServerAdapter(BasePlatformAdapter):
             session_available = True
             total_rows = int(db.session_count())
             offset = 0
-            reached_older_row = False
             while (
                 session_pages < READ_ONLY_SESSION_MAX_PAGES
                 and offset < total_rows
-                and not reached_older_row
             ):
                 rows = db.search_sessions(
                     limit=READ_ONLY_SESSION_PAGE_SIZE,
@@ -611,12 +609,15 @@ class APIServerAdapter(BasePlatformAdapter):
                     if started_at is None:
                         invalid_timestamps = True
                         continue
-                    if datetime.fromisoformat(started_at) < cutoff:
-                        reached_older_row = True
-                        break
-                    session_records.append(self._bounded_session_metadata(row))
+                    bounded = self._bounded_session_metadata(row)
+                    # The seven-day window is only a retention filter for
+                    # terminal history. Active/unresolved rows remain
+                    # authoritative regardless of age.
+                    unresolved = bounded["ended_at"] is None
+                    if datetime.fromisoformat(started_at) >= cutoff or unresolved:
+                        session_records.append(bounded)
                 offset += len(rows)
-                if reached_older_row or offset >= total_rows:
+                if offset >= total_rows:
                     session_complete = True
             if total_rows == 0:
                 session_complete = True
@@ -720,9 +721,42 @@ class APIServerAdapter(BasePlatformAdapter):
             },
             "records": cron_records,
         }
+        pending_refs = [
+            f"session:{record['id']}"
+            for record in session_records
+            if record["ended_at"] is None and record["id"]
+        ]
+        pending_refs.extend(
+            f"cron:{record['id']}"
+            for record in cron_records
+            if record["id"]
+            and (record["has_last_error"] or record["has_delivery_error"])
+        )
+        coverage_complete = bool(
+            session_available
+            and session_complete
+            and cron_available
+            and cron_complete
+        )
+        derived_status = (
+            "UNKNOWN"
+            if not coverage_complete
+            else ("PENDING_WORK" if pending_refs else "NO_PENDING_WORK")
+        )
         return {
             "purpose": "status",
             "generated_at": now.isoformat(),
+            "coverage": {
+                "complete": coverage_complete,
+                "records_scanned": rows_scanned + len(cron_records),
+                "pending_record_refs": pending_refs,
+            },
+            "derived_status": {
+                "status": derived_status,
+                "evidence_refs": pending_refs or (
+                    ["coverage:complete"] if coverage_complete else []
+                ),
+            },
             "items": [session_receipt, cron_receipt],
         }
 

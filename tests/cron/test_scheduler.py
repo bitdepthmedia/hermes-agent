@@ -1,5 +1,6 @@
 """Tests for cron/scheduler.py — origin resolution, delivery routing, and error logging."""
 
+import asyncio
 import json
 import logging
 import os
@@ -10,7 +11,10 @@ from unittest.mock import AsyncMock, patch, MagicMock
 
 import pytest
 
-from cron.scheduler import _resolve_origin, _resolve_delivery_target, _deliver_result, _send_media_via_adapter, run_job, SILENT_MARKER, _build_job_prompt
+sys.modules.setdefault("fire", types.SimpleNamespace(Fire=lambda *a, **k: None))
+sys.modules.setdefault("firecrawl", types.SimpleNamespace(Firecrawl=object))
+
+from cron.scheduler import DeliveryFailure, _standalone_send_with_deadline, _resolve_origin, _resolve_delivery_target, _deliver_result, _send_media_via_adapter, run_job, SILENT_MARKER, _build_job_prompt
 
 
 def test_run_selected_job_never_scans_or_runs_other_due_jobs(monkeypatch):
@@ -822,6 +826,14 @@ class TestDeliverResultErrorReturns:
         result = _deliver_result(job, "Output.")
         assert result is None
 
+    def test_standalone_deadline_returns_even_if_adapter_never_returns(self):
+        async def stuck():
+            while True:
+                await asyncio.sleep(60)
+
+        with pytest.raises(TimeoutError, match="deadline"):
+            _standalone_send_with_deadline(lambda: stuck(), timeout=0.01)
+
     def test_returns_error_for_unknown_platform(self):
         job = {
             "id": "bad-platform",
@@ -1302,7 +1314,7 @@ class TestDailyGoalDeliveryReconciliation:
             tick(verbose=False)
 
         record_mock.assert_called_once_with(
-            "daily-goal:2026-07-18", "delivered"
+            "daily-goal:2026-07-18", "delivered", "original", ""
         )
         assert call_order == ["begin", "deliver", "record"]
 
@@ -1348,7 +1360,9 @@ class TestDailyGoalDeliveryReconciliation:
 
             tick(verbose=False)
 
-        record.assert_called_once_with("daily-goal:2026-07-18", "failed")
+        record.assert_called_once_with(
+            "daily-goal:2026-07-18", "unknown", "original", "network down"
+        )
 
     def test_definitive_failure_retries_delivery_then_records_success(
         self, tmp_path
@@ -1370,7 +1384,10 @@ class TestDailyGoalDeliveryReconciliation:
             ),
             patch(
                 "cron.scheduler._deliver_result",
-                side_effect=["network down", None],
+                side_effect=[
+                    DeliveryFailure("network down", definitive=True),
+                    None,
+                ],
             ) as deliver,
             patch("cron.scheduler.mark_job_run"),
             patch(
@@ -1384,8 +1401,8 @@ class TestDailyGoalDeliveryReconciliation:
 
         assert deliver.call_count == 2
         assert [value.args for value in record.call_args_list] == [
-            ("daily-goal:2026-07-18", "failed"),
-            ("daily-goal:2026-07-18", "delivered"),
+            ("daily-goal:2026-07-18", "failed", "original", "network down"),
+            ("daily-goal:2026-07-18", "delivered", "original", ""),
         ]
 
     def test_local_job_does_not_record_delivered(self, tmp_path):
@@ -1492,7 +1509,12 @@ class TestDailyGoalDeliveryReconciliation:
 
             tick(verbose=False)
 
-        record.assert_called_once_with("daily-goal:2026-07-18", "unknown")
+        record.assert_called_once_with(
+            "daily-goal:2026-07-18",
+            "unknown",
+            "original",
+            "delivery to telegram:123 timed out via live adapter; not retrying to avoid duplicate delivery",
+        )
 
     def test_empty_timeout_exception_records_unknown_and_suppresses_retry(
         self, tmp_path
@@ -1534,7 +1556,12 @@ class TestDailyGoalDeliveryReconciliation:
             tick(verbose=False)
 
         deliver.assert_called_once()
-        record.assert_called_once_with("daily-goal:2026-07-18", "unknown")
+        record.assert_called_once_with(
+            "daily-goal:2026-07-18",
+            "unknown",
+            "original",
+            "TimeoutError",
+        )
 
     def test_successful_telegram_delivery_is_not_duplicated(self, tmp_path):
         first = self._job()
@@ -1575,7 +1602,7 @@ class TestDailyGoalDeliveryReconciliation:
 
         deliver.assert_called_once()
         record.assert_called_once_with(
-            "daily-goal:2026-07-18", "delivered"
+            "daily-goal:2026-07-18", "delivered", "original", ""
         )
 
     def test_reconciliation_error_does_not_break_other_jobs(

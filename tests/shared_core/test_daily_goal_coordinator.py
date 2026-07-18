@@ -26,7 +26,7 @@ def status(agent, value, candidates=()):
         agent,
         value,
         value.value,
-        (f"{agent}:verified",),
+        (f"session:{agent}-history",),
         NOW.isoformat(),
         tuple(candidates),
         history_complete=True,
@@ -59,7 +59,7 @@ def candidate(
 
 
 def successful_review(summary):
-    statement = "The bounded fixed endpoint evidence supports the audit result."
+    statement = "metric audit is supported by the bounded fixed endpoint."
     metrics_hash = hashlib.sha256(summary.encode()).hexdigest()
     source = "bert-no-tools:source-receipt"
     review_hash = hashlib.sha256(
@@ -82,6 +82,7 @@ def successful_review(summary):
         review_hash=review_hash,
         review_source=source,
         review_metrics_hash=metrics_hash,
+        review_observations=(("metric", "audit"),),
     )
 
 
@@ -173,7 +174,7 @@ def test_repeat_call_reuses_receipt_without_rerunning_work(tmp_path):
 
 def test_structured_counterpart_review_is_persisted(tmp_path):
     summary = "audit complete"
-    statement = "The bounded fixed endpoint evidence supports the audit result."
+    statement = "metric audit is supported by the bounded fixed endpoint."
     metrics_hash = hashlib.sha256(summary.encode()).hexdigest()
     review_source = "bert-no-tools:source-receipt"
     statement_hash = hashlib.sha256(
@@ -208,6 +209,7 @@ def test_structured_counterpart_review_is_persisted(tmp_path):
             review_hash=statement_hash,
             review_source=review_source,
             review_metrics_hash=metrics_hash,
+            review_observations=(("metric", "audit"),),
         ),
     )
     assert result.receipt.review_statement == statement

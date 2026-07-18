@@ -41,7 +41,12 @@ class FakeReadOnlyStatus:
                     "complete": self.complete,
                     "truncated": not self.complete,
                 },
-                "records": [],
+                "records": [
+                    {
+                        "id": "history-1",
+                        "ended_at": "2026-07-17T10:00:00+00:00",
+                    }
+                ],
             },
             {
                 "kind": "cron_metadata",
@@ -50,7 +55,15 @@ class FakeReadOnlyStatus:
                 "records": [],
             },
         ]
-        receipts = {"purpose": "status", "items": items}
+        receipts = {
+            "purpose": "status",
+            "coverage": {"complete": self.complete},
+            "derived_status": {
+                "status": "NO_PENDING_WORK" if self.complete else "UNKNOWN",
+                "evidence_refs": ["coverage:complete"] if self.complete else [],
+            },
+            "items": items,
+        }
         payload = {
             "purpose": "status",
             "input": input_text,
@@ -104,7 +117,15 @@ class FakeClient:
 
     def get(self, path):
         if path == "/v1/ernie/sessions":
-            return {"sessions": self.sessions, "count": self.session_count}
+            return {
+                "sessions": self.sessions,
+                "count": self.session_count,
+                "history_coverage": {
+                    "complete": self.session_count < 25,
+                    "receipt_id": f"ernie:sessions:{self.session_count}/25",
+                    "candidates": [],
+                },
+            }
         if path == "/ik/ernie-dashboard/work-queue/status":
             return {
                 "item_count": self.item_count,
@@ -122,6 +143,18 @@ def test_completed_ready_item_is_not_open():
         "latest_postcheck_decision": "passed",
     }
     assert queue_item_is_open(item) is False
+
+
+def test_result_backed_ready_item_is_terminal_only_after_checks_pass():
+    item = {
+        "status": "ready",
+        "latest_outcome_decision": "result-backed",
+        "latest_verification_decision": "passed",
+        "latest_postcheck_decision": "passed",
+    }
+    assert queue_item_is_open(item) is False
+    item["latest_verification_decision"] = "failed"
+    assert queue_item_is_open(item) is True
 
 
 def test_ernie_is_idle_only_when_sources_succeed_and_nothing_is_open():
@@ -301,13 +334,13 @@ def test_attested_complete_bert_status_binds_candidates_to_source_receipt():
         {
             "status": "NO_PENDING_WORK",
             "summary": "No pending work in complete local receipts",
-            "evidence": ["session and cron receipts are clear"],
+            "evidence": ["coverage:complete"],
             "candidates": [
                 {
                     "candidate_id": "candidate-1",
                     "title": "Audit scheduler health",
                     "category": "reliability",
-                    "evidence": ["two recurring delivery failures"],
+                    "evidence": ["session:history-1"],
                     "impact": 4,
                     "recurrence": 3,
                     "confidence": 5,
@@ -324,7 +357,7 @@ def test_attested_complete_bert_status_binds_candidates_to_source_receipt():
     assert result.status is WorkStatus.NO_PENDING_WORK
     assert result.history_complete is True
     assert result.source_receipts[0].startswith("bert:no-tools:")
-    assert result.source_receipts[0] in result.candidates[0].evidence
+    assert result.candidates[0].evidence == ("session:history-1",)
 
 
 def test_incomplete_bert_history_forces_unknown_even_if_model_claims_idle():
@@ -343,6 +376,30 @@ def test_incomplete_bert_history_forces_unknown_even_if_model_claims_idle():
     assert result.status is WorkStatus.UNKNOWN
     assert result.history_complete is False
     assert result.candidates == ()
+
+
+def test_bert_model_cannot_override_authoritative_pending_status():
+    content = json.dumps({
+        "status": "NO_PENDING_WORK",
+        "summary": "claimed clear",
+        "evidence": ["coverage:complete"],
+        "candidates": [],
+    })
+    fake = FakeReadOnlyStatus(content)
+    original = fake.__call__
+
+    def pending(*args, **kwargs):
+        payload = json.loads(original(*args, **kwargs))
+        payload["source_receipts"]["derived_status"] = {
+            "status": "PENDING_WORK",
+            "evidence_refs": ["session:history-1"],
+        }
+        payload["attestation"]["source_receipts_sha256"] = hashlib.sha256(
+            _canonical(payload["source_receipts"])
+        ).hexdigest()
+        return json.dumps(payload)
+
+    assert collect_bert_status(pending, NOW).status is WorkStatus.UNKNOWN
 
 
 def test_tampered_bert_no_tools_attestation_forces_unknown():

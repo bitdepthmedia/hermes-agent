@@ -265,6 +265,35 @@ class TestApiServerAdapterToolset:
         }
         cron = receipts["items"][1]
         assert cron["pagination"]["rows_in_window"] == 1
+        assert receipts["derived_status"]["status"] == "PENDING_WORK"
+        assert "session:recent-1" in receipts["coverage"]["pending_record_refs"]
+
+    @patch("gateway.platforms.api_server.AIOHTTP_AVAILABLE", True)
+    def test_status_receipt_keeps_older_unresolved_session(self):
+        from gateway.platforms.api_server import APIServerAdapter
+        from gateway.config import PlatformConfig
+
+        adapter = APIServerAdapter(
+            PlatformConfig(extra={"key": "x", "host": "127.0.0.1", "port": 8643})
+        )
+        now = datetime(2026, 7, 18, tzinfo=UTC)
+        rows = [{
+            "id": "older-open",
+            "source": "cron",
+            "started_at": (now - timedelta(days=30)).timestamp(),
+            "ended_at": None,
+        }]
+        db = MagicMock()
+        db.session_count.return_value = 1
+        db.search_sessions.return_value = rows
+        with patch.object(adapter, "_ensure_session_db", return_value=db), \
+             patch("cron.jobs.list_jobs", return_value=[]):
+            receipts = adapter._collect_read_only_status_receipts(now=now)
+        assert receipts["items"][0]["records"][0]["id"] == "older-open"
+        assert receipts["derived_status"] == {
+            "status": "PENDING_WORK",
+            "evidence_refs": ["session:older-open"],
+        }
 
     @patch("gateway.platforms.api_server.AIOHTTP_AVAILABLE", True)
     def test_read_only_endpoint_attests_zero_tools_and_hash_bindings(self):

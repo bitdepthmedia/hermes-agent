@@ -16,6 +16,8 @@ import os
 import signal
 import subprocess
 import sys
+import queue
+import threading
 
 # fcntl is Unix-only; on Windows use msvcrt for file locking
 try:
@@ -39,6 +41,36 @@ from hermes_cli.config import load_config
 from hermes_time import now as _hermes_now
 
 logger = logging.getLogger(__name__)
+
+
+class DeliveryFailure(str):
+    """Failure text carrying whether another send is provably safe."""
+
+    def __new__(cls, message: str, *, definitive: bool):
+        value = super().__new__(cls, message)
+        value.definitive = definitive
+        return value
+
+
+def _standalone_send_with_deadline(factory, timeout: float = 30):
+    """Run a possibly blocking async adapter behind a bounded daemon boundary."""
+    results: queue.Queue = queue.Queue(maxsize=1)
+
+    def runner():
+        try:
+            results.put((True, asyncio.run(factory())))
+        except BaseException as exc:
+            results.put((False, exc))
+
+    thread = threading.Thread(target=runner, daemon=True)
+    thread.start()
+    try:
+        ok, value = results.get(timeout=timeout)
+    except queue.Empty as exc:
+        raise TimeoutError("standalone delivery deadline exceeded") from exc
+    if not ok:
+        raise value
+    return value
 
 # Valid delivery platforms — used to validate user-supplied platform names
 # in cron delivery targets, preventing env var enumeration via crafted names.
@@ -220,7 +252,7 @@ def _deliver_result(job: dict, content: str, adapters=None, loop=None) -> Option
         if job.get("deliver", "local") != "local":
             msg = f"no delivery target resolved for deliver={job.get('deliver', 'local')}"
             logger.warning("Job '%s': %s", job["id"], msg)
-            return msg
+            return DeliveryFailure(msg, definitive=True)
         return None  # local-only jobs don't deliver — not a failure
 
     platform_name = target["platform"]
@@ -249,20 +281,20 @@ def _deliver_result(job: dict, content: str, adapters=None, loop=None) -> Option
     if not platform:
         msg = f"unknown platform '{platform_name}'"
         logger.warning("Job '%s': %s", job["id"], msg)
-        return msg
+        return DeliveryFailure(msg, definitive=True)
 
     try:
         config = load_gateway_config()
     except Exception as e:
         msg = f"failed to load gateway config: {e}"
         logger.error("Job '%s': %s", job["id"], msg)
-        return msg
+        return DeliveryFailure(msg, definitive=True)
 
     pconfig = config.platforms.get(platform)
     if not pconfig or not pconfig.enabled:
         msg = f"platform '{platform_name}' not configured/enabled"
         logger.warning("Job '%s': %s", job["id"], msg)
-        return msg
+        return DeliveryFailure(msg, definitive=True)
 
     # Optionally wrap the content with a header/footer so the user knows this
     # is a cron delivery.  Wrapping is on by default; set cron.wrap_response: false
@@ -321,12 +353,18 @@ def _deliver_result(job: dict, content: str, adapters=None, loop=None) -> Option
                             "duplicate delivery"
                         )
                         logger.error("Job '%s': %s", job["id"], msg)
-                        return msg
+                        return DeliveryFailure(msg, definitive=False)
+                    definitive = bool(getattr(send_result, "definitive_failure", False))
+                    if not definitive:
+                        return DeliveryFailure(
+                            f"ambiguous live adapter failure: {err}",
+                            definitive=False,
+                        )
                     logger.warning(
-                        "Job '%s': live adapter send to %s:%s failed (%s), falling back to standalone",
-                        job["id"], platform_name, chat_id, err,
+                        "Job '%s': definitive live adapter failure for %s:%s; using standalone",
+                        job["id"], platform_name, chat_id,
                     )
-                    adapter_ok = False  # fall through to standalone path
+                    adapter_ok = False
 
             # Send extracted media files as native attachments via the live adapter
             if adapter_ok and media_files:
@@ -341,51 +379,37 @@ def _deliver_result(job: dict, content: str, adapters=None, loop=None) -> Option
                 "not retrying to avoid duplicate delivery"
             )
             logger.error("Job '%s': %s", job["id"], msg)
-            return msg
+            return DeliveryFailure(msg, definitive=False)
         except Exception as e:
-            logger.warning(
-                "Job '%s': live adapter delivery to %s:%s failed (%s), falling back to standalone",
-                job["id"], platform_name, chat_id, e,
+            return DeliveryFailure(
+                f"ambiguous live adapter exception: {e}",
+                definitive=False,
             )
 
     # Standalone path: run the async send in a fresh event loop (safe from any thread)
-    coro = _send_to_platform(platform, pconfig, chat_id, cleaned_delivery_content, thread_id=thread_id, media_files=media_files)
     try:
-        result = asyncio.run(coro)
-    except RuntimeError:
-        # asyncio.run() checks for a running loop before awaiting the coroutine;
-        # when it raises, the original coro was never started — close it to
-        # prevent "coroutine was never awaited" RuntimeWarning, then retry in a
-        # fresh thread that has no running loop.
-        coro.close()
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-            future = pool.submit(asyncio.run, _send_to_platform(platform, pconfig, chat_id, cleaned_delivery_content, thread_id=thread_id, media_files=media_files))
-            try:
-                result = future.result(timeout=30)
-            except TimeoutError:
-                msg = (
-                    f"delivery to {platform_name}:{chat_id} returned an "
-                    "ambiguous standalone timeout; not retrying to avoid "
-                    "duplicate delivery"
-                )
-                logger.error("Job '%s': %s", job["id"], msg)
-                return msg
+        result = _standalone_send_with_deadline(
+            lambda: _send_to_platform(
+                platform, pconfig, chat_id, cleaned_delivery_content,
+                thread_id=thread_id, media_files=media_files
+            )
+        )
     except TimeoutError:
         msg = (
             f"delivery to {platform_name}:{chat_id} returned an ambiguous "
             "standalone timeout; not retrying to avoid duplicate delivery"
         )
         logger.error("Job '%s': %s", job["id"], msg)
-        return msg
+        return DeliveryFailure(msg, definitive=False)
     except Exception as e:
         msg = f"delivery to {platform_name}:{chat_id} failed: {e}"
         logger.error("Job '%s': %s", job["id"], msg)
-        return msg
+        return DeliveryFailure(msg, definitive=False)
 
     if result and result.get("error"):
         msg = f"delivery error: {result['error']}"
         logger.error("Job '%s': %s", job["id"], msg)
-        return msg
+        return DeliveryFailure(msg, definitive=False)
 
     logger.info("Job '%s': delivered to %s:%s", job["id"], platform_name, chat_id)
     return None
@@ -500,6 +524,7 @@ def _run_direct_cron_tool(job: dict) -> Optional[str]:
         job.pop("_daily_goal_cycle_id", None)
         job.pop("_daily_goal_dry_run", None)
         job.pop("_daily_goal_suppress_delivery", None)
+        job.pop("_daily_goal_delivery_kind", None)
 
     if tool_name == "call_orchestrator":
         import tools.call_orchestrator_tool  # noqa: F401 - registers the tool
@@ -553,6 +578,9 @@ def _run_direct_cron_tool(job: dict) -> Optional[str]:
             job["_daily_goal_suppress_delivery"] = bool(
                 data.get("suppress_delivery", False)
             ) or job["_daily_goal_dry_run"]
+            job["_daily_goal_delivery_kind"] = str(
+                data.get("delivery_kind") or "original"
+            )
         return str(data.get("content") or raw).strip()
 
     error = str(data.get("error") or raw).strip()
@@ -1082,7 +1110,8 @@ def _run_selected_job_unlocked(job_id: str, verbose: bool = True, adapters=None,
                         )
 
                         if not begin_daily_goal_delivery(
-                            job["_daily_goal_cycle_id"]
+                            job["_daily_goal_cycle_id"],
+                            job.get("_daily_goal_delivery_kind", "original"),
                         ):
                             should_deliver = False
                             logger.warning(
@@ -1114,15 +1143,19 @@ def _run_selected_job_unlocked(job_id: str, verbose: bool = True, adapters=None,
                 if delivery_exception is not None:
                     delivery_status = "unknown" if isinstance(delivery_exception, (TimeoutError, ConnectionError)) else "failed"
                 elif delivery_error:
-                    lowered_delivery_error = delivery_error.lower()
-                    delivery_status = "unknown" if (
-                        "timed out" in lowered_delivery_error
-                        or "timeout" in lowered_delivery_error
-                        or "not retrying to avoid duplicate" in lowered_delivery_error
-                    ) else "failed"
+                    delivery_status = (
+                        "failed"
+                        if getattr(delivery_error, "definitive", False)
+                        else "unknown"
+                    )
                 else:
                     delivery_status = "delivered"
-                record_daily_goal_delivery(cycle_id, delivery_status)
+                record_daily_goal_delivery(
+                    cycle_id,
+                    delivery_status,
+                    job.get("_daily_goal_delivery_kind", "original"),
+                    str(delivery_error or delivery_exception or ""),
+                )
             except Exception as re:
                 logger.error("Job '%s': daily goal delivery reconciliation failed: %s", job["id"], re)
 
@@ -1269,7 +1302,8 @@ def tick(verbose: bool = True, adapters=None, loop=None) -> int:
                                 )
 
                                 if not begin_daily_goal_delivery(
-                                    job["_daily_goal_cycle_id"]
+                                    job["_daily_goal_cycle_id"],
+                                    job.get("_daily_goal_delivery_kind", "original"),
                                 ):
                                     should_deliver = False
                                     logger.warning(
@@ -1310,22 +1344,18 @@ def tick(verbose: bool = True, adapters=None, loop=None) -> int:
                                 else "failed"
                             )
                         elif delivery_error:
-                            lowered_delivery_error = delivery_error.lower()
                             delivery_status = (
-                                "unknown"
-                                if (
-                                    "timed out" in lowered_delivery_error
-                                    or "timeout" in lowered_delivery_error
-                                    or "not retrying to avoid duplicate"
-                                    in lowered_delivery_error
-                                )
-                                else "failed"
+                                "failed"
+                                if getattr(delivery_error, "definitive", False)
+                                else "unknown"
                             )
                         else:
                             delivery_status = "delivered"
                         record_daily_goal_delivery(
                             cycle_id,
                             delivery_status,
+                            job.get("_daily_goal_delivery_kind", "original"),
+                            str(delivery_error or delivery_exception or ""),
                         )
                     except Exception as re:
                         logger.error(

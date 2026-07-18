@@ -78,6 +78,7 @@ class ExecutionOutcome:
     review_hash: str | None = None
     review_source: str | None = None
     review_metrics_hash: str | None = None
+    review_observations: tuple[tuple[str, str], ...] = ()
 
     @property
     def reviewer(self) -> str:
@@ -231,7 +232,26 @@ def _validate_execution_summary(executor_id: str, summary: str) -> None:
         raise ValueError("review requires a bounded fixed-GET summary")
 
 
-def _valid_review_statement(content: object) -> bool:
+def _execution_observations(executor_id: str, summary: str) -> dict[str, str]:
+    _validate_execution_summary(executor_id, summary)
+    match = _SUMMARY_PATTERNS[executor_id].fullmatch(summary)
+    assert match is not None
+    if executor_id == "system-health":
+        return {
+            "offline_capable": match.group(1),
+            "services_up": match.group(2),
+            "services_total": match.group(3),
+        }
+    return {
+        "session_count": match.group(1),
+        "queue_item_count": match.group(2),
+        "queue_status_buckets": match.group(3),
+    }
+
+
+def _valid_review_statement(
+    content: object, observations: dict[str, str]
+) -> bool:
     if (
         not isinstance(content, str)
         or len(content) > 600
@@ -245,7 +265,11 @@ def _valid_review_statement(content: object) -> bool:
         _validate_text(content)
     except ValueError:
         return False
-    return True
+    lowered = content.lower()
+    return any(
+        key.lower() in lowered and value.lower() in lowered
+        for key, value in observations.items()
+    )
 
 
 def _canonical_bytes(value: object) -> bytes:
@@ -304,6 +328,9 @@ def review_goal(
 
     _validate_execution_summary(candidate.executor_id, execution_summary)
     execution_sha256 = _sha256(execution_summary)
+    expected_observations = _execution_observations(
+        candidate.executor_id, execution_summary
+    )
     source_content = {
         "candidate_id": candidate.candidate_id,
         "executor_id": candidate.executor_id,
@@ -318,7 +345,7 @@ def review_goal(
     review_prompt = (
         "Review only the supplied, attested fixed-GET audit receipt. Return one "
         "JSON object with exactly these keys: decision, candidate_id, executor_id, "
-        "execution_sha256, statement. decision must be pass or fail. Bind all IDs "
+        "execution_sha256, observations, statement. decision must be pass or fail. Bind all IDs "
         "and the execution hash exactly to the receipt. statement must be one "
         "substantive evidence sentence. "
         f"candidate_id={candidate.candidate_id}; "
@@ -344,6 +371,7 @@ def review_goal(
             "candidate_id",
             "executor_id",
             "execution_sha256",
+            "observations",
             "statement",
         }:
             raise ValueError("review response shape mismatch")
@@ -353,7 +381,8 @@ def review_goal(
             or data["candidate_id"] != candidate.candidate_id
             or data["executor_id"] != candidate.executor_id
             or data["execution_sha256"] != execution_sha256
-            or not _valid_review_statement(statement)
+            or data["observations"] != expected_observations
+            or not _valid_review_statement(statement, expected_observations)
         ):
             raise ValueError("review response binding mismatch")
     except Exception:
@@ -383,6 +412,7 @@ def review_goal(
             review_hash=review_hash,
             review_source=review_source,
             review_metrics_hash=execution_sha256,
+            review_observations=tuple(sorted(expected_observations.items())),
         )
     return ExecutionOutcome(
         True,
@@ -393,4 +423,5 @@ def review_goal(
         review_hash=review_hash,
         review_source=review_source,
         review_metrics_hash=execution_sha256,
+        review_observations=tuple(sorted(expected_observations.items())),
     )

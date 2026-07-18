@@ -2,11 +2,43 @@
 
 ## Outcome
 
-All 13 final-review findings are fixed locally on
+All first-pass findings and all 10 second-pass findings are fixed locally on
 `ik/daily-goal-coordinator`. No live profile, scheduler, Telegram,
 DigitalOcean, or activation action was performed.
 
 ## Finding closure
+
+### Second-pass closure
+
+1. Bert status now scans every bounded SessionDB page, retains terminal
+   records from seven days plus every older unresolved record, and derives
+   status deterministically from complete tracker/session coverage. Model
+   status and evidence must exactly match that derivation.
+2. Ernie `result-backed` outcomes are terminal only when verification and
+   postcheck both passed.
+3. Ernie history requires an explicit bounded-complete attestation. Candidate
+   evidence on either side must reference a specific attested record; empty or
+   digest-only evidence is ineligible.
+4. Counterpart review now returns structured observations recomputable from
+   the fixed execution metrics. Generic acknowledgements, deleted review
+   fields, and observation tampering fail closed.
+5. Receipts persist local date, per-agent evidence, freshness, source receipts,
+   review observations, and a decision-integrity hash covering all semantic
+   fields.
+6. UNKNOWN watchdog retry is a durable one-per-date claim, distinct from the
+   renewable check-in lease.
+7. Ambiguous or exhausted original delivery creates a deduplicated operator
+   alert outbox with bounded error context. The ambiguous original is never
+   resent.
+8. Delivery failures carry definitive/ambiguous certainty. Only explicit
+   definitive failures are retryable; generic transport failures are
+   ambiguous.
+9. Standalone sends run behind a hard return deadline, so a non-returning
+   adapter cannot retain the scheduler lock indefinitely.
+10. The mutating coordinator is no longer registered in ordinary model tool
+    schemas; cron invokes its private module entry point directly.
+
+### First-pass closure
 
 1. Ernie work-queue collection now uses
    `/ik/ernie-dashboard/work-queue/status`, validates `item_count`,
@@ -57,21 +89,20 @@ python3 -m pytest -o addopts='' -q \
   tests/cron \
   tests/ik_profiles
 
-357 passed, 4 skipped in 15.66s
+364 passed, 4 skipped in 15.91s
 ```
 
 ```text
-python3 -m pytest -o addopts='' -q \
-  tests/gateway/test_api_server_toolset.py \
-  tests/tools/test_call_orchestrator_tool.py
+python3 -m pytest -o addopts='' -q tests/gateway/test_api_server_toolset.py
 
-24 passed in 0.24s
+17 passed in 0.25s
 ```
 
 Additional checks passed:
 
 - `python3 -m compileall -q` on all changed Python runtime modules;
-- `bash -n scripts/ik-ernie-daily-goal`;
+- `bash -n scripts/ik-orchestrator-access-node scripts/ik-ernie-daily-goal
+  scripts/ik-orchestrator-last30days`;
 - `git diff --check`;
 - no dependency manifest or lockfile changed;
 - no forbidden-version implementation evidence was introduced.
@@ -85,7 +116,8 @@ skips in `tests/cron/test_jobs.py`.
 ## Commits
 
 - No-tools adapter: `4219aa6c2 feat: enforce no-tools orchestrator adapter`
-- Final safety fixes and this report: committed together after verification.
+- First-pass safety fixes: `95a240d6b fix: close daily goal coordinator safety gaps`
+- Second-pass fixes and this report: committed together after verification.
 
 ## Activation state
 

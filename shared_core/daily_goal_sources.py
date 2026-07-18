@@ -173,7 +173,10 @@ def queue_item_is_open(item: dict) -> bool:
         "blocked",
     }:
         return False
-    completed = item.get("latest_outcome_decision") == "completed"
+    completed = item.get("latest_outcome_decision") in {
+        "completed",
+        "result-backed",
+    }
     verified = item.get("latest_verification_decision") == "passed"
     postchecked = item.get("latest_postcheck_decision") == "passed"
     return not (completed and verified and postchecked)
@@ -267,7 +270,13 @@ def _session_evidence(
 
     pending: list[str] = []
     unknown: list[str] = []
-    history_complete = count < SESSION_LIMIT
+    coverage = payload.get("history_coverage")
+    history_complete = bool(
+        isinstance(coverage, dict)
+        and coverage.get("complete") is True
+        and isinstance(coverage.get("receipt_id"), str)
+        and coverage["receipt_id"]
+    )
     for row in sessions:
         if not isinstance(row, dict):
             unknown.append("sessions:invalid-row")
@@ -291,7 +300,12 @@ def _session_evidence(
             pending.append(f"session:{session_id}:{state}")
     if not history_complete:
         unknown.append("sessions:history-incomplete")
-    receipts = (f"ernie:sessions:{count}/{SESSION_LIMIT}",)
+    receipts = (
+        str(coverage["receipt_id"])
+        if isinstance(coverage, dict)
+        and isinstance(coverage.get("receipt_id"), str)
+        else f"ernie:sessions:{count}/{SESSION_LIMIT}:unattested",
+    )
     return pending, unknown, history_complete, receipts
 
 
@@ -322,6 +336,21 @@ def collect_ernie_status(client: LoopbackJsonClient, now: datetime) -> AgentStat
     pending = queue_pending + session_pending
     unknown = source_errors + queue_unknown + session_unknown
     receipts = session_receipts + queue_receipts
+    candidates: tuple[ImprovementCandidate, ...] = ()
+    if history_complete and isinstance(session_payload, dict):
+        coverage = session_payload.get("history_coverage")
+        record_refs = {
+            f"session:{row.get('session_id')}"
+            for row in session_payload.get("sessions") or ()
+            if isinstance(row, dict) and row.get("session_id")
+        }
+        try:
+            candidates = tuple(
+                _candidate(value, allowed_record_refs=record_refs)
+                for value in (coverage.get("candidates") or ())
+            )
+        except Exception:
+            unknown.append("sessions:invalid-candidate-attestation")
 
     if pending:
         return AgentStatus(
@@ -330,7 +359,7 @@ def collect_ernie_status(client: LoopbackJsonClient, now: datetime) -> AgentStat
             "Ernie has verified pending work",
             tuple(pending[:10]),
             now.isoformat(),
-            (),
+            candidates,
             history_complete=history_complete and not source_errors,
             source_receipts=receipts,
         )
@@ -351,7 +380,7 @@ def collect_ernie_status(client: LoopbackJsonClient, now: datetime) -> AgentStat
         "Ernie has no verified pending work",
         ("queue:clear", "sessions:clear"),
         now.isoformat(),
-        (),
+        candidates,
         history_complete=history_complete,
         source_receipts=receipts,
     )
@@ -371,15 +400,19 @@ Use integers 0-5. Project work is pending only with explicit evidence it remains
 If evidence is missing or ambiguous, return UNKNOWN. Do not perform work."""
 
 
-def _candidate(data: dict, source_receipt_id: str) -> ImprovementCandidate:
+def _candidate(
+    data: dict,
+    *,
+    allowed_record_refs: set[str],
+) -> ImprovementCandidate:
+    evidence = tuple(str(value)[:240] for value in data.get("evidence") or ())
+    if not evidence or not set(evidence).issubset(allowed_record_refs):
+        raise ValueError("candidate evidence is not bound to attested records")
     return ImprovementCandidate(
         candidate_id=str(data["candidate_id"])[:80],
         title=str(data["title"])[:160],
         category=str(data["category"]),
-        evidence=tuple(
-            str(value)[:240] for value in data.get("evidence") or ()
-        )
-        + (source_receipt_id,),
+        evidence=evidence,
         impact=int(data["impact"]),
         recurrence=int(data["recurrence"]),
         confidence=int(data["confidence"]),
@@ -409,6 +442,8 @@ def collect_bert_status(call_orchestrator: Callable[..., str], now: datetime) ->
         source_digest = outer["attestation"]["source_receipts_sha256"]
         source_receipt_id = f"bert:no-tools:{source_digest}"
         items = receipts["items"]
+        coverage = receipts.get("coverage")
+        derived = receipts.get("derived_status")
         kinds = {
             item.get("kind")
             for item in items
@@ -417,6 +452,14 @@ def collect_bert_status(call_orchestrator: Callable[..., str], now: datetime) ->
         if (
             len(items) != 2
             or kinds != {"session_db_metadata", "cron_metadata"}
+            or not isinstance(coverage, dict)
+            or coverage.get("complete") is not True
+            or not isinstance(derived, dict)
+            or derived.get("status") not in {
+                "PENDING_WORK",
+                "NO_PENDING_WORK",
+            }
+            or not isinstance(derived.get("evidence_refs"), list)
             or any(
                 not isinstance(item, dict)
                 or item.get("available") is not True
@@ -438,18 +481,31 @@ def collect_bert_status(call_orchestrator: Callable[..., str], now: datetime) ->
             )
         data = json.loads(str(outer["content"]))
         status = WorkStatus(data["status"])
+        if status.value != derived["status"]:
+            raise ValueError("model status conflicts with authoritative receipt")
         evidence = tuple(str(value)[:240] for value in data.get("evidence") or ())
-        if status is not WorkStatus.UNKNOWN and not evidence:
-            raise ValueError("non-unknown Bert status requires evidence")
+        derived_refs = {
+            str(value)[:240] for value in derived["evidence_refs"]
+            if isinstance(value, str) and value
+        }
+        if not evidence or set(evidence) != derived_refs:
+            raise ValueError("model evidence conflicts with authoritative receipt")
+        record_refs = {
+            f"{'session' if item['kind'] == 'session_db_metadata' else 'cron'}:"
+            f"{record.get('id')}"
+            for item in items
+            for record in item.get("records") or ()
+            if isinstance(record, dict) and record.get("id")
+        }
         candidates = tuple(
-            _candidate(value, source_receipt_id)
+            _candidate(value, allowed_record_refs=record_refs)
             for value in data.get("candidates") or ()
         )
         return AgentStatus(
             "bert",
             status,
             str(data.get("summary") or "")[:240],
-            evidence + (source_receipt_id,),
+            evidence,
             now.isoformat(),
             candidates,
             history_complete=True,

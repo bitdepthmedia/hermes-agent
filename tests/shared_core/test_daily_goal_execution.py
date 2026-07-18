@@ -53,7 +53,7 @@ class FakeOrchestrator:
         content=None,
         error=None,
         *,
-        statement="Fixed endpoint aggregates substantively support the audit result.",
+        statement="services_up=2 is supported by the fixed endpoint audit.",
         tamper_attestation=False,
     ):
         self.calls = []
@@ -76,6 +76,11 @@ class FakeOrchestrator:
                     "candidate_id": binding["candidate_id"],
                     "executor_id": binding["executor_id"],
                     "execution_sha256": binding["execution_sha256"],
+                    "observations": {
+                        "offline_capable": "true",
+                        "services_up": "2",
+                        "services_total": "3",
+                    },
                     "statement": self.statement,
                 }
             )
@@ -332,7 +337,7 @@ def test_ernie_owned_audit_gets_strict_exact_bert_counterpart_review():
         candidate(), owner="ernie", ernie=ernie, call_orchestrator=FakeOrchestrator()
     )
     statement = (
-        "Health status and service counts match the fixed GET evidence."
+        "services_up=2 matches the fixed GET evidence."
     )
     orchestrator = FakeOrchestrator(statement=statement)
 

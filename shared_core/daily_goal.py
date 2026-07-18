@@ -104,6 +104,27 @@ class DailyReceipt:
     delivery_attempts: int = 0
     delivery_last_attempt_at: str | None = None
     delivery_last_error: str | None = None
+    local_date: str = ""
+    ernie_evidence: tuple[str, ...] = ()
+    bert_evidence: tuple[str, ...] = ()
+    ernie_freshness_at: str = ""
+    bert_freshness_at: str = ""
+    ernie_source_receipts: tuple[str, ...] = ()
+    bert_source_receipts: tuple[str, ...] = ()
+    review_observations: tuple[tuple[str, str], ...] = ()
+    decision_integrity_hash: str = ""
+
+
+def receipt_integrity_hash(receipt: DailyReceipt | dict) -> str:
+    data = asdict(receipt) if isinstance(receipt, DailyReceipt) else dict(receipt)
+    data.pop("decision_integrity_hash", None)
+    for key in _DELIVERY_FIELDS:
+        data.pop(key, None)
+    return hashlib.sha256(
+        json.dumps(
+            data, sort_keys=True, separators=(",", ":"), ensure_ascii=False
+        ).encode("utf-8")
+    ).hexdigest()
 
 
 def resolve_trigger(ernie: AgentStatus, bert: AgentStatus) -> CycleState:
@@ -153,6 +174,14 @@ class DailyGoalStore:
                 last_error TEXT,
                 updated_at TEXT NOT NULL,
                 FOREIGN KEY (cycle_id) REFERENCES daily_goal_cycles(cycle_id)
+            );
+            CREATE TABLE IF NOT EXISTS daily_goal_alert_outbox (
+                cycle_id TEXT PRIMARY KEY,
+                state TEXT NOT NULL,
+                attempt_count INTEGER NOT NULL DEFAULT 0,
+                last_attempt_at TEXT,
+                last_error TEXT NOT NULL,
+                updated_at TEXT NOT NULL
             );
             """
         )
@@ -227,7 +256,14 @@ class DailyGoalStore:
         stale_before = claimed_at - timedelta(seconds=CLAIM_LEASE_SECONDS)
         try:
             self._conn.execute("BEGIN IMMEDIATE")
-            cursor = self._conn.execute(
+            if claim_kind == "unknown_retry":
+                cursor = self._conn.execute(
+                    "INSERT OR IGNORE INTO daily_goal_claims "
+                    "(cycle_id, claim_kind, claimed_at) VALUES (?, ?, ?)",
+                    (cycle_id, claim_kind, claimed_at.isoformat()),
+                )
+            else:
+                cursor = self._conn.execute(
                 """
                 INSERT INTO daily_goal_claims
                 (cycle_id, claim_kind, claimed_at)
@@ -242,7 +278,7 @@ class DailyGoalStore:
                     claimed_at.isoformat(),
                     stale_before.isoformat(),
                 ),
-            )
+                )
             self._conn.commit()
             return cursor.rowcount == 1
         except Exception:
@@ -257,6 +293,8 @@ class DailyGoalStore:
                 (receipt.cycle_id,),
             ).fetchone()
             data = asdict(receipt)
+            if not data.get("decision_integrity_hash"):
+                data["decision_integrity_hash"] = receipt_integrity_hash(data)
             now = datetime.now(UTC).isoformat()
             if row is not None:
                 current = json.loads(row["receipt"])
@@ -354,12 +392,28 @@ class DailyGoalStore:
         if row is None:
             return None
         data = json.loads(row["receipt"])
+        supplied_integrity = data.get("decision_integrity_hash")
+        if supplied_integrity:
+            if supplied_integrity != receipt_integrity_hash(data):
+                raise ValueError("daily goal decision integrity hash mismatch")
+        elif data.get("outcome") == "completed":
+            raise ValueError("completed daily goal receipt lacks decision integrity")
         review_values = (
             data.get("review_statement"),
             data.get("review_hash"),
             data.get("review_source"),
             data.get("review_metrics_hash"),
         )
+        if data.get("outcome") == "completed" and not all(
+            isinstance(value, str) and value for value in review_values
+        ):
+            raise ValueError("completed daily goal review receipt is incomplete")
+        if data.get("outcome") == "completed" and not data.get(
+            "review_observations"
+        ):
+            raise ValueError(
+                "completed daily goal review observations are incomplete"
+            )
         if any(value is not None for value in review_values):
             if not all(isinstance(value, str) and value for value in review_values):
                 raise ValueError("daily goal review receipt is incomplete")
@@ -421,6 +475,17 @@ class DailyGoalStore:
                 if row["last_error"] is not None
                 else data.get("delivery_last_error")
             ),
+            local_date=str(data.get("local_date") or ""),
+            ernie_evidence=tuple(data.get("ernie_evidence") or ()),
+            bert_evidence=tuple(data.get("bert_evidence") or ()),
+            ernie_freshness_at=str(data.get("ernie_freshness_at") or ""),
+            bert_freshness_at=str(data.get("bert_freshness_at") or ""),
+            ernie_source_receipts=tuple(data.get("ernie_source_receipts") or ()),
+            bert_source_receipts=tuple(data.get("bert_source_receipts") or ()),
+            review_observations=tuple(
+                tuple(value) for value in data.get("review_observations") or ()
+            ),
+            decision_integrity_hash=str(supplied_integrity or ""),
         )
 
     def begin_delivery(
@@ -509,6 +574,27 @@ class DailyGoalStore:
                     cycle_id,
                 ),
             )
+            attempt_count = self._conn.execute(
+                "SELECT attempt_count FROM daily_goal_outbox WHERE cycle_id = ?",
+                (cycle_id,),
+            ).fetchone()["attempt_count"]
+            if status == "unknown" or (
+                status == "failed" and attempt_count >= MAX_DELIVERY_ATTEMPTS
+            ):
+                reason = "ambiguous" if status == "unknown" else "exhausted"
+                self._conn.execute(
+                    """
+                    INSERT OR IGNORE INTO daily_goal_alert_outbox
+                    (cycle_id, state, attempt_count, last_attempt_at,
+                     last_error, updated_at)
+                    VALUES (?, 'pending', 0, NULL, ?, ?)
+                    """,
+                    (
+                        cycle_id,
+                        f"{reason}: {bounded_error or 'delivery outcome unavailable'}"[:500],
+                        datetime.now(UTC).isoformat(),
+                    ),
+                )
             self._conn.commit()
         except Exception:
             self._conn.rollback()
@@ -516,6 +602,44 @@ class DailyGoalStore:
         updated = self.get_receipt(cycle_id)
         assert updated is not None
         return updated
+
+    def get_alert(self, cycle_id: str) -> sqlite3.Row | None:
+        return self._conn.execute(
+            "SELECT * FROM daily_goal_alert_outbox WHERE cycle_id = ?",
+            (cycle_id,),
+        ).fetchone()
+
+    def begin_alert_delivery(self, cycle_id: str) -> bool:
+        now = datetime.now(UTC).isoformat()
+        cursor = self._conn.execute(
+            """
+            UPDATE daily_goal_alert_outbox SET state='attempting',
+            attempt_count=attempt_count+1,last_attempt_at=?,updated_at=?
+            WHERE cycle_id=? AND state IN ('pending','failed') AND attempt_count < ?
+            """,
+            (now, now, cycle_id, MAX_DELIVERY_ATTEMPTS),
+        )
+        self._conn.commit()
+        return cursor.rowcount == 1
+
+    def update_alert_delivery(
+        self, cycle_id: str, status: str, *, error: str | None = None
+    ) -> None:
+        if status not in {"delivered", "failed", "unknown"}:
+            raise ValueError("unsupported alert delivery status")
+        if error:
+            self._conn.execute(
+                "UPDATE daily_goal_alert_outbox SET state=?, last_error=?, updated_at=? "
+                "WHERE cycle_id=? AND state!='delivered'",
+                (status, str(error)[:500], datetime.now(UTC).isoformat(), cycle_id),
+            )
+        else:
+            self._conn.execute(
+                "UPDATE daily_goal_alert_outbox SET state=?, updated_at=? "
+                "WHERE cycle_id=? AND state!='delivered'",
+                (status, datetime.now(UTC).isoformat(), cycle_id),
+            )
+        self._conn.commit()
 
     def list_cycles(self) -> list[DailyCycle]:
         rows = self._conn.execute(

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
@@ -15,6 +15,7 @@ from .daily_goal import (
     DailyReceipt,
     ImprovementCandidate,
     WorkStatus,
+    receipt_integrity_hash,
     resolve_trigger,
 )
 from .daily_goal_execution import ExecutionOutcome
@@ -32,12 +33,12 @@ class CoordinatorResult:
     cycle_id: str
 
 
-def _fallback_candidate() -> ImprovementCandidate:
+def _fallback_candidate(evidence: tuple[str, ...]) -> ImprovementCandidate:
     return ImprovementCandidate(
         "daily-process-health-audit",
         "Audit the Bert-Ernie daily coordination path",
         "reliability",
-        ("both agents explicitly reported no pending work",),
+        evidence,
         4,
         3,
         5,
@@ -95,6 +96,7 @@ def _review_receipt_is_valid(
     review_hash = counterpart.review_hash
     source = counterpart.review_source
     metrics_hash = counterpart.review_metrics_hash
+    observations = counterpart.review_observations
     if not all(
         isinstance(value, str) and value
         for value in (statement, review_hash, source, metrics_hash)
@@ -105,6 +107,28 @@ def _review_receipt_is_valid(
     ).hexdigest()
     if metrics_hash != expected_metrics or not source.startswith(
         "bert-no-tools:"
+    ):
+        return False
+    if not observations:
+        return False
+    observation_map = dict(observations)
+    if execution.summary.startswith("system-health audit:"):
+        expected_keys = {"offline_capable", "services_up", "services_total"}
+    elif execution.summary.startswith("scheduler-health audit:"):
+        expected_keys = {
+            "session_count",
+            "queue_item_count",
+            "queue_status_buckets",
+        }
+    else:
+        expected_keys = set(observation_map)
+    if (
+        set(observation_map) != expected_keys
+        or any(value not in execution.summary for value in observation_map.values())
+        or not any(
+            key in statement.lower() and value.lower() in statement.lower()
+            for key, value in observation_map.items()
+        )
     ):
         return False
     expected_review = hashlib.sha256(
@@ -241,11 +265,45 @@ def run_daily_cycle(
             if value.candidate.candidate_id != "daily-process-health-audit"
         ]
         attempts = [value.candidate for value in ranked]
-        fallback = _fallback_candidate()
-        attempts.append(fallback)
+        specific_refs = tuple(
+            value
+            for value in ernie.evidence + bert.evidence
+            if value.startswith(("session:", "cron:", "queue:"))
+            and value.count(":") >= 1
+            and not value.endswith((":clear", ":verified"))
+        )
+        if specific_refs:
+            attempts.append(_fallback_candidate(specific_refs))
+        if not attempts:
+            receipt = DailyReceipt(
+                cycle.cycle_id,
+                ernie.status.value,
+                bert.status.value,
+                "improvement",
+                (),
+                None,
+                "No record-bound improvement candidate was attested",
+                None,
+                None,
+                (),
+                (),
+                ("no eligible record-bound improvement candidate",),
+                "pending",
+                outcome="blocked",
+            )
+            store.update_cycle(
+                cycle.cycle_id,
+                CycleState.BLOCKED,
+                {**payload, "ranked": []},
+            )
+            attempts = []
 
-        candidate = attempts[0]
-        owner, collaborator = assign_roles(candidate)
+        candidate = attempts[0] if attempts else None
+        if candidate is None:
+            execution = None
+            counterpart = None
+        else:
+            owner, collaborator = assign_roles(candidate)
         execution: ExecutionOutcome | None = None
         counterpart: ExecutionOutcome | None = None
         rejected: list[str] = []
@@ -299,70 +357,101 @@ def run_daily_cycle(
             ok = True
             break
 
-        assert execution is not None
-        selected = next(
-            (
-                value
-                for value in ranked
-                if value.candidate.candidate_id == candidate.candidate_id
-            ),
-            None,
-        )
-        if selected is None:
-            selection_reason = (
-                "No eligible history candidate; used deterministic "
-                "process-health audit"
-            )
-        elif ranked and selected is ranked[0]:
-            selection_reason = (
-                f"{candidate.candidate_id} ranked highest at score " f"{selected.score}"
-            )
+        if not attempts:
+            candidate = None
         else:
-            selection_reason = (
-                f"{candidate.candidate_id} selected after higher-ranked "
-                f"candidates were blocked; score {selected.score}"
+            assert execution is not None
+        if candidate is None:
+            selected = None
+        else:
+            selected = next(
+                (
+                    value
+                    for value in ranked
+                    if value.candidate.candidate_id == candidate.candidate_id
+                ),
+                None,
             )
-        receipt = DailyReceipt(
-            cycle.cycle_id,
-            ernie.status.value,
-            bert.status.value,
-            "improvement",
-            tuple(value.candidate.candidate_id for value in ranked),
-            candidate.title,
-            selection_reason,
-            owner,
-            collaborator,
-            (execution.summary,) if execution.summary else (),
-            execution.evidence + (() if counterpart is None else counterpart.evidence),
-            tuple(rejected),
-            "pending",
-            outcome="completed" if ok else "blocked",
-            review_statement=(
-                counterpart.review_statement
-                if counterpart is not None
-                else None
-            ),
-            review_hash=(
-                counterpart.review_hash if counterpart is not None else None
-            ),
-            review_source=(
-                counterpart.review_source if counterpart is not None else None
-            ),
-            review_metrics_hash=(
-                counterpart.review_metrics_hash
-                if counterpart is not None
-                else None
-            ),
-        )
-        store.update_cycle(
-            cycle.cycle_id,
-            CycleState.COMPLETED if ok else CycleState.BLOCKED,
-            {
-                **payload,
-                "ranked": [value.candidate.candidate_id for value in ranked],
-            },
-        )
+        if candidate is None:
+            pass
+        else:
+            if selected is None:
+                selection_reason = (
+                    "No eligible history candidate; used deterministic "
+                    "process-health audit"
+                )
+            elif ranked and selected is ranked[0]:
+                selection_reason = (
+                    f"{candidate.candidate_id} ranked highest at score "
+                    f"{selected.score}"
+                )
+            else:
+                selection_reason = (
+                    f"{candidate.candidate_id} selected after higher-ranked "
+                    f"candidates were blocked; score {selected.score}"
+                )
+            receipt = DailyReceipt(
+                cycle.cycle_id,
+                ernie.status.value,
+                bert.status.value,
+                "improvement",
+                tuple(value.candidate.candidate_id for value in ranked),
+                candidate.title,
+                selection_reason,
+                owner,
+                collaborator,
+                (execution.summary,) if execution.summary else (),
+                execution.evidence
+                + (() if counterpart is None else counterpart.evidence),
+                tuple(rejected),
+                "pending",
+                outcome="completed" if ok else "blocked",
+                review_statement=(
+                    counterpart.review_statement
+                    if counterpart is not None
+                    else None
+                ),
+                review_hash=(
+                    counterpart.review_hash if counterpart is not None else None
+                ),
+                review_source=(
+                    counterpart.review_source if counterpart is not None else None
+                ),
+                review_metrics_hash=(
+                    counterpart.review_metrics_hash
+                    if counterpart is not None
+                    else None
+                ),
+            )
+            store.update_cycle(
+                cycle.cycle_id,
+                CycleState.COMPLETED if ok else CycleState.BLOCKED,
+                {
+                    **payload,
+                    "ranked": [value.candidate.candidate_id for value in ranked],
+                },
+            )
 
+    receipt = replace(
+        receipt,
+        local_date=local_date.isoformat(),
+        ernie_evidence=ernie.evidence,
+        bert_evidence=bert.evidence,
+        ernie_freshness_at=ernie.freshness_at,
+        bert_freshness_at=bert.freshness_at,
+        ernie_source_receipts=ernie.source_receipts,
+        bert_source_receipts=bert.source_receipts,
+        review_observations=(
+            counterpart.review_observations
+            if trigger is CycleState.IMPROVEMENT_SELECTING
+            and counterpart is not None
+            else ()
+        ),
+    )
+    receipt = replace(
+        receipt,
+        decision_integrity_hash=receipt_integrity_hash(receipt),
+    )
     receipt = store.save_receipt(receipt)
     return CoordinatorResult(
         receipt,

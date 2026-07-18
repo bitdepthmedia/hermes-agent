@@ -2,6 +2,11 @@ import json
 from unittest.mock import patch
 
 from tools.daily_goal_coordinator_tool import run_daily_goal_coordinator
+from tools.registry import registry
+
+
+def test_daily_goal_coordinator_is_not_model_invokable():
+    assert "daily_goal_coordinator" not in registry.get_all_tool_names()
 
 
 def test_dry_run_never_posts_persists_executes_or_reviews(tmp_path):
