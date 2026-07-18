@@ -8,6 +8,13 @@ DigitalOcean, or activation action was performed.
 
 ## Finding closure
 
+### Selected-delivery suppression closure
+
+The coordinator now derives suppression, reconciliation, content, cycle ID,
+and delivery kind from the selected due item. A terminal current receipt can
+no longer suppress an older eligible original; atomic `begin_delivery`
+remains the final send authority.
+
 ### Fifth-pass closure
 
 1. Explicit cron/task pending evidence now takes precedence over incomplete
@@ -133,7 +140,7 @@ python3 -m pytest -o addopts='' -q \
   tests/cron \
   tests/ik_profiles
 
-375 passed, 4 skipped in 15.92s
+376 passed, 4 skipped in 15.87s
 ```
 
 ```text
@@ -169,6 +176,7 @@ skips in `tests/cron/test_jobs.py`.
   after verification.
 - Fifth-pass pending precedence, candidate-window, and fair-queue fixes:
   committed after verification.
+- Selected-delivery suppression fix: committed after verification.
 
 ## Activation state
 

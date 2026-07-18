@@ -122,13 +122,23 @@ def run_daily_goal_coordinator(mode: str = "checkin", dry_run: bool = False) -> 
             if due_receipt is not None
             else "[SILENT]"
         )
-        operator_reconciliation = delivery_status in {"attempting", "unknown"} or bool(alert)
+        selected_status = (
+            str(alert["state"])
+            if alert_eligible and alert is not None
+            else due_receipt.telegram_delivery
+            if due_receipt is not None
+            else delivery_status
+        )
+        operator_reconciliation = selected_status in {
+            "attempting",
+            "unknown",
+        } or bool(alert)
         suppress_delivery = (
             bool(dry_run)
             or receipt is None
             or due is None
             or (
-                delivery_status in {"attempting", "delivered", "unknown"}
+                selected_status in {"attempting", "delivered", "unknown"}
                 and not alert_eligible
             )
         )
@@ -143,7 +153,8 @@ def run_daily_goal_coordinator(mode: str = "checkin", dry_run: bool = False) -> 
             else (
                 "[SILENT]"
                 if receipt is None
-                or delivery_status in {"attempting", "delivered", "unknown"}
+                or due is None
+                or selected_status in {"attempting", "delivered", "unknown"}
                 else result.message
             )
         )

@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from tools.daily_goal_coordinator_tool import run_daily_goal_coordinator
 from tools.registry import registry
+from shared_core.daily_goal import DailyReceipt
 
 
 def test_daily_goal_coordinator_is_not_model_invokable():
@@ -152,6 +153,40 @@ def test_new_pending_receipt_requires_delivery():
         payload = json.loads(run_daily_goal_coordinator(mode="watchdog", dry_run=False))
 
     assert payload["content"] == "duplicate"
+    assert payload["suppress_delivery"] is False
+
+
+def test_terminal_current_receipt_does_not_suppress_selected_older_original():
+    old = DailyReceipt(
+        "daily-goal:2026-07-17", "PENDING_WORK", "NO_PENDING_WORK",
+        "normal_work", (), None, None, None, None, (), (), (), "pending",
+    )
+
+    class Store:
+        def select_due_delivery(self):
+            return {"kind": "original", "cycle_id": old.cycle_id}
+
+        def get_receipt(self, cycle_id):
+            assert cycle_id == old.cycle_id
+            return old
+
+        def get_alert(self, _cycle_id):
+            return None
+
+    with patch(
+        "tools.daily_goal_coordinator_tool.run_daily_cycle",
+        return_value=_result_for_delivery("delivered"),
+    ), patch(
+        "tools.daily_goal_coordinator_tool.DailyGoalStore",
+        return_value=Store(),
+    ):
+        payload = json.loads(
+            run_daily_goal_coordinator(mode="watchdog", dry_run=False)
+        )
+
+    assert payload["cycle_id"] == old.cycle_id
+    assert payload["delivery_kind"] == "original"
+    assert payload["content"].startswith("Daily tracker:")
     assert payload["suppress_delivery"] is False
 
 
