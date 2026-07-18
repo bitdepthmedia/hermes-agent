@@ -13,6 +13,7 @@ import concurrent.futures
 import json
 import logging
 import os
+import signal
 import subprocess
 import sys
 
@@ -47,7 +48,14 @@ _KNOWN_DELIVERY_PLATFORMS = frozenset({
     "wecom", "sms", "email", "webhook",
 })
 
-from cron.jobs import get_due_jobs, get_job, mark_job_run, save_job_output, advance_next_run
+from cron.jobs import (
+    advance_next_run,
+    get_due_jobs,
+    get_job,
+    mark_job_run,
+    save_job_output,
+    trigger_job,
+)
 
 # Sentinel: when a cron agent has nothing new to report, it can start its
 # response with this marker to suppress delivery.  Output is still saved
@@ -301,6 +309,19 @@ def _deliver_result(job: dict, content: str, adapters=None, loop=None) -> Option
                 send_result = future.result(timeout=60)
                 if send_result and not getattr(send_result, "success", True):
                     err = getattr(send_result, "error", "unknown")
+                    lowered_error = str(err).lower()
+                    if (
+                        "timeout" in lowered_error
+                        or "timed out" in lowered_error
+                        or "deadline" in lowered_error
+                    ):
+                        msg = (
+                            f"delivery to {platform_name}:{chat_id} returned an "
+                            "ambiguous live adapter timeout; not retrying to avoid "
+                            "duplicate delivery"
+                        )
+                        logger.error("Job '%s': %s", job["id"], msg)
+                        return msg
                     logger.warning(
                         "Job '%s': live adapter send to %s:%s failed (%s), falling back to standalone",
                         job["id"], platform_name, chat_id, err,
@@ -339,7 +360,23 @@ def _deliver_result(job: dict, content: str, adapters=None, loop=None) -> Option
         coro.close()
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
             future = pool.submit(asyncio.run, _send_to_platform(platform, pconfig, chat_id, cleaned_delivery_content, thread_id=thread_id, media_files=media_files))
-            result = future.result(timeout=30)
+            try:
+                result = future.result(timeout=30)
+            except TimeoutError:
+                msg = (
+                    f"delivery to {platform_name}:{chat_id} returned an "
+                    "ambiguous standalone timeout; not retrying to avoid "
+                    "duplicate delivery"
+                )
+                logger.error("Job '%s': %s", job["id"], msg)
+                return msg
+    except TimeoutError:
+        msg = (
+            f"delivery to {platform_name}:{chat_id} returned an ambiguous "
+            "standalone timeout; not retrying to avoid duplicate delivery"
+        )
+        logger.error("Job '%s': %s", job["id"], msg)
+        return msg
     except Exception as e:
         msg = f"delivery to {platform_name}:{chat_id} failed: {e}"
         logger.error("Job '%s': %s", job["id"], msg)
@@ -356,6 +393,7 @@ def _deliver_result(job: dict, content: str, adapters=None, loop=None) -> Option
 
 _SCRIPT_TIMEOUT = 120  # seconds
 _DIRECT_CRON_TOOLS = {"call_orchestrator", "daily_goal_coordinator"}
+_DAILY_GOAL_DIRECT_TIMEOUT = 300.0
 
 
 def _format_job_success_output(job: dict, prompt: str, final_response: str) -> str:
@@ -374,6 +412,68 @@ def _format_job_success_output(job: dict, prompt: str, final_response: str) -> s
 
 {logged_response}
 """
+
+
+def _run_daily_goal_direct_subprocess(
+    tool_args: dict,
+    timeout_seconds: float,
+    *,
+    command: list[str] | None = None,
+) -> str:
+    """Run the coordinator in a killable process group with a hard deadline."""
+    if (
+        not isinstance(timeout_seconds, (int, float))
+        or isinstance(timeout_seconds, bool)
+        or timeout_seconds <= 0
+    ):
+        raise ValueError("daily goal timeout_seconds must be positive")
+    if command is None:
+        command = [
+            sys.executable,
+            "-m",
+            "tools.daily_goal_coordinator_tool",
+            "--cron-json",
+            json.dumps(tool_args, sort_keys=True, separators=(",", ":")),
+        ]
+    process = subprocess.Popen(
+        command,
+        cwd=str(Path(__file__).resolve().parent.parent),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        start_new_session=True,
+    )
+    try:
+        stdout, stderr = process.communicate(timeout=float(timeout_seconds))
+    except subprocess.TimeoutExpired:
+        if os.name == "posix":
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
+        else:
+            process.terminate()
+        try:
+            process.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            if os.name == "posix":
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            else:
+                process.kill()
+            process.communicate()
+        raise TimeoutError(
+            "daily_goal_coordinator exceeded its direct-tool deadline and "
+            "its process group was terminated"
+        )
+    if process.returncode != 0:
+        detail = (stderr or stdout or "subprocess failed").strip()[:1000]
+        raise RuntimeError(
+            f"daily_goal_coordinator subprocess failed: {detail}"
+        )
+    return stdout.strip()
 
 
 def _run_direct_cron_tool(job: dict) -> Optional[str]:
@@ -403,11 +503,21 @@ def _run_direct_cron_tool(job: dict) -> Optional[str]:
 
     if tool_name == "call_orchestrator":
         import tools.call_orchestrator_tool  # noqa: F401 - registers the tool
-    elif tool_name == "daily_goal_coordinator":
-        import tools.daily_goal_coordinator_tool  # noqa: F401 - registers the tool
 
-    from tools.registry import registry
-    raw = registry.dispatch(tool_name, tool_args)
+    if tool_name == "daily_goal_coordinator":
+        raw = _run_daily_goal_direct_subprocess(
+            tool_args,
+            float(
+                job.get(
+                    "timeout_seconds",
+                    _DAILY_GOAL_DIRECT_TIMEOUT,
+                )
+            ),
+        )
+    else:
+        from tools.registry import registry
+
+        raw = registry.dispatch(tool_name, tool_args)
     try:
         data = json.loads(raw)
     except (TypeError, json.JSONDecodeError):
@@ -965,12 +1075,36 @@ def _run_selected_job_unlocked(job_id: str, verbose: bool = True, adapters=None,
                 daily_goal_telegram_attempt = bool(
                     delivery_target and str(delivery_target.get("platform", "")).lower() == "telegram"
                 )
-            try:
-                delivery_error = _deliver_result(job, deliver_content, adapters=adapters, loop=loop)
-            except Exception as de:
-                delivery_exception = de
-                delivery_error = str(de) or type(de).__name__
-                logger.error("Delivery failed for job %s: %s", job["id"], de)
+                if daily_goal_telegram_attempt:
+                    try:
+                        from tools.daily_goal_coordinator_tool import (
+                            begin_daily_goal_delivery,
+                        )
+
+                        if not begin_daily_goal_delivery(
+                            job["_daily_goal_cycle_id"]
+                        ):
+                            should_deliver = False
+                            logger.warning(
+                                "Job '%s': daily goal outbox is not eligible for delivery",
+                                job["id"],
+                            )
+                    except Exception as begin_error:
+                        should_deliver = False
+                        logger.error(
+                            "Job '%s': daily goal delivery could not begin: %s",
+                            job["id"],
+                            begin_error,
+                        )
+            if not should_deliver:
+                daily_goal_telegram_attempt = False
+            else:
+                try:
+                    delivery_error = _deliver_result(job, deliver_content, adapters=adapters, loop=loop)
+                except Exception as de:
+                    delivery_exception = de
+                    delivery_error = str(de) or type(de).__name__
+                    logger.error("Delivery failed for job %s: %s", job["id"], de)
 
         cycle_id = job.get("_daily_goal_cycle_id")
         if cycle_id and should_deliver and daily_goal_telegram_attempt:
@@ -1008,6 +1142,45 @@ def run_selected_job(job_id: str, verbose: bool = True, adapters=None, loop=None
         return 0
     try:
         return _run_selected_job_unlocked(job_id, verbose=verbose, adapters=adapters, loop=loop)
+    finally:
+        _release_scheduler_lock(lock_fd)
+
+
+def trigger_and_run_selected_job(
+    job_id: str,
+    *,
+    verbose: bool = True,
+    adapters=None,
+    loop=None,
+) -> str:
+    """Atomically trigger and run one job, reporting busy/executed/failed."""
+    lock_fd = _acquire_scheduler_lock()
+    if lock_fd is None:
+        logger.warning(
+            "Selected job '%s' was not triggered because the scheduler is busy",
+            job_id,
+        )
+        return "busy"
+    try:
+        if trigger_job(job_id) is None:
+            return "failed"
+        result = _run_selected_job_unlocked(
+            job_id,
+            verbose=verbose,
+            adapters=adapters,
+            loop=loop,
+        )
+        current = get_job(job_id)
+        if (
+            result == 1
+            and isinstance(current, dict)
+            and current.get("last_status") == "ok"
+        ):
+            return "executed"
+        return "failed"
+    except Exception as exc:
+        logger.error("Selected job '%s' trigger/run failed: %s", job_id, exc)
+        return "failed"
     finally:
         _release_scheduler_lock(lock_fd)
 
@@ -1089,12 +1262,36 @@ def tick(verbose: bool = True, adapters=None, loop=None) -> int:
                             and str(delivery_target.get("platform", "")).lower()
                             == "telegram"
                         )
-                    try:
-                        delivery_error = _deliver_result(job, deliver_content, adapters=adapters, loop=loop)
-                    except Exception as de:
-                        delivery_exception = de
-                        delivery_error = str(de) or type(de).__name__
-                        logger.error("Delivery failed for job %s: %s", job["id"], de)
+                        if daily_goal_telegram_attempt:
+                            try:
+                                from tools.daily_goal_coordinator_tool import (
+                                    begin_daily_goal_delivery,
+                                )
+
+                                if not begin_daily_goal_delivery(
+                                    job["_daily_goal_cycle_id"]
+                                ):
+                                    should_deliver = False
+                                    logger.warning(
+                                        "Job '%s': daily goal outbox is not eligible for delivery",
+                                        job["id"],
+                                    )
+                            except Exception as begin_error:
+                                should_deliver = False
+                                logger.error(
+                                    "Job '%s': daily goal delivery could not begin: %s",
+                                    job["id"],
+                                    begin_error,
+                                )
+                    if not should_deliver:
+                        daily_goal_telegram_attempt = False
+                    else:
+                        try:
+                            delivery_error = _deliver_result(job, deliver_content, adapters=adapters, loop=loop)
+                        except Exception as de:
+                            delivery_exception = de
+                            delivery_error = str(de) or type(de).__name__
+                            logger.error("Delivery failed for job %s: %s", job["id"], de)
 
                 cycle_id = job.get("_daily_goal_cycle_id")
                 if cycle_id and should_deliver and daily_goal_telegram_attempt:

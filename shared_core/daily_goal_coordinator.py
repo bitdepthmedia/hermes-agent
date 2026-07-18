@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
@@ -56,8 +58,16 @@ def format_telegram_summary(receipt: DailyReceipt) -> str:
         )
     if receipt.trigger == "unknown":
         return (
-            f"Daily tracker: {tracker} Improvement fallback did not run. "
+            f"OPERATOR ALERT: Daily tracker unknown. {tracker} "
+            "Improvement fallback did not run. "
             + "; ".join(receipt.blockers)
+        )
+    if receipt.outcome == "blocked":
+        return (
+            f"OPERATOR ALERT: Daily improvement blocked. {tracker}\n"
+            f"Goal: {receipt.selected_goal}\n"
+            f"Owner: {receipt.owner}; collaborator: {receipt.collaborator}\n"
+            f"Blockers: {'; '.join(receipt.blockers) or 'review or execution failed'}"
         )
     return (
         f"Daily tracker: {tracker}\n"
@@ -75,6 +85,41 @@ def _failed_outcome(actor: str, exc: Exception) -> ExecutionOutcome:
         (),
         f"{type(exc).__name__}: {exc}",
     )
+
+
+def _review_receipt_is_valid(
+    execution: ExecutionOutcome,
+    counterpart: ExecutionOutcome,
+) -> bool:
+    statement = counterpart.review_statement
+    review_hash = counterpart.review_hash
+    source = counterpart.review_source
+    metrics_hash = counterpart.review_metrics_hash
+    if not all(
+        isinstance(value, str) and value
+        for value in (statement, review_hash, source, metrics_hash)
+    ):
+        return False
+    expected_metrics = hashlib.sha256(
+        execution.summary.encode("utf-8")
+    ).hexdigest()
+    if metrics_hash != expected_metrics or not source.startswith(
+        "bert-no-tools:"
+    ):
+        return False
+    expected_review = hashlib.sha256(
+        json.dumps(
+            {
+                "metrics_hash": metrics_hash,
+                "source": source,
+                "statement": statement,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode("utf-8")
+    ).hexdigest()
+    return review_hash == expected_review
 
 
 def _collect_status(
@@ -170,6 +215,7 @@ def run_daily_cycle(
             ernie.evidence + bert.evidence,
             (),
             "pending",
+            outcome="normal_work",
         )
     elif trigger is CycleState.UNKNOWN:
         receipt = DailyReceipt(
@@ -186,6 +232,7 @@ def run_daily_cycle(
             (),
             collection_blockers or ("missing or ambiguous agent status",),
             "pending",
+            outcome="unknown",
         )
     else:
         ranked = [
@@ -231,6 +278,17 @@ def run_daily_cycle(
                     raise TypeError("review returned an invalid outcome")
             except Exception as exc:
                 counterpart = _failed_outcome(collaborator, exc)
+            if counterpart.ok and not _review_receipt_is_valid(
+                execution,
+                counterpart,
+            ):
+                counterpart = ExecutionOutcome(
+                    False,
+                    counterpart.actor,
+                    "",
+                    counterpart.evidence,
+                    "counterpart review receipt failed integrity validation",
+                )
             if not counterpart.ok:
                 rejected.append(
                     f"{candidate.candidate_id}:"
@@ -278,6 +336,23 @@ def run_daily_cycle(
             execution.evidence + (() if counterpart is None else counterpart.evidence),
             tuple(rejected),
             "pending",
+            outcome="completed" if ok else "blocked",
+            review_statement=(
+                counterpart.review_statement
+                if counterpart is not None
+                else None
+            ),
+            review_hash=(
+                counterpart.review_hash if counterpart is not None else None
+            ),
+            review_source=(
+                counterpart.review_source if counterpart is not None else None
+            ),
+            review_metrics_hash=(
+                counterpart.review_metrics_hash
+                if counterpart is not None
+                else None
+            ),
         )
         store.update_cycle(
             cycle.cycle_id,

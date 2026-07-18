@@ -49,6 +49,8 @@ def _score(candidate: ImprovementCandidate) -> int:
 def rank_candidates(statuses: tuple[AgentStatus, ...]) -> list[RankedCandidate]:
     unique: dict[str, ImprovementCandidate] = {}
     for status in statuses:
+        if not status.history_complete:
+            continue
         for candidate in status.candidates:
             if _valid(candidate):
                 unique.setdefault(candidate.candidate_id, candidate)

@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from dataclasses import dataclass
 from typing import Callable
 
 from .daily_goal import ActionKind, ImprovementCandidate
+from .daily_goal_sources import load_no_tools_attestation
 
 
 ALLOWED_EXECUTORS = {
@@ -72,6 +74,10 @@ class ExecutionOutcome:
     summary: str
     evidence: tuple[str, ...]
     blocker: str | None = None
+    review_statement: str | None = None
+    review_hash: str | None = None
+    review_source: str | None = None
+    review_metrics_hash: str | None = None
 
     @property
     def reviewer(self) -> str:
@@ -214,14 +220,6 @@ def _run_ernie_audit(ernie, key: tuple[ActionKind, str]) -> ExecutionOutcome:
     return ExecutionOutcome(True, "ernie", summary, evidence)
 
 
-def _load_orchestrator_response(raw: str) -> dict | None:
-    try:
-        parsed = json.loads(raw)
-    except (TypeError, json.JSONDecodeError):
-        return None
-    return parsed if isinstance(parsed, dict) else None
-
-
 def _validate_execution_summary(executor_id: str, summary: str) -> None:
     if not isinstance(summary, str) or len(summary) > 240:
         raise ValueError("review requires a bounded fixed-GET summary")
@@ -233,20 +231,36 @@ def _validate_execution_summary(executor_id: str, summary: str) -> None:
         raise ValueError("review requires a bounded fixed-GET summary")
 
 
-def _valid_bert_review(content: object) -> bool:
-    if not isinstance(content, str) or len(content) > 800 or "\n" in content or "\r" in content:
+def _valid_review_statement(content: object) -> bool:
+    if (
+        not isinstance(content, str)
+        or len(content) > 600
+        or "\n" in content
+        or "\r" in content
+    ):
         return False
-    prefix = "REVIEW_PASS: "
-    if not content.startswith(prefix):
-        return False
-    evidence = content[len(prefix):]
-    if evidence != evidence.strip() or len(evidence) < 20:
+    if content != content.strip() or len(content) < 20:
         return False
     try:
-        _validate_text(evidence)
+        _validate_text(content)
     except ValueError:
         return False
     return True
+
+
+def _canonical_bytes(value: object) -> bytes:
+    return json.dumps(
+        value,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+
+
+def _sha256(value: bytes | str) -> str:
+    if isinstance(value, str):
+        value = value.encode("utf-8")
+    return hashlib.sha256(value).hexdigest()
 
 
 def execute_goal(
@@ -289,27 +303,94 @@ def review_goal(
         )
 
     _validate_execution_summary(candidate.executor_id, execution_summary)
+    execution_sha256 = _sha256(execution_summary)
+    source_content = {
+        "candidate_id": candidate.candidate_id,
+        "executor_id": candidate.executor_id,
+        "owner": owner,
+        "execution_summary": execution_summary,
+        "execution_sha256": execution_sha256,
+    }
+    source_receipt = {
+        "content": source_content,
+        "sha256": _sha256(_canonical_bytes(source_content)),
+    }
+    review_prompt = (
+        "Review only the supplied, attested fixed-GET audit receipt. Return one "
+        "JSON object with exactly these keys: decision, candidate_id, executor_id, "
+        "execution_sha256, statement. decision must be pass or fail. Bind all IDs "
+        "and the execution hash exactly to the receipt. statement must be one "
+        "substantive evidence sentence. "
+        f"candidate_id={candidate.candidate_id}; "
+        f"executor_id={candidate.executor_id}; "
+        f"execution_sha256={execution_sha256}"
+    )
     try:
-        raw = _load_orchestrator_response(
+        outer = load_no_tools_attestation(
             call_orchestrator(
-                task=(
-                    "Review the bounded evidence from a completed fixed-GET local audit. "
-                    "Do not call tools or inspect any system. Reply on one line with "
-                    "REVIEW_PASS: followed by a substantive evidence sentence, or "
-                    "REVIEW_FAIL: followed by a substantive evidence sentence. "
-                    f"Evidence: {execution_summary}"
-                ),
+                review_prompt,
+                purpose="review",
+                source_receipt=source_receipt,
                 max_tokens=400,
-            )
+            ),
+            input_text=review_prompt,
+            purpose="review",
+            source_receipt=source_receipt,
+            max_tokens=400,
         )
+        data = json.loads(outer["content"])
+        if not isinstance(data, dict) or set(data) != {
+            "decision",
+            "candidate_id",
+            "executor_id",
+            "execution_sha256",
+            "statement",
+        }:
+            raise ValueError("review response shape mismatch")
+        statement = data["statement"]
+        if (
+            data["decision"] not in {"pass", "fail"}
+            or data["candidate_id"] != candidate.candidate_id
+            or data["executor_id"] != candidate.executor_id
+            or data["execution_sha256"] != execution_sha256
+            or not _valid_review_statement(statement)
+        ):
+            raise ValueError("review response binding mismatch")
     except Exception:
-        raw = None
-    content = (raw or {}).get("content")
-    if not raw or raw.get("success") is not True or not _valid_bert_review(content):
         return ExecutionOutcome(False, "bert", "", (), "Bert review failed")
+    review_source = f"bert-no-tools:{source_receipt['sha256']}"
+    review_hash = _sha256(
+        _canonical_bytes(
+            {
+                "metrics_hash": execution_sha256,
+                "source": review_source,
+                "statement": statement,
+            }
+        )
+    )
+    evidence = (
+        "bert:no-tools-review",
+        review_source,
+    )
+    if data["decision"] == "fail":
+        return ExecutionOutcome(
+            False,
+            "bert",
+            statement,
+            evidence,
+            "Bert review rejected execution",
+            review_statement=statement,
+            review_hash=review_hash,
+            review_source=review_source,
+            review_metrics_hash=execution_sha256,
+        )
     return ExecutionOutcome(
         True,
         "bert",
-        content,
-        ("bert:review-of-fixed-get-evidence",),
+        statement,
+        evidence,
+        review_statement=statement,
+        review_hash=review_hash,
+        review_source=review_source,
+        review_metrics_hash=execution_sha256,
     )

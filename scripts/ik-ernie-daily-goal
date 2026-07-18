@@ -59,6 +59,7 @@ resolve_home() {
 }
 
 resolve_home
+cd "${HERMES_ROOT}"
 
 python_bin() {
   local candidate="${HERMES_PYTHON:-${CANONICAL_HERMES_ROOT}/.venv/bin/python}"
@@ -67,61 +68,19 @@ python_bin() {
   printf '%s\n' "${candidate}"
 }
 
-validate_deploy() {
-  HERMES_HOME="${HERMES_HOME_DIR}" HERMES_TIMEZONE="America/New_York" PROFILE_ROOT="${PROFILE_ROOT}" "$(python_bin)" - <<'PY'
-import json
-import os
-import re
-from pathlib import Path
-
-from cron.jobs import compute_next_run
-
-home = Path(os.environ["HERMES_HOME"])
-profile_root = Path(os.environ["PROFILE_ROOT"])
-jobs_path = home / "cron" / "jobs.json"
-config_path = home / "config.yaml"
-jobs = json.loads(jobs_path.read_text())["jobs"]
-if not config_path.is_file():
-    raise RuntimeError(f"missing config: {config_path}")
-
-existing = next((item for item in jobs if item.get("id") == "bcfc1f4e449e"), None)
-delivery = None if existing is None else existing.get("deliver")
-if not isinstance(delivery, str) or not re.fullmatch(r"telegram:\S+", delivery):
-    raise RuntimeError("existing Telegram group delivery target is required; refusing to invent one")
-
-for manifest_name in ("daily-goal-checkin.json", "daily-goal-watchdog.json"):
-    job = json.loads((profile_root / "cron" / manifest_name).read_text())
-    if compute_next_run(job["schedule"]) is None:
-        raise RuntimeError(f"could not compute next run for {job['name']}")
-PY
-}
-
-backup_state() {
-  local stamp backup
-  backup="$(HERMES_HOME="${HERMES_HOME_DIR}" "$(python_bin)" - <<'PY'
-import os
-import tempfile
-from pathlib import Path
-
-home = Path(os.environ["HERMES_HOME"])
-backup_root = home / "backups"
-backup_root.mkdir(parents=True, exist_ok=True)
-print(tempfile.mkdtemp(prefix="daily-goal-", dir=backup_root))
-PY
-)"
-  [[ ! -f "${HERMES_HOME_DIR}/cron/jobs.json" ]] || cp -p "${HERMES_HOME_DIR}/cron/jobs.json" "${backup}/jobs.json"
-  [[ ! -f "${HERMES_HOME_DIR}/config.yaml" ]] || cp -p "${HERMES_HOME_DIR}/config.yaml" "${backup}/config.yaml"
-  printf '%s\n' "${backup}"
-}
-
 upsert_jobs() {
-  local backup
-  validate_deploy
-  backup="$(backup_state)"
-  HERMES_HOME="${HERMES_HOME_DIR}" HERMES_TIMEZONE="America/New_York" PROFILE_ROOT="${PROFILE_ROOT}" "$(python_bin)" - <<'PY'
+  HERMES_HOME="${HERMES_HOME_DIR}" \
+  HERMES_TIMEZONE="America/New_York" \
+  PROFILE_ROOT="${PROFILE_ROOT}" \
+  IK_ERNIE_ALLOW_TEST_HOME="${IK_ERNIE_ALLOW_TEST_HOME:-}" \
+  IK_ERNIE_TEST_FAIL_AFTER_JOBS_WRITE="${IK_ERNIE_TEST_FAIL_AFTER_JOBS_WRITE:-}" \
+  "$(python_bin)" - <<'PY'
+import fcntl
 import json
 import os
 import re
+import shutil
+import sys
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -129,10 +88,10 @@ from pathlib import Path
 from cron.jobs import compute_next_run
 
 
-def atomic_write(path: Path, text: str) -> None:
+def atomic_write(path: Path, payload: bytes) -> None:
     mode = path.stat().st_mode & 0o777
-    with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=path.parent, delete=False) as handle:
-        handle.write(text)
+    with tempfile.NamedTemporaryFile("wb", dir=path.parent, delete=False) as handle:
+        handle.write(payload)
         handle.flush()
         os.fsync(handle.fileno())
         temporary = Path(handle.name)
@@ -144,65 +103,165 @@ home = Path(os.environ["HERMES_HOME"])
 profile_root = Path(os.environ["PROFILE_ROOT"])
 jobs_path = home / "cron" / "jobs.json"
 config_path = home / "config.yaml"
-data = json.loads(jobs_path.read_text())
-jobs = data.setdefault("jobs", [])
+lock_path = home / "cron" / ".tick.lock"
+lock_path.parent.mkdir(parents=True, exist_ok=True)
+lock_handle = lock_path.open("a+")
+try:
+    fcntl.flock(lock_handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+except BlockingIOError:
+    print("deploy busy: scheduler lock is held", file=sys.stderr)
+    raise SystemExit(75)
 
-existing = next((item for item in jobs if item.get("id") == "bcfc1f4e449e"), None)
-delivery = None if existing is None else existing.get("deliver")
-if not isinstance(delivery, str) or not re.fullmatch(r"telegram:\S+", delivery):
-    raise RuntimeError("existing Telegram group delivery target is required; refusing to invent one")
-runtime_fields = {
-    "created_at", "last_run_at", "last_status", "last_error",
-    "last_delivery_error", "repeat",
-}
+backup = None
+try:
+    if not jobs_path.is_file():
+        raise RuntimeError(f"missing jobs file: {jobs_path}")
+    if not config_path.is_file():
+        raise RuntimeError(f"missing config: {config_path}")
+    data = json.loads(jobs_path.read_text())
+    jobs = data.get("jobs")
+    if not isinstance(jobs, list):
+        raise RuntimeError("jobs.json must contain a jobs list")
+    existing = next(
+        (item for item in jobs if item.get("id") == "bcfc1f4e449e"),
+        None,
+    )
+    delivery = None if existing is None else existing.get("deliver")
+    if not isinstance(delivery, str) or not re.fullmatch(r"telegram:\S+", delivery):
+        raise RuntimeError(
+            "existing Telegram group delivery target is required; refusing to invent one"
+        )
 
-for manifest_name in ("daily-goal-checkin.json", "daily-goal-watchdog.json"):
-    job = json.loads((profile_root / "cron" / manifest_name).read_text())
-    matching = [
-        item for item in jobs
-        if item.get("id") == job["id"] or item.get("name") == job["name"]
-    ]
-    old = next((item for item in matching if item.get("id") == job["id"]), matching[0] if matching else None)
-    if old is not None:
-        for key in runtime_fields:
-            if old.get(key) is not None:
-                job[key] = old[key]
-    job["deliver"] = delivery
-    job["next_run_at"] = compute_next_run(job["schedule"])
-    if job["next_run_at"] is None:
-        raise RuntimeError(f"could not compute next run for {job['name']}")
-    jobs = [
-        item for item in jobs
-        if item.get("id") != job["id"] and item.get("name") != job["name"]
-    ]
-    jobs.append(job)
+    manifests = []
+    for manifest_name in (
+        "daily-goal-checkin.json",
+        "daily-goal-watchdog.json",
+    ):
+        job = json.loads((profile_root / "cron" / manifest_name).read_text())
+        next_run = compute_next_run(job["schedule"])
+        if next_run is None:
+            raise RuntimeError(f"could not compute next run for {job['name']}")
+        manifests.append((job, next_run))
 
-data["jobs"] = jobs
-data["updated_at"] = datetime.now(UTC).isoformat()
-atomic_write(jobs_path, json.dumps(data, indent=2) + "\n")
+    backup_root = home / "backups"
+    backup_root.mkdir(parents=True, exist_ok=True)
+    backup = Path(
+        tempfile.mkdtemp(prefix="daily-goal-", dir=backup_root)
+    )
+    shutil.copy2(jobs_path, backup / "jobs.json")
+    shutil.copy2(config_path, backup / "config.yaml")
 
-text = config_path.read_text()
-if re.search(r"(?m)^timezone:\s*.*$", text):
-    text = re.sub(r"(?m)^timezone:\s*.*$", "timezone: America/New_York", text, count=1)
+    runtime_fields = {
+        "created_at",
+        "last_run_at",
+        "last_status",
+        "last_error",
+        "last_delivery_error",
+        "repeat",
+    }
+    for job, next_run in manifests:
+        matching = [
+            item
+            for item in jobs
+            if item.get("id") == job["id"]
+            or item.get("name") == job["name"]
+        ]
+        old = next(
+            (
+                item
+                for item in matching
+                if item.get("id") == job["id"]
+            ),
+            matching[0] if matching else None,
+        )
+        if old is not None:
+            for key in runtime_fields:
+                if old.get(key) is not None:
+                    job[key] = old[key]
+        job["deliver"] = delivery
+        job["next_run_at"] = next_run
+        jobs = [
+            item
+            for item in jobs
+            if item.get("id") != job["id"]
+            and item.get("name") != job["name"]
+        ]
+        jobs.append(job)
+
+    data["jobs"] = jobs
+    data["updated_at"] = datetime.now(UTC).isoformat()
+    atomic_write(
+        jobs_path,
+        (json.dumps(data, indent=2) + "\n").encode("utf-8"),
+    )
+    if os.getenv("IK_ERNIE_TEST_FAIL_AFTER_JOBS_WRITE") == "1":
+        if os.getenv("IK_ERNIE_ALLOW_TEST_HOME") != "1":
+            raise RuntimeError("test-only failure hook rejected")
+        raise RuntimeError("injected failure after jobs write")
+
+    text = config_path.read_text()
+    if re.search(r"(?m)^timezone:\s*.*$", text):
+        text = re.sub(
+            r"(?m)^timezone:\s*.*$",
+            "timezone: America/New_York",
+            text,
+            count=1,
+        )
+    else:
+        text += "\ntimezone: America/New_York\n"
+    atomic_write(config_path, text.encode("utf-8"))
+
+    persisted = json.loads(jobs_path.read_text())
+    persisted_ids = {
+        item.get("id") for item in persisted.get("jobs", [])
+    }
+    if not {"bcfc1f4e449e", "d41a1c0de160"} <= persisted_ids:
+        raise RuntimeError("deployed jobs failed validation")
+    if config_path.read_text().count("timezone: America/New_York") != 1:
+        raise RuntimeError("deployed timezone failed validation")
+except BaseException as exc:
+    if backup is not None:
+        try:
+            atomic_write(jobs_path, (backup / "jobs.json").read_bytes())
+            atomic_write(config_path, (backup / "config.yaml").read_bytes())
+            print(f"rollback complete: {exc}", file=sys.stderr)
+        except Exception as rollback_error:
+            print(
+                f"rollback failed after {exc}: {rollback_error}",
+                file=sys.stderr,
+            )
+    raise
 else:
-    text += "\ntimezone: America/New_York\n"
-atomic_write(config_path, text)
-print(json.dumps({"jobs": ["bcfc1f4e449e", "d41a1c0de160"], "timezone": "America/New_York"}, sort_keys=True))
+    print(
+        json.dumps(
+            {
+                "jobs": ["bcfc1f4e449e", "d41a1c0de160"],
+                "timezone": "America/New_York",
+            },
+            sort_keys=True,
+        )
+    )
+    print(f"backup: {backup}")
+finally:
+    fcntl.flock(lock_handle, fcntl.LOCK_UN)
+    lock_handle.close()
 PY
-  echo "backup: ${backup}"
 }
 
 trigger_job_id() {
   local job_id="$1"
   HERMES_HOME="${HERMES_HOME_DIR}" JOB_ID="${job_id}" "$(python_bin)" - <<'PY'
 import os
-from cron.jobs import get_job, trigger_job
-from cron.scheduler import run_selected_job
+from cron.jobs import get_job
+from cron.scheduler import trigger_and_run_selected_job
 
 job_id = os.environ["JOB_ID"]
-if trigger_job(job_id) is None:
-    raise SystemExit(f"missing job: {job_id}")
-run_selected_job(job_id, verbose=True)
+outcome = trigger_and_run_selected_job(job_id, verbose=True)
+print("trigger_outcome", outcome)
+if outcome == "busy":
+    raise SystemExit(75)
+if outcome != "executed":
+    raise SystemExit(1)
 job = get_job(job_id)
 for key in ("id", "name", "last_status", "last_error", "last_delivery_error", "last_run_at", "next_run_at"):
     print(key, job.get(key))

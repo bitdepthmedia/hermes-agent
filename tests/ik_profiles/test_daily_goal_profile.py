@@ -7,6 +7,8 @@ from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+import pytest
+
 
 ROOT = Path(__file__).resolve().parents[2]
 PROFILE = ROOT / "ik_profiles" / "hermes-ernie" / "cron"
@@ -118,15 +120,16 @@ def seed_home(tmp_path, deliver="telegram:-123", timezone=""):
     return home
 
 
-def run_wrapper(home, action):
+def run_wrapper(home, action, *, cwd=ROOT, extra_env=None):
     env = dict(os.environ)
     env["HERMES_HOME"] = str(home)
     env["IK_ERNIE_ALLOW_TEST_HOME"] = "1"
     env["IK_ERNIE_TEST_ROOT"] = str(home.parent)
     env["HERMES_PYTHON"] = str(resolve_runtime_python())
+    env.update(extra_env or {})
     return subprocess.run(
         [str(WRAPPER), action],
-        cwd=ROOT,
+        cwd=cwd,
         env=env,
         text=True,
         capture_output=True,
@@ -167,6 +170,68 @@ def test_deploy_preserves_delivery_sets_timezone_and_is_idempotent(tmp_path):
     assert by_id["d41a1c0de160"]["schedule"]["expr"] == "0 16 * * *"
     assert all(job["next_run_at"] for job in by_id.values())
     assert (home / "config.yaml").read_text().count("timezone: America/New_York") == 1
+
+
+def test_absolute_wrapper_invocation_works_outside_repository(tmp_path):
+    home = seed_home(tmp_path)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    result = run_wrapper(home, "deploy", cwd=outside)
+    assert result.returncode == 0, result.stderr
+    assert "backup:" in result.stdout
+
+
+def test_deploy_lock_contention_is_busy_and_does_not_mutate(tmp_path):
+    home = seed_home(tmp_path)
+    if sys.platform == "win32":
+        pytest.skip("requires POSIX flock")
+    jobs_before = (home / "cron" / "jobs.json").read_bytes()
+    config_before = (home / "config.yaml").read_bytes()
+    lock_path = home / "cron" / ".tick.lock"
+    locker = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import fcntl,sys;"
+                "lock=open(sys.argv[1],'a+');"
+                "fcntl.flock(lock,fcntl.LOCK_EX);"
+                "print('locked',flush=True);"
+                "sys.stdin.read()"
+            ),
+            str(lock_path),
+        ],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    assert locker.stdout.readline().strip() == "locked"
+    try:
+        result = run_wrapper(home, "deploy")
+    finally:
+        locker.stdin.close()
+        locker.wait(timeout=5)
+    assert result.returncode == 75
+    assert "busy" in result.stderr.lower()
+    assert (home / "cron" / "jobs.json").read_bytes() == jobs_before
+    assert (home / "config.yaml").read_bytes() == config_before
+    assert not (home / "backups").exists()
+
+
+def test_deploy_rolls_back_both_files_if_second_write_fails(tmp_path):
+    home = seed_home(tmp_path, timezone="UTC")
+    jobs_before = (home / "cron" / "jobs.json").read_bytes()
+    config_before = (home / "config.yaml").read_bytes()
+    result = run_wrapper(
+        home,
+        "deploy",
+        extra_env={"IK_ERNIE_TEST_FAIL_AFTER_JOBS_WRITE": "1"},
+    )
+    assert result.returncode != 0
+    assert "rollback complete" in result.stderr.lower()
+    assert (home / "cron" / "jobs.json").read_bytes() == jobs_before
+    assert (home / "config.yaml").read_bytes() == config_before
+    assert len(list((home / "backups").glob("daily-goal-*"))) == 1
 
 
 def test_deploy_uses_new_york_for_first_next_runs_even_from_utc(tmp_path):
@@ -275,6 +340,13 @@ def test_deploy_refuses_missing_croniter_before_backup_or_write(tmp_path):
 def test_dry_run_delegates_to_the_task_five_nonmutating_path():
     source = WRAPPER.read_text()
     assert 'run_daily_goal_coordinator(mode="checkin", dry_run=True)' in source
+
+
+def test_manual_trigger_uses_atomic_scheduler_outcomes():
+    source = WRAPPER.read_text()
+    assert "trigger_and_run_selected_job" in source
+    assert 'outcome == "busy"' in source
+    assert 'outcome != "executed"' in source
 
 
 def test_deploy_refuses_to_invent_delivery_target_before_job_write(tmp_path):

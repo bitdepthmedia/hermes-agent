@@ -10,7 +10,15 @@ def candidate(candidate_id, category, impact, risk, owner="ernie", action=Action
 
 
 def status(agent, candidates):
-    return AgentStatus(agent, WorkStatus.NO_PENDING_WORK, "idle", ("verified",), "2026-07-18T09:05:00-04:00", tuple(candidates))
+    return AgentStatus(
+        agent,
+        WorkStatus.NO_PENDING_WORK,
+        "idle",
+        ("verified",),
+        "2026-07-18T09:05:00-04:00",
+        tuple(candidates),
+        history_complete=True,
+    )
 
 
 def test_highest_impact_evidence_backed_goal_wins():
@@ -29,3 +37,16 @@ def test_candidate_without_evidence_is_rejected():
     bad = candidate("bad", "reliability", 5, 0)
     bad = ImprovementCandidate(**{**bad.__dict__, "evidence": ()})
     assert select_goal((status("ernie", [bad]), status("bert", []))) is None
+
+
+def test_candidate_from_incomplete_history_is_rejected():
+    incomplete = AgentStatus(
+        "ernie",
+        WorkStatus.NO_PENDING_WORK,
+        "idle",
+        ("verified",),
+        "2026-07-18T09:05:00-04:00",
+        (candidate("unsafe", "reliability", 5, 0),),
+        history_complete=False,
+    )
+    assert select_goal((incomplete, status("bert", []))) is None

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 from datetime import datetime
@@ -24,7 +25,7 @@ from shared_core.daily_goal_sources import (
     collect_bert_status,
     collect_ernie_status,
 )
-from tools.call_orchestrator_tool import call_orchestrator
+from tools.call_orchestrator_read_only import call_orchestrator_read_only
 from tools.registry import registry, tool_error
 
 
@@ -69,19 +70,22 @@ def run_daily_goal_coordinator(mode: str = "checkin", dry_run: bool = False) -> 
                 raise AssertionError("dry run must not review a goal")
 
         else:
-            collect_bert = lambda: collect_bert_status(call_orchestrator, now)
+            collect_bert = lambda: collect_bert_status(
+                call_orchestrator_read_only,
+                now,
+            )
             execute = lambda candidate, owner: execute_goal(
                 candidate,
                 owner=owner,
                 ernie=ernie,
-                call_orchestrator=call_orchestrator,
+                call_orchestrator=call_orchestrator_read_only,
             )
             review = lambda candidate, owner, summary: review_goal(
                 candidate,
                 owner=owner,
                 execution_summary=summary,
                 ernie=ernie,
-                call_orchestrator=call_orchestrator,
+                call_orchestrator=call_orchestrator_read_only,
             )
 
         result = run_daily_cycle(
@@ -95,22 +99,16 @@ def run_daily_goal_coordinator(mode: str = "checkin", dry_run: bool = False) -> 
         )
         receipt = result.receipt
         delivery_status = receipt.telegram_delivery if receipt is not None else None
-        reused_pending = (
-            receipt is not None
-            and not result.reran_work
-            and delivery_status == "pending"
-        )
+        operator_reconciliation = delivery_status in {"attempting", "unknown"}
         suppress_delivery = (
             bool(dry_run)
             or receipt is None
-            or (delivery_status in {"delivered", "unknown"})
-            or reused_pending
+            or delivery_status in {"attempting", "delivered", "unknown"}
         )
         content = (
             "[SILENT]"
             if receipt is None
-            or delivery_status in {"delivered", "unknown"}
-            or reused_pending
+            or delivery_status in {"attempting", "delivered", "unknown"}
             else result.message
         )
         return json.dumps(
@@ -121,6 +119,7 @@ def run_daily_goal_coordinator(mode: str = "checkin", dry_run: bool = False) -> 
                 "reran_work": result.reran_work,
                 "dry_run": bool(dry_run),
                 "suppress_delivery": suppress_delivery,
+                "operator_reconciliation": operator_reconciliation,
             }
         )
     except Exception as exc:
@@ -128,6 +127,16 @@ def run_daily_goal_coordinator(mode: str = "checkin", dry_run: bool = False) -> 
             f"daily goal coordinator failed: {type(exc).__name__}: {exc}",
             success=False,
         )
+
+
+def begin_daily_goal_delivery(cycle_id: str) -> bool:
+    database = Path(
+        os.getenv(
+            "SHARED_CORE_DB",
+            get_hermes_home() / "daily-goal" / "daily-goal.db",
+        )
+    )
+    return DailyGoalStore(database).begin_delivery(cycle_id) is not None
 
 
 def record_daily_goal_delivery(cycle_id: str, status: str) -> None:
@@ -167,3 +176,26 @@ registry.register(
         dry_run=bool(args.get("dry_run", False)),
     ),
 )
+
+
+def _main() -> int:
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--cron-json", required=True)
+    options = parser.parse_args()
+    try:
+        arguments = json.loads(options.cron_json)
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"invalid cron arguments: {exc}") from exc
+    if not isinstance(arguments, dict):
+        raise SystemExit("cron arguments must be a JSON object")
+    print(
+        run_daily_goal_coordinator(
+            mode=arguments.get("mode", "checkin"),
+            dry_run=arguments.get("dry_run", False),
+        )
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(_main())

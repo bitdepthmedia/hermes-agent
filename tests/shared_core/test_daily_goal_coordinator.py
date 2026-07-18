@@ -1,3 +1,5 @@
+import hashlib
+import json
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -12,6 +14,7 @@ from shared_core.daily_goal import (
     WorkStatus,
 )
 from shared_core.daily_goal_coordinator import run_daily_cycle
+from shared_core.daily_goal_coordinator import format_telegram_summary
 from shared_core.daily_goal_execution import ExecutionOutcome
 
 
@@ -26,6 +29,7 @@ def status(agent, value, candidates=()):
         (f"{agent}:verified",),
         NOW.isoformat(),
         tuple(candidates),
+        history_complete=True,
     )
 
 
@@ -54,6 +58,33 @@ def candidate(
     )
 
 
+def successful_review(summary):
+    statement = "The bounded fixed endpoint evidence supports the audit result."
+    metrics_hash = hashlib.sha256(summary.encode()).hexdigest()
+    source = "bert-no-tools:source-receipt"
+    review_hash = hashlib.sha256(
+        json.dumps(
+            {
+                "metrics_hash": metrics_hash,
+                "source": source,
+                "statement": statement,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
+    return ExecutionOutcome(
+        True,
+        "bert",
+        statement,
+        ("bert:no-tools-review",),
+        review_statement=statement,
+        review_hash=review_hash,
+        review_source=source,
+        review_metrics_hash=metrics_hash,
+    )
+
+
 def test_pending_work_suppresses_improvement(tmp_path):
     calls = []
     result = run_daily_cycle(
@@ -69,6 +100,48 @@ def test_pending_work_suppresses_improvement(tmp_path):
     assert calls == []
 
 
+def test_pending_plus_unknown_is_terminal_normal_work_and_watchdog_does_not_retry(
+    tmp_path,
+):
+    calls = {"ernie": 0, "bert": 0}
+
+    def ernie():
+        calls["ernie"] += 1
+        return status("ernie", WorkStatus.PENDING_WORK)
+
+    def bert():
+        calls["bert"] += 1
+        return status("bert", WorkStatus.UNKNOWN)
+
+    store = DailyGoalStore(tmp_path / "core.db")
+    morning = run_daily_cycle(
+        mode="checkin",
+        now=NOW,
+        store=store,
+        collect_ernie=ernie,
+        collect_bert=bert,
+        execute=lambda *_: (_ for _ in ()).throw(
+            AssertionError("pending work must suppress execution")
+        ),
+        review=lambda *_: (_ for _ in ()).throw(
+            AssertionError("pending work must suppress review")
+        ),
+    )
+    watchdog = run_daily_cycle(
+        mode="watchdog",
+        now=NOW,
+        store=store,
+        collect_ernie=ernie,
+        collect_bert=bert,
+        execute=lambda *_: None,
+        review=lambda *_: None,
+    )
+
+    assert morning.receipt.trigger == "normal_work"
+    assert watchdog.reran_work is False
+    assert calls == {"ernie": 1, "bert": 1}
+
+
 def test_repeat_call_reuses_receipt_without_rerunning_work(tmp_path):
     store = DailyGoalStore(tmp_path / "core.db")
     calls = []
@@ -77,9 +150,9 @@ def test_repeat_call_reuses_receipt_without_rerunning_work(tmp_path):
         calls.append("execute")
         return ExecutionOutcome(True, "ernie", "audit complete", ("ernie:audit",))
 
-    def review(*_):
+    def review(_candidate, _owner, summary):
         calls.append("review")
-        return ExecutionOutcome(True, "bert", "REVIEW_PASS", ("bert:review",))
+        return successful_review(summary)
 
     kwargs = {
         "mode": "checkin",
@@ -96,6 +169,78 @@ def test_repeat_call_reuses_receipt_without_rerunning_work(tmp_path):
     assert calls.count("execute") == 1
     assert calls.count("review") == 1
     assert second.reran_work is False
+
+
+def test_structured_counterpart_review_is_persisted(tmp_path):
+    summary = "audit complete"
+    statement = "The bounded fixed endpoint evidence supports the audit result."
+    metrics_hash = hashlib.sha256(summary.encode()).hexdigest()
+    review_source = "bert-no-tools:source-receipt"
+    statement_hash = hashlib.sha256(
+        json.dumps(
+            {
+                "metrics_hash": metrics_hash,
+                "source": review_source,
+                "statement": statement,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
+    result = run_daily_cycle(
+        mode="checkin",
+        now=NOW,
+        store=DailyGoalStore(tmp_path / "core.db"),
+        collect_ernie=lambda: status("ernie", WorkStatus.NO_PENDING_WORK),
+        collect_bert=lambda: status("bert", WorkStatus.NO_PENDING_WORK),
+        execute=lambda _candidate, owner: ExecutionOutcome(
+            True,
+            owner,
+            summary,
+            ("ernie:audit",),
+        ),
+        review=lambda *_: ExecutionOutcome(
+            True,
+            "bert",
+            statement,
+            ("bert:no-tools-review",),
+            review_statement=statement,
+            review_hash=statement_hash,
+            review_source=review_source,
+            review_metrics_hash=metrics_hash,
+        ),
+    )
+    assert result.receipt.review_statement == statement
+    assert result.receipt.review_hash == statement_hash
+    assert result.receipt.review_source == review_source
+    assert result.receipt.review_metrics_hash == metrics_hash
+
+
+def test_unstructured_success_review_fails_closed(tmp_path):
+    result = run_daily_cycle(
+        mode="checkin",
+        now=NOW,
+        store=DailyGoalStore(tmp_path / "core.db"),
+        collect_ernie=lambda: status("ernie", WorkStatus.NO_PENDING_WORK),
+        collect_bert=lambda: status("bert", WorkStatus.NO_PENDING_WORK),
+        execute=lambda _candidate, owner: ExecutionOutcome(
+            True,
+            owner,
+            "audit complete",
+            ("ernie:audit",),
+        ),
+        review=lambda *_: ExecutionOutcome(
+            True,
+            "bert",
+            "Looks valid but has no attested receipt",
+            ("bert:review",),
+        ),
+    )
+    assert result.receipt.outcome == "blocked"
+    assert result.receipt.blockers == (
+        "daily-process-health-audit:"
+        "counterpart review receipt failed integrity validation",
+    )
 
 
 def test_blocked_top_candidate_falls_through_to_next_candidate(tmp_path):
@@ -122,9 +267,7 @@ def test_blocked_top_candidate_falls_through_to_next_candidate(tmp_path):
         collect_ernie=lambda: status("ernie", WorkStatus.NO_PENDING_WORK, [first]),
         collect_bert=lambda: status("bert", WorkStatus.NO_PENDING_WORK, [second]),
         execute=execute,
-        review=lambda *_: ExecutionOutcome(
-            True, "bert", "REVIEW_PASS", ("bert:review",)
-        ),
+        review=lambda _candidate, _owner, summary: successful_review(summary),
     )
     assert attempted == ["first", "second"]
     assert result.receipt.selected_goal == "Second"
@@ -150,9 +293,7 @@ def test_blocked_candidates_reach_deterministic_scheduler_health_fallback(tmp_pa
         collect_ernie=lambda: status("ernie", WorkStatus.NO_PENDING_WORK, [blocked]),
         collect_bert=lambda: status("bert", WorkStatus.NO_PENDING_WORK),
         execute=execute,
-        review=lambda *_: ExecutionOutcome(
-            True, "bert", "REVIEW_PASS", ("bert:review",)
-        ),
+        review=lambda _candidate, _owner, summary: successful_review(summary),
     )
 
     assert attempted == [
@@ -197,6 +338,9 @@ def test_failed_review_blocks_executed_goal_without_running_fallback(tmp_path):
     assert result.receipt.actions == ("first complete",)
     assert result.receipt.verification == ("audit", "bert:review-failed")
     assert result.receipt.blockers == ("first:review blocked",)
+    assert result.receipt.outcome == "blocked"
+    assert "OPERATOR ALERT" in format_telegram_summary(result.receipt)
+    assert "blocked" in format_telegram_summary(result.receipt).lower()
 
 
 def test_reserved_fallback_identity_is_always_canonical(tmp_path):
@@ -229,9 +373,7 @@ def test_reserved_fallback_identity_is_always_canonical(tmp_path):
         collect_ernie=lambda: status("ernie", WorkStatus.NO_PENDING_WORK, [collision]),
         collect_bert=lambda: status("bert", WorkStatus.NO_PENDING_WORK),
         execute=execute,
-        review=lambda *_: ExecutionOutcome(
-            True, "bert", "REVIEW_PASS", ("bert:review",)
-        ),
+        review=lambda _candidate, _owner, summary: successful_review(summary),
     )
 
     assert len(seen) == 1
@@ -313,9 +455,7 @@ def test_watchdog_never_reruns_completed_work(tmp_path):
             calls.append(value.candidate_id)
             or ExecutionOutcome(True, owner, "audit complete", ("audit",))
         ),
-        review=lambda *_: ExecutionOutcome(
-            True, "bert", "REVIEW_PASS", ("bert:review",)
-        ),
+        review=lambda _candidate, _owner, summary: successful_review(summary),
     )
     store.update_delivery(result.receipt.cycle_id, "delivered")
     watchdog = run_daily_cycle(
@@ -377,10 +517,10 @@ def test_concurrent_checkins_execute_and_review_exactly_once(tmp_path):
             time.sleep(0.05)
             return ExecutionOutcome(True, owner, "audit complete", ("audit",))
 
-        def review(*_):
+        def review(_candidate, _owner, summary):
             with counter_lock:
                 calls["review"] += 1
-            return ExecutionOutcome(True, "bert", "REVIEW_PASS", ("bert:review",))
+            return successful_review(summary)
 
         return run_daily_cycle(
             mode="checkin",
@@ -484,9 +624,7 @@ def test_delivered_unknown_retry_with_new_content_starts_pending(tmp_path):
         execute=lambda _candidate, owner: ExecutionOutcome(
             True, owner, "audit complete", ("audit",)
         ),
-        review=lambda *_: ExecutionOutcome(
-            True, "bert", "REVIEW_PASS", ("bert:review",)
-        ),
+        review=lambda _candidate, _owner, summary: successful_review(summary),
     )
 
     assert watchdog.receipt.trigger == "improvement"

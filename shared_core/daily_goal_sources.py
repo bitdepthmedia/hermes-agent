@@ -2,19 +2,107 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import urllib.request
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Callable
 from urllib.parse import urlparse
 
 from .daily_goal import ActionKind, AgentStatus, ImprovementCandidate, WorkStatus
 
 
+def _canonical_bytes(value: object) -> bytes:
+    return json.dumps(
+        value,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+
+
+def _sha256(value: bytes | str) -> str:
+    if isinstance(value, str):
+        value = value.encode("utf-8")
+    return hashlib.sha256(value).hexdigest()
+
+
+def load_no_tools_attestation(
+    raw: str,
+    *,
+    input_text: str,
+    purpose: str,
+    max_tokens: int,
+    source_receipt: dict | None = None,
+) -> dict:
+    """Validate a dedicated read-only response independently of its client."""
+    parsed = json.loads(raw)
+    if not isinstance(parsed, dict) or parsed.get("success") is not True:
+        raise ValueError("no-tools response did not report success")
+    content = parsed.get("content")
+    receipts = parsed.get("source_receipts")
+    attestation = parsed.get("attestation")
+    if (
+        not isinstance(content, str)
+        or not isinstance(receipts, dict)
+        or not isinstance(attestation, dict)
+    ):
+        raise ValueError("no-tools response is missing attested content")
+    fixed = {
+        "mode": "no_tools",
+        "enabled_toolsets": [],
+        "tool_names": [],
+        "tool_calls": 0,
+    }
+    if any(attestation.get(key) != value for key, value in fixed.items()):
+        raise ValueError("no-tools attestation contains tool capability")
+
+    payload = {
+        "purpose": purpose,
+        "input": input_text,
+        "max_tokens": max_tokens,
+    }
+    if source_receipt is not None:
+        payload["source_receipt"] = source_receipt
+    expected_hashes = {
+        "request_sha256": _sha256(_canonical_bytes(payload)),
+        "input_sha256": _sha256(input_text),
+        "output_sha256": _sha256(content),
+        "source_receipts_sha256": _sha256(_canonical_bytes(receipts)),
+    }
+    if any(
+        attestation.get(key) != expected
+        for key, expected in expected_hashes.items()
+    ):
+        raise ValueError("no-tools attestation digest mismatch")
+    if receipts.get("purpose") != purpose or not isinstance(
+        receipts.get("items"), list
+    ):
+        raise ValueError("no-tools source receipt purpose mismatch")
+    if purpose == "review":
+        items = receipts["items"]
+        if (
+            len(items) != 1
+            or items[0].get("kind") != "caller_source_receipt"
+            or {
+                "content": items[0].get("content"),
+                "sha256": items[0].get("sha256"),
+            }
+            != source_receipt
+        ):
+            raise ValueError("review source receipt mismatch")
+    return parsed
+
+
 class LoopbackJsonClient:
     """Small JSON client restricted to local HTTP status endpoints."""
 
-    def __init__(self, base_url: str, timeout: float = 10):
+    def __init__(
+        self,
+        base_url: str,
+        timeout: float = 10,
+        timeout_by_path: dict[str, float] | None = None,
+    ):
         parsed = urlparse(base_url)
         if parsed.scheme != "http" or parsed.hostname not in {
             "127.0.0.1",
@@ -24,9 +112,19 @@ class LoopbackJsonClient:
             raise ValueError("daily goal source must use loopback http")
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
+        self.timeout_by_path = {
+            "/v1/ernie/status": 50,
+            **(timeout_by_path or {}),
+        }
+
+    def _timeout_for(self, path: str) -> float:
+        return self.timeout_by_path.get(path.split("?", 1)[0], self.timeout)
 
     def get(self, path: str) -> dict:
-        with urllib.request.urlopen(self.base_url + path, timeout=self.timeout) as response:
+        with urllib.request.urlopen(
+            self.base_url + path,
+            timeout=self._timeout_for(path),
+        ) as response:
             return json.loads(response.read().decode("utf-8"))
 
     def post(self, path: str, payload: dict) -> dict:
@@ -36,30 +134,44 @@ class LoopbackJsonClient:
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        with urllib.request.urlopen(request, timeout=self.timeout) as response:
+        with urllib.request.urlopen(
+            request,
+            timeout=self._timeout_for(path),
+        ) as response:
             return json.loads(response.read().decode("utf-8"))
 
 
-OPEN_QUEUE_STATES = {"ready", "in-progress", "waiting"}
-OPEN_SESSION_STATES = {"pending", "in-progress", "running", "waiting", "blocked"}
-TERMINAL_QUEUE_STATES = {"completed", "failed", "cancelled", "canceled", "skipped"}
-TERMINAL_SESSION_STATES = {
-    "completed",
-    "failed",
-    "error",
-    "cancelled",
-    "canceled",
-    "stopped",
+QUEUE_STATES = {
+    "draft",
+    "ready",
+    "in-progress",
+    "waiting",
+    "done",
+    "blocked",
+    "archived",
 }
-
-
-def _has_known_status(record: object, field: str, known_states: set[str]) -> bool:
-    value = record.get(field) if isinstance(record, dict) else None
-    return isinstance(value, str) and value.lower() in known_states
+DIRECT_PENDING_QUEUE_STATES = {"draft", "in-progress", "waiting", "blocked"}
+SESSION_STATES = {
+    "completed",
+    "blocked",
+    "not_found",
+    "needs_clarification",
+    "failed",
+}
+PENDING_SESSION_STATES = {"blocked", "needs_clarification"}
+QUEUE_VISIBLE_LIMIT = 20
+SESSION_LIMIT = 25
+SESSION_ENTRY_LIMIT = 40
 
 
 def queue_item_is_open(item: dict) -> bool:
-    if str(item.get("status") or "").lower() not in OPEN_QUEUE_STATES:
+    if str(item.get("status") or "").lower() not in {
+        "draft",
+        "ready",
+        "in-progress",
+        "waiting",
+        "blocked",
+    }:
         return False
     completed = item.get("latest_outcome_decision") == "completed"
     verified = item.get("latest_verification_decision") == "passed"
@@ -67,91 +179,171 @@ def queue_item_is_open(item: dict) -> bool:
     return not (completed and verified and postchecked)
 
 
-def collect_ernie_status(client: LoopbackJsonClient, now: datetime) -> AgentStatus:
-    try:
-        sessions = list(client.get("/v1/ernie/sessions").get("sessions") or [])
-        items = list(client.get("/ik/ernie-dashboard/work-queue/list").get("items") or [])
-    except Exception as exc:
-        return AgentStatus(
-            "ernie",
-            WorkStatus.UNKNOWN,
-            "Ernie status unavailable",
-            (type(exc).__name__,),
-            now.isoformat(),
-            (),
-        )
+def _valid_count(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
 
-    if any(
-        not _has_known_status(
-            item, "status", OPEN_QUEUE_STATES | TERMINAL_QUEUE_STATES
-        )
-        for item in items
-    ) or any(
-        not _has_known_status(
-            row, "latest_status", OPEN_SESSION_STATES | TERMINAL_SESSION_STATES
-        )
-        for row in sessions
+
+def _queue_evidence(payload: object) -> tuple[list[str], list[str], tuple[str, ...]]:
+    """Return pending evidence, uncertainty evidence, and source receipts."""
+    if not isinstance(payload, dict):
+        return [], ["queue:invalid-payload"], ()
+    item_count = payload.get("item_count")
+    counts = payload.get("status_counts")
+    items = payload.get("items")
+    if (
+        not _valid_count(item_count)
+        or not isinstance(counts, dict)
+        or not isinstance(items, list)
     ):
-        return AgentStatus(
-            "ernie",
-            WorkStatus.UNKNOWN,
-            "Ernie status contains an unrecognized state",
-            ("invalid-status",),
-            now.isoformat(),
-            (),
-        )
+        return [], ["queue:invalid-aggregate"], ()
+    if any(
+        state not in QUEUE_STATES or not _valid_count(count)
+        for state, count in counts.items()
+    ):
+        return [], ["queue:invalid-counts"], ()
+    if sum(counts.values()) != item_count:
+        return [], ["queue:inconsistent-count-total"], ()
+    expected_visible = min(item_count, QUEUE_VISIBLE_LIMIT)
+    if len(items) != expected_visible:
+        return [], ["queue:incomplete-visible-page"], ()
 
-    open_items = [item for item in items if queue_item_is_open(item)]
-    open_sessions = [
-        row
-        for row in sessions
-        if str(row.get("latest_status") or "").lower() in OPEN_SESSION_STATES
+    visible_counts: dict[str, int] = {}
+    for item in items:
+        if not isinstance(item, dict):
+            return [], ["queue:invalid-item"], ()
+        state = item.get("status")
+        if (
+            not isinstance(state, str)
+            or state not in QUEUE_STATES
+            or not isinstance(item.get("item_id"), str)
+            or not item["item_id"]
+        ):
+            return [], ["queue:invalid-item"], ()
+        visible_counts[state] = visible_counts.get(state, 0) + 1
+    if any(
+        visible_count > counts.get(state, 0)
+        for state, visible_count in visible_counts.items()
+    ):
+        return [], ["queue:visible-count-exceeds-aggregate"], ()
+
+    pending = [
+        f"queue:{state}:{counts.get(state, 0)}"
+        for state in sorted(DIRECT_PENDING_QUEUE_STATES)
+        if counts.get(state, 0) > 0
     ]
-    cutoff = now - timedelta(days=7)
-    recent_failures = []
-    for row in sessions:
-        raw_updated = row.get("updated_at")
-        try:
-            updated = datetime.fromtimestamp(float(raw_updated), tz=now.tzinfo)
-        except (TypeError, ValueError, OSError):
-            continue
-        if updated >= cutoff and str(row.get("latest_status") or "").lower() in {
-            "failed",
-            "error",
-        }:
-            recent_failures.append(row)
-    candidates = tuple(
-        ImprovementCandidate(
-            candidate_id=f"ernie-session-{row.get('session_id', 'unknown')}",
-            title=f"Investigate failed Ernie session {row.get('session_id', 'unknown')}",
-            category="reliability",
-            evidence=(f"session:{row.get('session_id', 'unknown')}:{row.get('latest_status')}",),
-            impact=3,
-            recurrence=1,
-            confidence=5,
-            effort=2,
-            risk=0,
-            action_kind=ActionKind.READ_ONLY_AUDIT,
-            recommended_owner="ernie",
-            executor_id="system-health",
+    visible_ready = [
+        item
+        for item in items
+        if item["status"] == "ready"
+    ]
+    if any(queue_item_is_open(item) for item in visible_ready):
+        pending.extend(
+            f"queue:{item['item_id']}:ready"
+            for item in visible_ready
+            if queue_item_is_open(item)
         )
-        for row in recent_failures[:5]
+    unknown: list[str] = []
+    if counts.get("ready", 0) > len(visible_ready):
+        unknown.append("queue:unseen-ready")
+    receipts = (f"ernie:queue:{item_count}",)
+    return pending, unknown, receipts
+
+
+def _session_evidence(
+    payload: object,
+) -> tuple[list[str], list[str], bool, tuple[str, ...]]:
+    """Return pending evidence, uncertainty, completeness, and source receipts."""
+    if not isinstance(payload, dict):
+        return [], ["sessions:invalid-payload"], False, ()
+    sessions = payload.get("sessions")
+    count = payload.get("count")
+    if (
+        not isinstance(sessions, list)
+        or not _valid_count(count)
+        or count != len(sessions)
+        or count > SESSION_LIMIT
+    ):
+        return [], ["sessions:invalid-count"], False, ()
+
+    pending: list[str] = []
+    unknown: list[str] = []
+    history_complete = count < SESSION_LIMIT
+    for row in sessions:
+        if not isinstance(row, dict):
+            unknown.append("sessions:invalid-row")
+            continue
+        session_id = row.get("session_id")
+        state = row.get("latest_status")
+        entry_count = row.get("entry_count")
+        if (
+            not isinstance(session_id, str)
+            or not session_id
+            or not isinstance(state, str)
+            or state not in SESSION_STATES
+            or not _valid_count(entry_count)
+            or entry_count > SESSION_ENTRY_LIMIT
+        ):
+            unknown.append("sessions:invalid-row")
+            continue
+        if entry_count == SESSION_ENTRY_LIMIT:
+            history_complete = False
+        if state in PENDING_SESSION_STATES:
+            pending.append(f"session:{session_id}:{state}")
+    if not history_complete:
+        unknown.append("sessions:history-incomplete")
+    receipts = (f"ernie:sessions:{count}/{SESSION_LIMIT}",)
+    return pending, unknown, history_complete, receipts
+
+
+def collect_ernie_status(client: LoopbackJsonClient, now: datetime) -> AgentStatus:
+    queue_payload: object
+    session_payload: object
+    source_errors: list[str] = []
+    try:
+        session_payload = client.get("/v1/ernie/sessions")
+    except Exception as exc:
+        session_payload = None
+        source_errors.append(f"sessions:{type(exc).__name__}")
+    try:
+        queue_payload = client.get("/ik/ernie-dashboard/work-queue/status")
+    except Exception as exc:
+        queue_payload = None
+        source_errors.append(f"queue:{type(exc).__name__}")
+
+    queue_pending, queue_unknown, queue_receipts = _queue_evidence(
+        queue_payload
     )
-    evidence = tuple(
-        [f"queue:{row.get('item_id', 'unknown')}" for row in open_items[:5]]
-        + [
-            f"session:{row.get('session_id', 'unknown')}:{row.get('latest_status')}"
-            for row in open_sessions[:5]
-        ]
-    )
-    if open_items or open_sessions:
+    (
+        session_pending,
+        session_unknown,
+        history_complete,
+        session_receipts,
+    ) = _session_evidence(session_payload)
+    pending = queue_pending + session_pending
+    unknown = source_errors + queue_unknown + session_unknown
+    receipts = session_receipts + queue_receipts
+
+    if pending:
         return AgentStatus(
             "ernie",
             WorkStatus.PENDING_WORK,
             "Ernie has verified pending work",
-            evidence,
+            tuple(pending[:10]),
             now.isoformat(),
-            candidates,
+            (),
+            history_complete=history_complete and not source_errors,
+            source_receipts=receipts,
+        )
+    if unknown:
+        return AgentStatus(
+            "ernie",
+            WorkStatus.UNKNOWN,
+            "Ernie status is incomplete or inconsistent",
+            tuple(unknown[:10]),
+            now.isoformat(),
+            (),
+            history_complete=False,
+            source_receipts=receipts,
         )
     return AgentStatus(
         "ernie",
@@ -159,7 +351,9 @@ def collect_ernie_status(client: LoopbackJsonClient, now: datetime) -> AgentStat
         "Ernie has no verified pending work",
         ("queue:clear", "sessions:clear"),
         now.isoformat(),
-        candidates,
+        (),
+        history_complete=history_complete,
+        source_receipts=receipts,
     )
 
 
@@ -177,12 +371,15 @@ Use integers 0-5. Project work is pending only with explicit evidence it remains
 If evidence is missing or ambiguous, return UNKNOWN. Do not perform work."""
 
 
-def _candidate(data: dict) -> ImprovementCandidate:
+def _candidate(data: dict, source_receipt_id: str) -> ImprovementCandidate:
     return ImprovementCandidate(
         candidate_id=str(data["candidate_id"])[:80],
         title=str(data["title"])[:160],
         category=str(data["category"]),
-        evidence=tuple(str(value)[:240] for value in data.get("evidence") or ()),
+        evidence=tuple(
+            str(value)[:240] for value in data.get("evidence") or ()
+        )
+        + (source_receipt_id,),
         impact=int(data["impact"]),
         recurrence=int(data["recurrence"]),
         confidence=int(data["confidence"]),
@@ -195,23 +392,68 @@ def _candidate(data: dict) -> ImprovementCandidate:
 
 
 def collect_bert_status(call_orchestrator: Callable[..., str], now: datetime) -> AgentStatus:
+    source_receipt_id = ""
     try:
-        outer = json.loads(call_orchestrator(task=BERT_STATUS_TASK, max_tokens=1200))
-        if outer.get("success") is not True:
-            raise ValueError(str(outer.get("error") or "orchestrator failed"))
+        raw = call_orchestrator(
+            BERT_STATUS_TASK,
+            purpose="status",
+            max_tokens=1200,
+        )
+        outer = load_no_tools_attestation(
+            raw,
+            input_text=BERT_STATUS_TASK,
+            purpose="status",
+            max_tokens=1200,
+        )
+        receipts = outer["source_receipts"]
+        source_digest = outer["attestation"]["source_receipts_sha256"]
+        source_receipt_id = f"bert:no-tools:{source_digest}"
+        items = receipts["items"]
+        kinds = {
+            item.get("kind")
+            for item in items
+            if isinstance(item, dict)
+        }
+        if (
+            len(items) != 2
+            or kinds != {"session_db_metadata", "cron_metadata"}
+            or any(
+                not isinstance(item, dict)
+                or item.get("available") is not True
+                or not isinstance(item.get("pagination"), dict)
+                or item["pagination"].get("complete") is not True
+                or item["pagination"].get("truncated") is not False
+                for item in items
+            )
+        ):
+            return AgentStatus(
+                "bert",
+                WorkStatus.UNKNOWN,
+                "Bert status history is incomplete",
+                (source_receipt_id,),
+                now.isoformat(),
+                (),
+                history_complete=False,
+                source_receipts=(source_receipt_id,),
+            )
         data = json.loads(str(outer["content"]))
         status = WorkStatus(data["status"])
         evidence = tuple(str(value)[:240] for value in data.get("evidence") or ())
         if status is not WorkStatus.UNKNOWN and not evidence:
             raise ValueError("non-unknown Bert status requires evidence")
-        candidates = tuple(_candidate(value) for value in data.get("candidates") or ())
+        candidates = tuple(
+            _candidate(value, source_receipt_id)
+            for value in data.get("candidates") or ()
+        )
         return AgentStatus(
             "bert",
             status,
             str(data.get("summary") or "")[:240],
-            evidence,
+            evidence + (source_receipt_id,),
             now.isoformat(),
             candidates,
+            history_complete=True,
+            source_receipts=(source_receipt_id,),
         )
     except Exception as exc:
         return AgentStatus(
@@ -221,4 +463,8 @@ def collect_bert_status(call_orchestrator: Callable[..., str], now: datetime) ->
             (type(exc).__name__,),
             now.isoformat(),
             (),
+            history_complete=False,
+            source_receipts=(
+                (source_receipt_id,) if source_receipt_id else ()
+            ),
         )

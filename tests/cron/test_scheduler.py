@@ -82,6 +82,79 @@ def test_run_selected_job_respects_scheduler_lock_contention(monkeypatch, tmp_pa
     assert executed == ["selected"]
 
 
+def test_trigger_and_run_selected_job_reports_busy_before_mutation(monkeypatch):
+    import cron.scheduler as scheduler
+
+    monkeypatch.setattr(scheduler, "_acquire_scheduler_lock", lambda: None)
+    monkeypatch.setattr(
+        scheduler,
+        "trigger_job",
+        lambda _job_id: (_ for _ in ()).throw(
+            AssertionError("busy trigger must not mutate job state")
+        ),
+        raising=False,
+    )
+    assert scheduler.trigger_and_run_selected_job("selected") == "busy"
+
+
+@pytest.mark.parametrize(
+    ("triggered", "run_result", "last_status", "expected"),
+    [
+        (None, 0, None, "failed"),
+        ({"id": "selected"}, 0, None, "failed"),
+        ({"id": "selected"}, 1, "error", "failed"),
+        ({"id": "selected"}, 1, "ok", "executed"),
+    ],
+)
+def test_trigger_and_run_selected_job_reports_distinct_outcomes(
+    monkeypatch,
+    triggered,
+    run_result,
+    last_status,
+    expected,
+):
+    import cron.scheduler as scheduler
+
+    order = []
+    lock = object()
+    monkeypatch.setattr(
+        scheduler,
+        "_acquire_scheduler_lock",
+        lambda: order.append("lock") or lock,
+    )
+    monkeypatch.setattr(
+        scheduler,
+        "_release_scheduler_lock",
+        lambda value: order.append(("release", value)),
+    )
+    monkeypatch.setattr(
+        scheduler,
+        "trigger_job",
+        lambda job_id: order.append(("trigger", job_id)) or triggered,
+        raising=False,
+    )
+    monkeypatch.setattr(
+        scheduler,
+        "_run_selected_job_unlocked",
+        lambda job_id, **_kwargs: order.append(("run", job_id)) or run_result,
+    )
+    monkeypatch.setattr(
+        scheduler,
+        "get_job",
+        lambda _job_id: (
+            None if last_status is None else {"last_status": last_status}
+        ),
+    )
+
+    assert scheduler.trigger_and_run_selected_job("selected") == expected
+    assert order[0] == "lock"
+    assert order[-1] == ("release", lock)
+    if triggered is None:
+        assert not any(
+            isinstance(item, tuple) and item[0] == "run" for item in order
+        )
+
+
 class TestResolveOrigin:
     def test_full_origin(self):
         job = {
@@ -597,6 +670,82 @@ class TestDeliverResultWrapping:
         assert "timed out via live adapter" in error
         send_mock.assert_not_awaited()
 
+    def test_live_adapter_timeout_result_does_not_fall_back_to_second_send(self):
+        """A timeout encoded in SendResult is equally ambiguous."""
+        from concurrent.futures import Future
+        from gateway.config import Platform
+
+        adapter = AsyncMock()
+        pconfig = MagicMock()
+        pconfig.enabled = True
+        mock_cfg = MagicMock()
+        mock_cfg.platforms = {Platform.TELEGRAM: pconfig}
+        loop = MagicMock()
+        loop.is_running.return_value = True
+
+        def fake_run_coro(coro, _loop):
+            coro.close()
+            future = Future()
+            future.set_result(
+                MagicMock(success=False, error="Telegram adapter timed out")
+            )
+            return future
+
+        job = {
+            "id": "daily-checkin",
+            "deliver": "telegram:-1001",
+            "wrap_response": False,
+        }
+        with (
+            patch("gateway.config.load_gateway_config", return_value=mock_cfg),
+            patch(
+                "asyncio.run_coroutine_threadsafe",
+                side_effect=fake_run_coro,
+            ),
+            patch(
+                "tools.send_message_tool._send_to_platform",
+                new=AsyncMock(),
+            ) as send_mock,
+        ):
+            error = _deliver_result(
+                job,
+                "daily check-in",
+                adapters={Platform.TELEGRAM: adapter},
+                loop=loop,
+            )
+
+        assert "ambiguous" in error.lower()
+        assert "not retrying" in error.lower()
+        send_mock.assert_not_awaited()
+
+    def test_standalone_timeout_is_marked_ambiguous(self):
+        from gateway.config import Platform
+
+        pconfig = MagicMock()
+        pconfig.enabled = True
+        mock_cfg = MagicMock()
+        mock_cfg.platforms = {Platform.TELEGRAM: pconfig}
+        job = {
+            "id": "daily-checkin",
+            "deliver": "origin",
+            "origin": {"platform": "telegram", "chat_id": "-1001"},
+        }
+        with (
+            patch("gateway.config.load_gateway_config", return_value=mock_cfg),
+            patch(
+                "cron.scheduler.load_config",
+                return_value={"cron": {"wrap_response": False}},
+            ),
+            patch(
+                "tools.send_message_tool._send_to_platform",
+                new=AsyncMock(side_effect=TimeoutError()),
+            ) as send_mock,
+        ):
+            error = _deliver_result(job, "daily check-in")
+        assert "ambiguous standalone timeout" in error
+        assert "not retrying to avoid duplicate" in error
+        send_mock.assert_awaited_once()
+
     def test_no_mirror_to_session_call(self):
         """Cron deliveries should NOT mirror into the gateway session."""
         from gateway.config import Platform
@@ -986,7 +1135,7 @@ class TestRunJobDirectTool:
             patch("dotenv.load_dotenv"),
             patch("hermes_state.SessionDB", return_value=MagicMock()),
             patch(
-                "tools.daily_goal_coordinator_tool.run_daily_goal_coordinator",
+                "cron.scheduler._run_daily_goal_direct_subprocess",
                 return_value=json.dumps(
                     {
                         "success": True,
@@ -1024,7 +1173,7 @@ class TestRunJobDirectTool:
             patch("dotenv.load_dotenv"),
             patch("hermes_state.SessionDB", return_value=MagicMock()),
             patch(
-                "tools.daily_goal_coordinator_tool.run_daily_goal_coordinator",
+                "cron.scheduler._run_daily_goal_direct_subprocess",
                 return_value="not json",
             ),
         ):
@@ -1051,7 +1200,7 @@ class TestRunJobDirectTool:
             patch("dotenv.load_dotenv"),
             patch("hermes_state.SessionDB", return_value=MagicMock()),
             patch(
-                "tools.daily_goal_coordinator_tool.run_daily_goal_coordinator",
+                "cron.scheduler._run_daily_goal_direct_subprocess",
                 return_value=None,
             ),
         ):
@@ -1062,8 +1211,40 @@ class TestRunJobDirectTool:
         assert "malformed result" in error
         assert "malformed result" in output
 
+    def test_daily_goal_subprocess_timeout_terminates_process(self, tmp_path):
+        from cron.scheduler import _run_daily_goal_direct_subprocess
+
+        pid_path = tmp_path / "pid"
+        command = [
+            sys.executable,
+            "-c",
+            (
+                "import os,time,pathlib;"
+                f"pathlib.Path({str(pid_path)!r}).write_text(str(os.getpid()));"
+                "time.sleep(60)"
+            ),
+        ]
+        with pytest.raises(TimeoutError, match="deadline"):
+            _run_daily_goal_direct_subprocess(
+                {"mode": "checkin", "dry_run": True},
+                0.1,
+                command=command,
+            )
+        pid = int(pid_path.read_text())
+        with pytest.raises(ProcessLookupError):
+            os.kill(pid, 0)
+
 
 class TestDailyGoalDeliveryReconciliation:
+    @pytest.fixture(autouse=True)
+    def _patch_begin_delivery(self):
+        with patch(
+            "tools.daily_goal_coordinator_tool.begin_daily_goal_delivery",
+            return_value=True,
+        ) as begin:
+            self.begin_delivery = begin
+            yield
+
     def _job(self, *, telegram=True):
         job = {
             "id": "bcfc1f4e449e",
@@ -1092,6 +1273,10 @@ class TestDailyGoalDeliveryReconciliation:
     def test_receipt_records_real_delivery_result(self, tmp_path):
         call_order = []
 
+        self.begin_delivery.side_effect = lambda *_args, **_kwargs: (
+            call_order.append("begin") or True
+        )
+
         def deliver(*_args, **_kwargs):
             call_order.append("deliver")
 
@@ -1119,7 +1304,29 @@ class TestDailyGoalDeliveryReconciliation:
         record_mock.assert_called_once_with(
             "daily-goal:2026-07-18", "delivered"
         )
-        assert call_order == ["deliver", "record"]
+        assert call_order == ["begin", "deliver", "record"]
+
+    def test_ineligible_outbox_never_attempts_delivery(self, tmp_path):
+        self.begin_delivery.return_value = False
+        with (
+            patch("cron.scheduler.get_due_jobs", return_value=[self._job()]),
+            patch("cron.scheduler.advance_next_run"),
+            patch("cron.scheduler.run_job", side_effect=self._fake_run),
+            patch(
+                "cron.scheduler.save_job_output", return_value=tmp_path / "out.md"
+            ),
+            patch("cron.scheduler._deliver_result") as deliver,
+            patch("cron.scheduler.mark_job_run"),
+            patch(
+                "tools.daily_goal_coordinator_tool.record_daily_goal_delivery"
+            ) as record,
+        ):
+            from cron.scheduler import tick
+
+            tick(verbose=False)
+
+        deliver.assert_not_called()
+        record.assert_not_called()
 
     def test_receipt_records_delivery_failure(self, tmp_path):
         with (
@@ -1234,8 +1441,16 @@ class TestDailyGoalDeliveryReconciliation:
             patch("dotenv.load_dotenv"),
             patch("hermes_state.SessionDB", return_value=MagicMock()),
             patch(
-                "tools.daily_goal_coordinator_tool.LoopbackJsonClient",
-                return_value=ReadOnlyClient(),
+                "cron.scheduler._run_daily_goal_direct_subprocess",
+                return_value=json.dumps(
+                    {
+                        "success": True,
+                        "content": "[SILENT]",
+                        "cycle_id": "daily-goal:2026-07-18",
+                        "dry_run": True,
+                        "suppress_delivery": True,
+                    }
+                ),
             ),
             patch(
                 "tools.daily_goal_coordinator_tool.record_daily_goal_delivery"

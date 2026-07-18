@@ -8,9 +8,13 @@ def test_dry_run_never_posts_persists_executes_or_reviews(tmp_path):
     class ReadOnlyClient:
         def get(self, path):
             if path == "/v1/ernie/sessions":
-                return {"sessions": []}
-            if path == "/ik/ernie-dashboard/work-queue/list":
-                return {"items": []}
+                return {"sessions": [], "count": 0}
+            if path == "/ik/ernie-dashboard/work-queue/status":
+                return {
+                    "item_count": 0,
+                    "status_counts": {},
+                    "items": [],
+                }
             raise AssertionError(f"unexpected GET {path}")
 
         def post(self, path, payload):
@@ -35,7 +39,7 @@ def test_dry_run_never_posts_persists_executes_or_reviews(tmp_path):
             return_value=ReadOnlyClient(),
         ),
         patch(
-            "tools.daily_goal_coordinator_tool.call_orchestrator",
+            "tools.daily_goal_coordinator_tool.call_orchestrator_read_only",
             return_value=bert,
         ) as orchestrator,
         patch("tools.daily_goal_coordinator_tool.execute_goal") as execute,
@@ -111,15 +115,27 @@ def test_watchdog_retries_failed_delivery_without_rerunning_work():
     assert payload["reran_work"] is False
 
 
-def test_reused_pending_receipt_is_silent_while_delivery_is_unreconciled():
+def test_reused_unattempted_pending_receipt_retries_delivery_after_crash():
     with patch(
         "tools.daily_goal_coordinator_tool.run_daily_cycle",
         return_value=_result_for_delivery("pending"),
     ):
         payload = json.loads(run_daily_goal_coordinator(mode="checkin", dry_run=False))
 
+    assert payload["content"] == "duplicate"
+    assert payload["suppress_delivery"] is False
+
+
+def test_ambiguous_attempting_receipt_requires_operator_reconciliation():
+    with patch(
+        "tools.daily_goal_coordinator_tool.run_daily_cycle",
+        return_value=_result_for_delivery("attempting"),
+    ):
+        payload = json.loads(run_daily_goal_coordinator(mode="watchdog", dry_run=False))
+
     assert payload["content"] == "[SILENT]"
     assert payload["suppress_delivery"] is True
+    assert payload["operator_reconciliation"] is True
 
 
 def test_new_pending_receipt_requires_delivery():

@@ -1,3 +1,4 @@
+import hashlib
 import json
 
 import pytest
@@ -47,16 +48,87 @@ class FakeErnie:
 
 
 class FakeOrchestrator:
-    def __init__(self, content="REVIEW_PASS: fixed endpoint aggregates support the audit result", error=None):
+    def __init__(
+        self,
+        content=None,
+        error=None,
+        *,
+        statement="Fixed endpoint aggregates substantively support the audit result.",
+        tamper_attestation=False,
+    ):
         self.calls = []
         self.content = content
         self.error = error
+        self.statement = statement
+        self.tamper_attestation = tamper_attestation
 
-    def __call__(self, **kwargs):
-        self.calls.append(kwargs)
+    def __call__(self, input_text, **kwargs):
+        call = {"input_text": input_text, **kwargs}
+        self.calls.append(call)
         if self.error:
             raise self.error
-        return json.dumps({"success": True, "content": self.content})
+        source_receipt = kwargs.get("source_receipt")
+        if self.content is None:
+            binding = source_receipt["content"]
+            content = json.dumps(
+                {
+                    "decision": "pass",
+                    "candidate_id": binding["candidate_id"],
+                    "executor_id": binding["executor_id"],
+                    "execution_sha256": binding["execution_sha256"],
+                    "statement": self.statement,
+                }
+            )
+        else:
+            content = self.content
+        receipts = {
+            "purpose": kwargs["purpose"],
+            "items": [
+                {
+                    "kind": "caller_source_receipt",
+                    **source_receipt,
+                }
+            ],
+        }
+        payload = {
+            "purpose": kwargs["purpose"],
+            "input": input_text,
+            "max_tokens": kwargs["max_tokens"],
+            "source_receipt": source_receipt,
+        }
+
+        def digest(value):
+            if not isinstance(value, bytes):
+                value = str(value).encode()
+            return hashlib.sha256(value).hexdigest()
+
+        def canonical(value):
+            return json.dumps(
+                value,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode()
+
+        attestation = {
+            "mode": "no_tools",
+            "enabled_toolsets": [],
+            "tool_names": [],
+            "tool_calls": 0,
+            "request_sha256": digest(canonical(payload)),
+            "input_sha256": digest(input_text),
+            "output_sha256": digest(content),
+            "source_receipts_sha256": digest(canonical(receipts)),
+        }
+        if self.tamper_attestation:
+            attestation["output_sha256"] = "0" * 64
+        return json.dumps(
+            {
+                "success": True,
+                "content": content,
+                "source_receipts": receipts,
+                "attestation": attestation,
+            }
+        )
 
 
 def candidate(kind=ActionKind.READ_ONLY_AUDIT, executor_id="system-health", **changes):
@@ -259,9 +331,10 @@ def test_ernie_owned_audit_gets_strict_exact_bert_counterpart_review():
     execution = execute_goal(
         candidate(), owner="ernie", ernie=ernie, call_orchestrator=FakeOrchestrator()
     )
-    orchestrator = FakeOrchestrator(
-        "REVIEW_PASS: health status and service counts match the fixed GET evidence"
+    statement = (
+        "Health status and service counts match the fixed GET evidence."
     )
+    orchestrator = FakeOrchestrator(statement=statement)
 
     review = review_goal(
         candidate(),
@@ -273,14 +346,32 @@ def test_ernie_owned_audit_gets_strict_exact_bert_counterpart_review():
 
     assert review.ok is True
     assert review.reviewer == "bert"
-    assert review.summary == (
-        "REVIEW_PASS: health status and service counts match the fixed GET evidence"
-    )
-    assert review.evidence == ("bert:review-of-fixed-get-evidence",)
+    assert review.summary == statement
+    assert review.review_statement == statement
+    assert review.review_hash == hashlib.sha256(
+        json.dumps(
+            {
+                "metrics_hash": review.review_metrics_hash,
+                "source": review.review_source,
+                "statement": statement,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode()
+    ).hexdigest()
+    assert review.review_metrics_hash == hashlib.sha256(
+        execution.summary.encode()
+    ).hexdigest()
+    assert review.review_source.startswith("bert-no-tools:")
+    assert review.evidence[0] == "bert:no-tools-review"
     assert len(orchestrator.calls) == 1
-    assert execution.summary in orchestrator.calls[0]["task"]
-    assert "CANDIDATE_SENTINEL" not in orchestrator.calls[0]["task"]
-    assert "EVIDENCE_SENTINEL" not in orchestrator.calls[0]["task"]
+    source = orchestrator.calls[0]["source_receipt"]
+    assert source["content"]["candidate_id"] == "goal-1"
+    assert source["content"]["executor_id"] == "system-health"
+    assert source["content"]["execution_sha256"] == review.review_metrics_hash
+    assert execution.summary in source["content"]["execution_summary"]
+    assert "CANDIDATE_SENTINEL" not in orchestrator.calls[0]["input_text"]
+    assert "EVIDENCE_SENTINEL" not in orchestrator.calls[0]["input_text"]
     assert ernie.posts == []
 
 
@@ -322,6 +413,51 @@ def test_bert_review_exception_is_a_blocked_outcome():
         call_orchestrator=FakeOrchestrator(error=RuntimeError("offline")),
     )
 
+    assert review.ok is False
+    assert review.blocker == "Bert review failed"
+
+
+def test_tampered_no_tools_attestation_blocks_review():
+    review = review_goal(
+        candidate(),
+        owner="ernie",
+        execution_summary=(
+            "system-health audit: health_status=ok; offline_capable=true; services_up=2/3"
+        ),
+        ernie=FakeErnie(),
+        call_orchestrator=FakeOrchestrator(tamper_attestation=True),
+    )
+    assert review.ok is False
+    assert review.blocker == "Bert review failed"
+
+
+@pytest.mark.parametrize(
+    "changed",
+    [
+        {"candidate_id": "other"},
+        {"executor_id": "scheduler-health"},
+        {"execution_sha256": "0" * 64},
+    ],
+)
+def test_review_binding_mismatch_fails_closed(changed):
+    summary = (
+        "system-health audit: health_status=ok; offline_capable=true; services_up=2/3"
+    )
+    content = {
+        "decision": "pass",
+        "candidate_id": "goal-1",
+        "executor_id": "system-health",
+        "execution_sha256": hashlib.sha256(summary.encode()).hexdigest(),
+        "statement": "Fixed endpoint aggregates substantively support the audit result.",
+    }
+    content.update(changed)
+    review = review_goal(
+        candidate(),
+        owner="ernie",
+        execution_summary=summary,
+        ernie=FakeErnie(),
+        call_orchestrator=FakeOrchestrator(json.dumps(content)),
+    )
     assert review.ok is False
     assert review.blocker == "Bert review failed"
 
