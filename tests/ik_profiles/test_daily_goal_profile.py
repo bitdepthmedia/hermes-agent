@@ -17,14 +17,22 @@ def checkout_root_for_common_git_dir(common_git_dir):
     return common_git_dir.parent
 
 
-def common_checkout_root(root):
+def common_git_dir(root):
     result = subprocess.run(
         ["git", "-C", str(root), "rev-parse", "--path-format=absolute", "--git-common-dir"],
         text=True,
         capture_output=True,
         check=True,
     )
-    return checkout_root_for_common_git_dir(Path(result.stdout.strip()))
+    return Path(result.stdout.strip())
+
+
+def common_checkout_root(root):
+    return checkout_root_for_common_git_dir(common_git_dir(root))
+
+
+def repository_python_for_common_git_dir(common_git_dir):
+    return checkout_root_for_common_git_dir(common_git_dir) / ".venv" / "bin" / "python"
 
 
 def runtime_python_supports_cron(python):
@@ -40,7 +48,7 @@ def resolve_runtime_python():
     system = Path(sys.executable)
     if runtime_python_supports_cron(system):
         return system
-    repository_python = common_checkout_root(ROOT) / ".venv" / "bin" / "python"
+    repository_python = repository_python_for_common_git_dir(common_git_dir(ROOT))
     if runtime_python_supports_cron(repository_python):
         return repository_python
     raise RuntimeError("no Python runtime with croniter is available for profile tests")
@@ -49,10 +57,19 @@ def resolve_runtime_python():
 def test_runtime_python_resolution_works_from_linked_and_normal_checkouts():
     runtime_python = resolve_runtime_python()
     assert runtime_python_supports_cron(runtime_python)
-    common_root = common_checkout_root(ROOT)
-    assert common_root.name == "hermes-agent"
-    assert (common_root / ".venv" / "bin" / "python").is_file()
-    assert checkout_root_for_common_git_dir(Path("/tmp/hermes-agent/.git")) == Path("/tmp/hermes-agent")
+    system_python = Path(sys.executable)
+    if runtime_python_supports_cron(system_python):
+        assert runtime_python == system_python
+    else:
+        common_root = common_checkout_root(ROOT)
+        assert runtime_python == common_root / ".venv" / "bin" / "python"
+        assert runtime_python.is_file()
+
+    normal_common_git_dir = Path("/tmp/arbitrary-clone-name/.git")
+    assert checkout_root_for_common_git_dir(normal_common_git_dir) == Path("/tmp/arbitrary-clone-name")
+    assert repository_python_for_common_git_dir(normal_common_git_dir) == Path(
+        "/tmp/arbitrary-clone-name/.venv/bin/python"
+    )
 
 
 def load(name):
