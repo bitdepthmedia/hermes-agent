@@ -327,7 +327,15 @@ def _deliver_result(job: dict, content: str, adapters=None, loop=None) -> Option
     # Prefer the live adapter when the gateway is running — this supports E2EE
     # rooms (e.g. Matrix) where the standalone HTTP path cannot encrypt.
     runtime_adapter = (adapters or {}).get(platform)
-    if runtime_adapter is not None and loop is not None and getattr(loop, "is_running", lambda: False)():
+    if (
+        not (
+            platform_name.lower() == "telegram"
+            and job.get("_daily_goal_cycle_id")
+        )
+        and runtime_adapter is not None
+        and loop is not None
+        and getattr(loop, "is_running", lambda: False)()
+    ):
         send_metadata = {"thread_id": thread_id} if thread_id else None
         try:
             # Send cleaned text (MEDIA tags stripped) — not the raw content

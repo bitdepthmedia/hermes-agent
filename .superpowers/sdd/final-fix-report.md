@@ -2,11 +2,31 @@
 
 ## Outcome
 
-All first-pass findings and all 10 second-pass findings are fixed locally on
+All first-, second-, and third-pass findings are fixed locally on
 `ik/daily-goal-coordinator`. No live profile, scheduler, Telegram,
 DigitalOcean, or activation action was performed.
 
 ## Finding closure
+
+### Third-pass closure
+
+1. Ernie history consumes the real `{sessions,count}` contract and derives
+   seven-day completeness from the 25-record cap and real timestamps. It emits
+   a canonical client-side digest and record-bound candidates.
+2. Trigger resolution requires correct identity, evidence, source receipts,
+   current-date freshness, and complete history; invalid idle claims normalize
+   to `UNKNOWN`.
+3. SessionDB conversations no longer count as tasks. Bert status derives only
+   from complete cron/runtime task sources.
+4. Clean complete histories select the deterministic process-health fallback
+   with evidence bound to both completeness receipts.
+5. UNKNOWN retry has a recoverable leased `in_progress` state and durable
+   `completed` state.
+6. Daily-goal Telegram sends bypass the adapter's three-attempt loop and use a
+   bounded single-attempt path.
+7. Operator alerts drain across prior cycles with exactly-once claims.
+8. Persisted/rendered delivery errors redact URLs, bot tokens, authorization
+   headers, query credentials, and generic secrets.
 
 ### Second-pass closure
 
@@ -89,13 +109,15 @@ python3 -m pytest -o addopts='' -q \
   tests/cron \
   tests/ik_profiles
 
-364 passed, 4 skipped in 15.91s
+370 passed, 4 skipped in 16.00s
 ```
 
 ```text
-python3 -m pytest -o addopts='' -q tests/gateway/test_api_server_toolset.py
+python3 -m pytest -o addopts='' -q \
+  tests/gateway/test_api_server_toolset.py \
+  tests/tools/test_call_orchestrator_tool.py
 
-17 passed in 0.25s
+25 passed in 0.26s
 ```
 
 Additional checks passed:
@@ -118,6 +140,7 @@ skips in `tests/cron/test_jobs.py`.
 - No-tools adapter: `4219aa6c2 feat: enforce no-tools orchestrator adapter`
 - First-pass safety fixes: `95a240d6b fix: close daily goal coordinator safety gaps`
 - Second-pass fixes and this report: committed together after verification.
+- Third-pass real-contract and delivery fixes: committed after verification.
 
 ## Activation state
 

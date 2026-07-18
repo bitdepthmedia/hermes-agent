@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import urllib.request
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Callable
 from urllib.parse import urlparse
 
@@ -254,6 +254,7 @@ def _queue_evidence(payload: object) -> tuple[list[str], list[str], tuple[str, .
 
 def _session_evidence(
     payload: object,
+    now: datetime,
 ) -> tuple[list[str], list[str], bool, tuple[str, ...]]:
     """Return pending evidence, uncertainty, completeness, and source receipts."""
     if not isinstance(payload, dict):
@@ -270,13 +271,8 @@ def _session_evidence(
 
     pending: list[str] = []
     unknown: list[str] = []
-    coverage = payload.get("history_coverage")
-    history_complete = bool(
-        isinstance(coverage, dict)
-        and coverage.get("complete") is True
-        and isinstance(coverage.get("receipt_id"), str)
-        and coverage["receipt_id"]
-    )
+    timestamps: list[datetime] = []
+    history_complete = count < SESSION_LIMIT
     for row in sessions:
         if not isinstance(row, dict):
             unknown.append("sessions:invalid-row")
@@ -284,6 +280,7 @@ def _session_evidence(
         session_id = row.get("session_id")
         state = row.get("latest_status")
         entry_count = row.get("entry_count")
+        updated_at = row.get("updated_at")
         if (
             not isinstance(session_id, str)
             or not session_id
@@ -294,18 +291,31 @@ def _session_evidence(
         ):
             unknown.append("sessions:invalid-row")
             continue
+        try:
+            parsed = (
+                datetime.fromtimestamp(float(updated_at), tz=UTC)
+                if isinstance(updated_at, (int, float))
+                and not isinstance(updated_at, bool)
+                else datetime.fromisoformat(str(updated_at).replace("Z", "+00:00"))
+            )
+            if parsed.tzinfo is None:
+                raise ValueError
+            timestamps.append(parsed.astimezone(UTC))
+        except (TypeError, ValueError, OverflowError):
+            unknown.append("sessions:invalid-timestamp")
         if entry_count == SESSION_ENTRY_LIMIT:
             history_complete = False
         if state in PENDING_SESSION_STATES:
             pending.append(f"session:{session_id}:{state}")
+    if count == SESSION_LIMIT:
+        cutoff = now.astimezone(UTC) - timedelta(days=7)
+        history_complete = bool(timestamps) and min(timestamps) <= cutoff
+    if len(timestamps) != count:
+        history_complete = False
     if not history_complete:
         unknown.append("sessions:history-incomplete")
-    receipts = (
-        str(coverage["receipt_id"])
-        if isinstance(coverage, dict)
-        and isinstance(coverage.get("receipt_id"), str)
-        else f"ernie:sessions:{count}/{SESSION_LIMIT}:unattested",
-    )
+    receipt_digest = _sha256(_canonical_bytes({"count": count, "sessions": sessions}))
+    receipts = (f"ernie:sessions:sha256:{receipt_digest}",)
     return pending, unknown, history_complete, receipts
 
 
@@ -332,13 +342,12 @@ def collect_ernie_status(client: LoopbackJsonClient, now: datetime) -> AgentStat
         session_unknown,
         history_complete,
         session_receipts,
-    ) = _session_evidence(session_payload)
+    ) = _session_evidence(session_payload, now)
     pending = queue_pending + session_pending
     unknown = source_errors + queue_unknown + session_unknown
     receipts = session_receipts + queue_receipts
     candidates: tuple[ImprovementCandidate, ...] = ()
     if history_complete and isinstance(session_payload, dict):
-        coverage = session_payload.get("history_coverage")
         record_refs = {
             f"session:{row.get('session_id')}"
             for row in session_payload.get("sessions") or ()
@@ -346,8 +355,20 @@ def collect_ernie_status(client: LoopbackJsonClient, now: datetime) -> AgentStat
         }
         try:
             candidates = tuple(
-                _candidate(value, allowed_record_refs=record_refs)
-                for value in (coverage.get("candidates") or ())
+                ImprovementCandidate(
+                    f"ernie-session-{row['session_id']}"[:80],
+                    f"Audit follow-up for Ernie session {row['session_id']}"[:160],
+                    "reliability",
+                    (f"session:{row['session_id']}",),
+                    2, 1, 3, 1, 0,
+                    ActionKind.READ_ONLY_AUDIT,
+                    "ernie",
+                    "scheduler-health",
+                )
+                for row in session_payload.get("sessions") or ()
+                if isinstance(row, dict)
+                and row.get("latest_status") == "completed"
+                and row.get("latest_files_changed")
             )
         except Exception:
             unknown.append("sessions:invalid-candidate-attestation")
@@ -449,6 +470,12 @@ def collect_bert_status(call_orchestrator: Callable[..., str], now: datetime) ->
             for item in items
             if isinstance(item, dict)
         }
+        item_by_kind = {
+            item.get("kind"): item
+            for item in items
+            if isinstance(item, dict)
+        }
+        cron_item = item_by_kind.get("cron_metadata") or {}
         if (
             len(items) != 2
             or kinds != {"session_db_metadata", "cron_metadata"}
@@ -460,14 +487,10 @@ def collect_bert_status(call_orchestrator: Callable[..., str], now: datetime) ->
                 "NO_PENDING_WORK",
             }
             or not isinstance(derived.get("evidence_refs"), list)
-            or any(
-                not isinstance(item, dict)
-                or item.get("available") is not True
-                or not isinstance(item.get("pagination"), dict)
-                or item["pagination"].get("complete") is not True
-                or item["pagination"].get("truncated") is not False
-                for item in items
-            )
+            or cron_item.get("available") is not True
+            or not isinstance(cron_item.get("pagination"), dict)
+            or cron_item["pagination"].get("complete") is not True
+            or cron_item["pagination"].get("truncated") is not False
         ):
             return AgentStatus(
                 "bert",

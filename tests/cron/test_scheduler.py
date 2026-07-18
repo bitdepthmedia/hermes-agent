@@ -834,6 +834,30 @@ class TestDeliverResultErrorReturns:
         with pytest.raises(TimeoutError, match="deadline"):
             _standalone_send_with_deadline(lambda: stuck(), timeout=0.01)
 
+    def test_daily_goal_telegram_uses_exactly_one_standalone_attempt(self):
+        from gateway.config import Platform
+
+        adapter = AsyncMock()
+        loop = MagicMock()
+        loop.is_running.return_value = True
+        pconfig = MagicMock(enabled=True)
+        config = MagicMock(platforms={Platform.TELEGRAM: pconfig})
+        job = {
+            "id": "daily-goal",
+            "_daily_goal_cycle_id": "daily-goal:2026-07-18",
+            "deliver": "origin",
+            "origin": {"platform": "telegram", "chat_id": "123"},
+            "wrap_response": False,
+        }
+        standalone = AsyncMock(return_value={"success": True})
+        with patch("gateway.config.load_gateway_config", return_value=config), \
+             patch("tools.send_message_tool._send_to_platform", standalone):
+            assert _deliver_result(
+                job, "check-in", adapters={Platform.TELEGRAM: adapter}, loop=loop
+            ) is None
+        adapter.send.assert_not_called()
+        standalone.assert_awaited_once()
+
     def test_returns_error_for_unknown_platform(self):
         job = {
             "id": "bad-platform",

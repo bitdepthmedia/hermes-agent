@@ -721,23 +721,16 @@ class APIServerAdapter(BasePlatformAdapter):
             },
             "records": cron_records,
         }
+        # SessionDB rows are conversation lifecycle metadata, not an
+        # authoritative task tracker. Only explicit cron/runtime failures are
+        # task evidence here.
         pending_refs = [
-            f"session:{record['id']}"
-            for record in session_records
-            if record["ended_at"] is None and record["id"]
-        ]
-        pending_refs.extend(
             f"cron:{record['id']}"
             for record in cron_records
             if record["id"]
             and (record["has_last_error"] or record["has_delivery_error"])
-        )
-        coverage_complete = bool(
-            session_available
-            and session_complete
-            and cron_available
-            and cron_complete
-        )
+        ]
+        coverage_complete = bool(cron_available and cron_complete)
         derived_status = (
             "UNKNOWN"
             if not coverage_complete
@@ -748,6 +741,13 @@ class APIServerAdapter(BasePlatformAdapter):
             "generated_at": now.isoformat(),
             "coverage": {
                 "complete": coverage_complete,
+                "task_sources": {
+                    "cron_runtime": {
+                        "available": cron_available,
+                        "complete": cron_complete,
+                    },
+                    "session_db": "conversation_metadata_only",
+                },
                 "records_scanned": rows_scanned + len(cron_records),
                 "pending_record_refs": pending_refs,
             },

@@ -23,6 +23,8 @@ def status(agent: str, value: WorkStatus) -> AgentStatus:
         evidence=(f"{agent}:{value.value}",),
         freshness_at="2026-07-18T09:05:00-04:00",
         candidates=(),
+        history_complete=True,
+        source_receipts=(f"{agent}:source",),
     )
 
 
@@ -124,6 +126,24 @@ def test_ambiguous_delivery_enqueues_one_operator_alert(tmp_path):
     assert store.begin_alert_delivery(cycle.cycle_id) is False
     store.update_alert_delivery(cycle.cycle_id, "delivered")
     assert store.get_alert(cycle.cycle_id)["state"] == "delivered"
+
+
+def test_prior_cycle_exhausted_alert_is_drainable_later(tmp_path):
+    store = DailyGoalStore(tmp_path / "shared-core.db")
+    old = store.get_or_create_cycle(date(2026, 7, 17))
+    store.save_receipt(DailyReceipt(
+        old.cycle_id, "PENDING_WORK", "NO_PENDING_WORK", "normal_work",
+        (), None, None, None, None, (), (), (), "pending",
+    ))
+    for _ in range(2):
+        assert store.begin_delivery(old.cycle_id) is not None
+        store.update_delivery(old.cycle_id, "failed", error="definitive")
+    store.get_or_create_cycle(date(2026, 7, 18))
+    alert = store.get_next_alert()
+    assert alert["cycle_id"] == old.cycle_id
+    assert store.begin_alert_delivery(old.cycle_id) is True
+    store.update_alert_delivery(old.cycle_id, "delivered")
+    assert store.get_next_alert() is None
 
 
 def test_tampered_structured_review_receipt_is_rejected(tmp_path):
@@ -293,10 +313,27 @@ def test_unknown_retry_is_durable_after_lease_window(tmp_path):
     first = datetime(2026, 7, 18, 13, 0, tzinfo=UTC)
     much_later = first + timedelta(hours=4)
     assert store.try_claim(cycle.cycle_id, "unknown_retry", now=first) is True
-    assert (
-        store.try_claim(cycle.cycle_id, "unknown_retry", now=much_later)
-        is False
-    )
+    assert store.try_claim(cycle.cycle_id, "unknown_retry", now=much_later) is True
+    store.complete_unknown_retry(cycle.cycle_id)
+    assert store.try_claim(
+        cycle.cycle_id, "unknown_retry", now=much_later + timedelta(hours=4)
+    ) is False
+
+
+def test_delivery_error_is_redacted_before_alert_persistence(tmp_path):
+    store = DailyGoalStore(tmp_path / "shared-core.db")
+    cycle = store.get_or_create_cycle(date(2026, 7, 18))
+    store.save_receipt(DailyReceipt(
+        cycle.cycle_id, "PENDING_WORK", "NO_PENDING_WORK", "normal_work",
+        (), None, None, None, None, (), (), (), "pending",
+    ))
+    store.begin_delivery(cycle.cycle_id)
+    secret = "https://api.telegram.org/bot123456:ABC/send?token=hunter2 Authorization: Bearer xyz"
+    store.update_delivery(cycle.cycle_id, "unknown", error=secret)
+    rendered = store.get_alert(cycle.cycle_id)["last_error"]
+    assert "123456:ABC" not in rendered
+    assert "hunter2" not in rendered
+    assert "Bearer xyz" not in rendered
 
 
 def test_new_semantic_receipt_resets_delivery_state(tmp_path):

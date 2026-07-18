@@ -265,8 +265,8 @@ class TestApiServerAdapterToolset:
         }
         cron = receipts["items"][1]
         assert cron["pagination"]["rows_in_window"] == 1
-        assert receipts["derived_status"]["status"] == "PENDING_WORK"
-        assert "session:recent-1" in receipts["coverage"]["pending_record_refs"]
+        assert receipts["derived_status"]["status"] == "NO_PENDING_WORK"
+        assert receipts["coverage"]["pending_record_refs"] == []
 
     @patch("gateway.platforms.api_server.AIOHTTP_AVAILABLE", True)
     def test_status_receipt_keeps_older_unresolved_session(self):
@@ -291,8 +291,8 @@ class TestApiServerAdapterToolset:
             receipts = adapter._collect_read_only_status_receipts(now=now)
         assert receipts["items"][0]["records"][0]["id"] == "older-open"
         assert receipts["derived_status"] == {
-            "status": "PENDING_WORK",
-            "evidence_refs": ["session:older-open"],
+            "status": "NO_PENDING_WORK",
+            "evidence_refs": ["coverage:complete"],
         }
 
     @patch("gateway.platforms.api_server.AIOHTTP_AVAILABLE", True)

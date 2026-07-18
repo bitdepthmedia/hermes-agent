@@ -103,7 +103,17 @@ class FakeClient:
         item_count=None,
         status_counts=None,
     ):
-        self.sessions = sessions
+        self.sessions = [
+            {
+                "created_at": NOW.timestamp() - 3600,
+                "updated_at": NOW.timestamp() - 3600,
+                "latest_files_changed": [],
+                "latest_backups_created": [],
+                "latest_refusal_reason": None,
+                **session,
+            }
+            for session in sessions
+        ]
         self.items = items
         self.session_count = len(sessions) if session_count is None else session_count
         self.item_count = len(items) if item_count is None else item_count
@@ -117,15 +127,7 @@ class FakeClient:
 
     def get(self, path):
         if path == "/v1/ernie/sessions":
-            return {
-                "sessions": self.sessions,
-                "count": self.session_count,
-                "history_coverage": {
-                    "complete": self.session_count < 25,
-                    "receipt_id": f"ernie:sessions:{self.session_count}/25",
-                    "candidates": [],
-                },
-            }
+            return {"sessions": self.sessions, "count": self.session_count}
         if path == "/ik/ernie-dashboard/work-queue/status":
             return {
                 "item_count": self.item_count,
@@ -160,6 +162,43 @@ def test_result_backed_ready_item_is_terminal_only_after_checks_pass():
 def test_ernie_is_idle_only_when_sources_succeed_and_nothing_is_open():
     result = collect_ernie_status(FakeClient([], []), NOW)
     assert result.status is WorkStatus.NO_PENDING_WORK
+    assert result.source_receipts[0].startswith("ernie:sessions:sha256:")
+
+
+def test_full_real_session_cap_is_complete_when_oldest_covers_window():
+    sessions = [
+        {
+            "session_id": f"s-{index}",
+            "created_at": NOW.timestamp() - (index * 86400),
+            "updated_at": NOW.timestamp() - (index * 86400),
+            "latest_status": "completed",
+            "entry_count": 1,
+            "latest_files_changed": [],
+            "latest_backups_created": [],
+            "latest_refusal_reason": None,
+        }
+        for index in range(25)
+    ]
+    result = collect_ernie_status(FakeClient(sessions, []), NOW)
+    assert result.status is WorkStatus.NO_PENDING_WORK
+    assert result.history_complete is True
+
+
+def test_full_real_session_cap_inside_window_is_unknown():
+    sessions = [
+        {
+            "session_id": f"s-{index}",
+            "created_at": NOW.timestamp() - index,
+            "updated_at": NOW.timestamp() - index,
+            "latest_status": "completed",
+            "entry_count": 1,
+            "latest_files_changed": [],
+            "latest_backups_created": [],
+            "latest_refusal_reason": None,
+        }
+        for index in range(25)
+    ]
+    assert collect_ernie_status(FakeClient(sessions, []), NOW).status is WorkStatus.UNKNOWN
 
 
 def test_ernie_reports_pending_for_a_real_ready_item():
@@ -303,7 +342,7 @@ def test_session_cap_fails_closed_and_disables_history_ranking():
 def test_complete_sources_include_bounded_source_receipts():
     result = collect_ernie_status(FakeClient([], []), NOW)
     assert result.history_complete is True
-    assert "ernie:sessions:0/25" in result.source_receipts
+    assert result.source_receipts[0].startswith("ernie:sessions:sha256:")
     assert "ernie:queue:0" in result.source_receipts
 
 

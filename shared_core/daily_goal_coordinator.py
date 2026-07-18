@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from .daily_goal import (
@@ -169,6 +169,41 @@ def _collect_status(
         )
 
 
+def _normalize_status(
+    status: AgentStatus, expected_agent: str, now: datetime
+) -> AgentStatus:
+    valid = (
+        status.agent == expected_agent
+        and bool(status.evidence)
+        and bool(status.source_receipts)
+        and status.history_complete
+    )
+    try:
+        fresh = datetime.fromisoformat(status.freshness_at.replace("Z", "+00:00"))
+        if fresh.tzinfo is None:
+            raise ValueError
+        fresh = fresh.astimezone(UTC)
+        current = now.astimezone(UTC)
+        valid = valid and timedelta(0) <= current - fresh <= timedelta(hours=24)
+        valid = valid and fresh.astimezone(NEW_YORK).date() == now.astimezone(
+            NEW_YORK
+        ).date()
+    except (AttributeError, TypeError, ValueError):
+        valid = False
+    if valid:
+        return status
+    return AgentStatus(
+        expected_agent,
+        WorkStatus.UNKNOWN,
+        f"{expected_agent.capitalize()} provenance is stale or incomplete",
+        ("provenance:invalid",),
+        now.astimezone(UTC).isoformat(),
+        (),
+        history_complete=False,
+        source_receipts=("provenance:invalid",),
+    )
+
+
 def run_daily_cycle(
     *,
     mode,
@@ -211,12 +246,14 @@ def run_daily_cycle(
 
     ernie, ernie_collection_blocker = _collect_status("ernie", collect_ernie, now)
     bert, bert_collection_blocker = _collect_status("bert", collect_bert, now)
+    ernie = _normalize_status(ernie, "ernie", now)
+    bert = _normalize_status(bert, "bert", now)
     collection_blockers = tuple(
         blocker
         for blocker in (ernie_collection_blocker, bert_collection_blocker)
         if blocker is not None
     )
-    trigger = resolve_trigger(ernie, bert)
+    trigger = resolve_trigger(ernie, bert, now=now)
     payload = {
         "ernie": ernie.status.value,
         "bert": bert.status.value,
@@ -272,6 +309,11 @@ def run_daily_cycle(
             and value.count(":") >= 1
             and not value.endswith((":clear", ":verified"))
         )
+        if not specific_refs and not ranked:
+            specific_refs = (
+                f"ernie-complete:{hashlib.sha256('|'.join(ernie.source_receipts).encode()).hexdigest()}",
+                f"bert-complete:{hashlib.sha256('|'.join(bert.source_receipts).encode()).hexdigest()}",
+            )
         if specific_refs:
             attempts.append(_fallback_candidate(specific_refs))
         if not attempts:
@@ -453,6 +495,8 @@ def run_daily_cycle(
         decision_integrity_hash=receipt_integrity_hash(receipt),
     )
     receipt = store.save_receipt(receipt)
+    if claim_kind == "unknown_retry":
+        store.complete_unknown_retry(cycle.cycle_id)
     return CoordinatorResult(
         receipt,
         format_telegram_summary(receipt),

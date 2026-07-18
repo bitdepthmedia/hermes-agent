@@ -30,6 +30,7 @@ def status(agent, value, candidates=()):
         NOW.isoformat(),
         tuple(candidates),
         history_complete=True,
+        source_receipts=(f"{agent}:source:receipt",),
     )
 
 
@@ -441,6 +442,21 @@ def test_watchdog_retries_unknown_only_once(tmp_path):
     assert retried.reran_work is True
     assert reused.reran_work is False
     assert calls["bert"] == 2
+
+
+def test_year_2000_empty_idle_provenance_is_unknown(tmp_path):
+    stale = AgentStatus(
+        "ernie", WorkStatus.NO_PENDING_WORK, "idle", (),
+        "2000-01-01T00:00:00+00:00", (), history_complete=True,
+        source_receipts=(),
+    )
+    result = run_daily_cycle(
+        mode="checkin", now=NOW, store=DailyGoalStore(tmp_path / "core.db"),
+        collect_ernie=lambda: stale,
+        collect_bert=lambda: status("bert", WorkStatus.NO_PENDING_WORK),
+        execute=lambda *_: None, review=lambda *_: None,
+    )
+    assert result.receipt.trigger == "unknown"
 
 
 def test_watchdog_never_reruns_completed_work(tmp_path):

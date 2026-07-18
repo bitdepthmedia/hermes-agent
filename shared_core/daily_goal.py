@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import sqlite3
 from dataclasses import asdict, dataclass
 from datetime import UTC, date, datetime, timedelta
 from enum import Enum
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 
 CLAIM_LEASE_SECONDS = 15 * 60
@@ -19,6 +21,27 @@ _DELIVERY_FIELDS = {
     "delivery_last_attempt_at",
     "delivery_last_error",
 }
+
+
+def sanitize_delivery_error(error: object) -> str:
+    text = str(error or "")
+    text = re.sub(
+        r"https?://[^\s]+", "[REDACTED_URL]", text, flags=re.IGNORECASE
+    )
+    text = re.sub(
+        r"\b(?:authorization|proxy-authorization)\s*:\s*[^\s]+(?:\s+[^\s]+)?",
+        "Authorization: [REDACTED]",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"\b(?:token|secret|password|api[_-]?key|credential)\s*[=:]\s*[^\s&]+",
+        "[REDACTED_SECRET]",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"\bbot\d+:[A-Za-z0-9_-]+", "bot[REDACTED]", text)
+    return text[:500]
 
 
 class WorkStatus(str, Enum):
@@ -127,7 +150,35 @@ def receipt_integrity_hash(receipt: DailyReceipt | dict) -> str:
     ).hexdigest()
 
 
-def resolve_trigger(ernie: AgentStatus, bert: AgentStatus) -> CycleState:
+def resolve_trigger(
+    ernie: AgentStatus,
+    bert: AgentStatus,
+    *,
+    now: datetime | None = None,
+) -> CycleState:
+    current = (now or datetime.now(UTC)).astimezone(UTC)
+    local_zone = ZoneInfo("America/New_York")
+    for expected, status in (("ernie", ernie), ("bert", bert)):
+        try:
+            fresh = datetime.fromisoformat(
+                status.freshness_at.replace("Z", "+00:00")
+            )
+            if fresh.tzinfo is None:
+                raise ValueError
+            fresh = fresh.astimezone(UTC)
+            valid = (
+                status.agent == expected
+                and bool(status.evidence)
+                and bool(status.source_receipts)
+                and status.history_complete
+                and timedelta(0) <= current - fresh <= timedelta(hours=24)
+                and fresh.astimezone(local_zone).date()
+                == current.astimezone(local_zone).date()
+            )
+        except (AttributeError, TypeError, ValueError):
+            valid = False
+        if not valid:
+            return CycleState.UNKNOWN
     statuses = {ernie.status, bert.status}
     if WorkStatus.PENDING_WORK in statuses:
         return CycleState.NORMAL_WORK
@@ -182,6 +233,12 @@ class DailyGoalStore:
                 last_attempt_at TEXT,
                 last_error TEXT NOT NULL,
                 updated_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS daily_goal_retry_claims (
+                cycle_id TEXT PRIMARY KEY,
+                state TEXT NOT NULL,
+                claimed_at TEXT NOT NULL,
+                attempt_count INTEGER NOT NULL DEFAULT 0
             );
             """
         )
@@ -258,9 +315,21 @@ class DailyGoalStore:
             self._conn.execute("BEGIN IMMEDIATE")
             if claim_kind == "unknown_retry":
                 cursor = self._conn.execute(
-                    "INSERT OR IGNORE INTO daily_goal_claims "
-                    "(cycle_id, claim_kind, claimed_at) VALUES (?, ?, ?)",
-                    (cycle_id, claim_kind, claimed_at.isoformat()),
+                    """
+                    INSERT INTO daily_goal_retry_claims
+                    (cycle_id, state, claimed_at, attempt_count)
+                    VALUES (?, 'in_progress', ?, 1)
+                    ON CONFLICT(cycle_id) DO UPDATE SET
+                      state='in_progress', claimed_at=excluded.claimed_at,
+                      attempt_count=daily_goal_retry_claims.attempt_count+1
+                    WHERE daily_goal_retry_claims.state='in_progress'
+                      AND daily_goal_retry_claims.claimed_at <= ?
+                    """,
+                    (
+                        cycle_id,
+                        claimed_at.isoformat(),
+                        stale_before.isoformat(),
+                    ),
                 )
             else:
                 cursor = self._conn.execute(
@@ -284,6 +353,16 @@ class DailyGoalStore:
         except Exception:
             self._conn.rollback()
             raise
+
+    def complete_unknown_retry(self, cycle_id: str) -> None:
+        cursor = self._conn.execute(
+            "UPDATE daily_goal_retry_claims SET state='completed' "
+            "WHERE cycle_id=? AND state='in_progress'",
+            (cycle_id,),
+        )
+        self._conn.commit()
+        if cursor.rowcount != 1:
+            raise ValueError("unknown retry is not in progress")
 
     def save_receipt(self, receipt: DailyReceipt) -> DailyReceipt:
         try:
@@ -547,7 +626,7 @@ class DailyGoalStore:
     ) -> DailyReceipt:
         if status not in {"delivered", "failed", "unknown"}:
             raise ValueError("unsupported Telegram delivery status")
-        bounded_error = None if error is None else str(error)[:500]
+        bounded_error = None if error is None else sanitize_delivery_error(error)
         try:
             self._conn.execute("BEGIN IMMEDIATE")
             row = self._conn.execute(
@@ -609,6 +688,14 @@ class DailyGoalStore:
             (cycle_id,),
         ).fetchone()
 
+    def get_next_alert(self) -> sqlite3.Row | None:
+        return self._conn.execute(
+            "SELECT * FROM daily_goal_alert_outbox "
+            "WHERE state IN ('pending','failed') AND attempt_count < ? "
+            "ORDER BY updated_at, cycle_id LIMIT 1",
+            (MAX_DELIVERY_ATTEMPTS,),
+        ).fetchone()
+
     def begin_alert_delivery(self, cycle_id: str) -> bool:
         now = datetime.now(UTC).isoformat()
         cursor = self._conn.execute(
@@ -631,7 +718,7 @@ class DailyGoalStore:
             self._conn.execute(
                 "UPDATE daily_goal_alert_outbox SET state=?, last_error=?, updated_at=? "
                 "WHERE cycle_id=? AND state!='delivered'",
-                (status, str(error)[:500], datetime.now(UTC).isoformat(), cycle_id),
+                (status, sanitize_delivery_error(error), datetime.now(UTC).isoformat(), cycle_id),
             )
         else:
             self._conn.execute(

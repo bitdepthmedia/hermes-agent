@@ -100,7 +100,7 @@ def run_daily_goal_coordinator(mode: str = "checkin", dry_run: bool = False) -> 
         receipt = result.receipt
         delivery_status = receipt.telegram_delivery if receipt is not None else None
         alert = (
-            store.get_alert(result.cycle_id)
+            store.get_next_alert()
             if receipt is not None and not dry_run
             else None
         )
@@ -108,6 +108,9 @@ def run_daily_goal_coordinator(mode: str = "checkin", dry_run: bool = False) -> 
             alert is not None
             and alert["state"] in {"pending", "failed"}
             and alert["attempt_count"] < 2
+        )
+        delivery_cycle_id = (
+            str(alert["cycle_id"]) if alert_eligible else result.cycle_id
         )
         operator_reconciliation = delivery_status in {"attempting", "unknown"} or bool(alert)
         suppress_delivery = (
@@ -135,7 +138,7 @@ def run_daily_goal_coordinator(mode: str = "checkin", dry_run: bool = False) -> 
             {
                 "success": True,
                 "content": content,
-                "cycle_id": result.cycle_id,
+                "cycle_id": delivery_cycle_id,
                 "reran_work": result.reran_work,
                 "dry_run": bool(dry_run),
                 "suppress_delivery": suppress_delivery,
