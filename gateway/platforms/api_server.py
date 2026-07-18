@@ -737,9 +737,9 @@ class APIServerAdapter(BasePlatformAdapter):
             and cron_complete
         )
         derived_status = (
-            "UNKNOWN"
-            if not coverage_complete
-            else ("PENDING_WORK" if pending_refs else "NO_PENDING_WORK")
+            "PENDING_WORK"
+            if pending_refs
+            else ("NO_PENDING_WORK" if coverage_complete else "UNKNOWN")
         )
         return {
             "purpose": "status",

@@ -318,6 +318,27 @@ class TestApiServerAdapterToolset:
         assert receipt["derived_status"]["status"] == "UNKNOWN"
 
     @patch("gateway.platforms.api_server.AIOHTTP_AVAILABLE", True)
+    def test_explicit_cron_failure_precedes_incomplete_conversation_history(self):
+        from gateway.platforms import api_server
+        from gateway.platforms.api_server import APIServerAdapter
+        from gateway.config import PlatformConfig
+        adapter = APIServerAdapter(PlatformConfig())
+        db = MagicMock()
+        db.session_count.return_value = 2
+        db.search_sessions.return_value = []
+        with patch.object(api_server, "READ_ONLY_SESSION_MAX_PAGES", 1), \
+             patch.object(adapter, "_ensure_session_db", return_value=db), \
+             patch("cron.jobs.list_jobs", return_value=[{
+                 "id": "failed-task", "name": "failed",
+                 "last_error": "failed",
+             }]):
+            receipt = adapter._collect_read_only_status_receipts(
+                now=datetime(2026, 7, 18, tzinfo=UTC)
+            )
+        assert receipt["coverage"]["complete"] is False
+        assert receipt["derived_status"]["status"] == "PENDING_WORK"
+
+    @patch("gateway.platforms.api_server.AIOHTTP_AVAILABLE", True)
     def test_read_only_endpoint_attests_zero_tools_and_hash_bindings(self):
         from gateway.platforms.api_server import APIServerAdapter
         from gateway.config import PlatformConfig

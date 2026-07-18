@@ -375,8 +375,16 @@ def collect_ernie_status(client: LoopbackJsonClient, now: datetime) -> AgentStat
                         and datetime.fromtimestamp(
                             float(row["updated_at"]), tz=UTC
                         ) >= cutoff
+                        and datetime.fromtimestamp(
+                            float(row["updated_at"]), tz=UTC
+                        ) <= now.astimezone(UTC)
                     )
-                    or row.get("latest_status") in PENDING_SESSION_STATES
+                    or (
+                        row.get("latest_status") in PENDING_SESSION_STATES
+                        and datetime.fromtimestamp(
+                            float(row["updated_at"]), tz=UTC
+                        ) <= now.astimezone(UTC)
+                    )
                 )
                 and row.get("latest_files_changed")
             )
@@ -490,7 +498,13 @@ def collect_bert_status(call_orchestrator: Callable[..., str], now: datetime) ->
             len(items) != 2
             or kinds != {"session_db_metadata", "cron_metadata"}
             or not isinstance(coverage, dict)
-            or coverage.get("complete") is not True
+            or (
+                coverage.get("complete") is not True
+                and (
+                    not isinstance(derived, dict)
+                    or derived.get("status") != "PENDING_WORK"
+                )
+            )
             or not isinstance(derived, dict)
             or derived.get("status") not in {
                 "PENDING_WORK",
@@ -530,9 +544,14 @@ def collect_bert_status(call_orchestrator: Callable[..., str], now: datetime) ->
             for record in item.get("records") or ()
             if isinstance(record, dict) and record.get("id")
         }
-        candidates = tuple(
-            _candidate(value, allowed_record_refs=record_refs)
-            for value in data.get("candidates") or ()
+        history_complete = coverage.get("complete") is True
+        candidates = (
+            tuple(
+                _candidate(value, allowed_record_refs=record_refs)
+                for value in data.get("candidates") or ()
+            )
+            if history_complete
+            else ()
         )
         return AgentStatus(
             "bert",
@@ -541,7 +560,7 @@ def collect_bert_status(call_orchestrator: Callable[..., str], now: datetime) ->
             evidence,
             now.isoformat(),
             candidates,
-            history_complete=True,
+            history_complete=history_complete,
             source_receipts=(source_receipt_id,),
         )
     except Exception as exc:

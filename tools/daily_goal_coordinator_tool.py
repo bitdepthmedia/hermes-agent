@@ -15,7 +15,7 @@ from shared_core.daily_goal import (
     DailyGoalStore,
     WorkStatus,
 )
-from shared_core.daily_goal_coordinator import run_daily_cycle
+from shared_core.daily_goal_coordinator import format_telegram_summary, run_daily_cycle
 from shared_core.daily_goal_execution import (
     execute_goal,
     review_goal,
@@ -99,33 +99,34 @@ def run_daily_goal_coordinator(mode: str = "checkin", dry_run: bool = False) -> 
         )
         receipt = result.receipt
         delivery_status = receipt.telegram_delivery if receipt is not None else None
-        original_eligible = bool(
-            receipt is not None
-            and (
-                delivery_status == "pending"
-                or (
-                    delivery_status == "failed"
-                    and receipt.delivery_attempts < 2
-                )
-            )
-        )
-        alert = (
-            store.get_next_alert()
-            if receipt is not None and not dry_run and not original_eligible
+        due = store.select_due_delivery() if receipt is not None and not dry_run else None
+        if due is None and receipt is not None and delivery_status in {
+            "pending",
+            "failed",
+        }:
+            due = {"kind": "original", "cycle_id": result.cycle_id}
+        alert_eligible = bool(due and due["kind"] == "operator_alert")
+        delivery_cycle_id = str(due["cycle_id"]) if due else result.cycle_id
+        alert = store.get_alert(delivery_cycle_id) if alert_eligible else None
+        due_receipt = (
+            store.get_receipt(delivery_cycle_id)
+            if due and due["kind"] == "original"
             else None
         )
-        alert_eligible = bool(
-            alert is not None
-            and alert["state"] in {"pending", "failed"}
-            and alert["attempt_count"] < 2
-        )
-        delivery_cycle_id = (
-            str(alert["cycle_id"]) if alert_eligible else result.cycle_id
+        if due and due["kind"] == "original" and due_receipt is None:
+            due_receipt = receipt
+        original_content = (
+            result.message
+            if delivery_cycle_id == result.cycle_id
+            else format_telegram_summary(due_receipt)
+            if due_receipt is not None
+            else "[SILENT]"
         )
         operator_reconciliation = delivery_status in {"attempting", "unknown"} or bool(alert)
         suppress_delivery = (
             bool(dry_run)
             or receipt is None
+            or due is None
             or (
                 delivery_status in {"attempting", "delivered", "unknown"}
                 and not alert_eligible
@@ -137,6 +138,8 @@ def run_daily_goal_coordinator(mode: str = "checkin", dry_run: bool = False) -> 
                 + str(alert["last_error"])[:500]
             )
             if alert_eligible
+            else original_content
+            if due_receipt is not None
             else (
                 "[SILENT]"
                 if receipt is None

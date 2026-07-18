@@ -146,6 +146,25 @@ def test_prior_cycle_exhausted_alert_is_drainable_later(tmp_path):
     assert store.get_next_alert() is None
 
 
+def test_due_delivery_selection_alternates_original_and_alert(tmp_path):
+    store = DailyGoalStore(tmp_path / "shared-core.db")
+    first = store.get_or_create_cycle(date(2026, 7, 17))
+    second = store.get_or_create_cycle(date(2026, 7, 18))
+    for cycle in (first, second):
+        store.save_receipt(DailyReceipt(
+            cycle.cycle_id, "PENDING_WORK", "NO_PENDING_WORK", "normal_work",
+            (), None, None, None, None, (), (), (), "pending",
+        ))
+    store._conn.execute(
+        "INSERT INTO daily_goal_alert_outbox VALUES "
+        "(?, 'pending', 0, NULL, 'old alert', ?)",
+        (first.cycle_id, datetime.now(UTC).isoformat()),
+    )
+    store._conn.commit()
+    kinds = [store.select_due_delivery()["kind"] for _ in range(4)]
+    assert kinds == ["original", "operator_alert", "original", "operator_alert"]
+
+
 def test_tampered_structured_review_receipt_is_rejected(tmp_path):
     store = DailyGoalStore(tmp_path / "shared-core.db")
     cycle = store.get_or_create_cycle(date(2026, 7, 18))

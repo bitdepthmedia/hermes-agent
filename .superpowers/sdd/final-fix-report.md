@@ -8,6 +8,15 @@ DigitalOcean, or activation action was performed.
 
 ## Finding closure
 
+### Fifth-pass closure
+
+1. Explicit cron/task pending evidence now takes precedence over incomplete
+   conversation history; incompleteness gates idle activation and candidates.
+2. Ernie completed candidates require `cutoff <= updated_at <= now`; future
+   completed or unresolved records are excluded.
+3. A persisted fair selector alternates across all due original and alert
+   outboxes, preventing starvation while retaining atomic per-item claims.
+
 ### Fourth-pass closure
 
 1. Ernie completeness now combines cap/window coverage, valid timestamps, and
@@ -124,7 +133,7 @@ python3 -m pytest -o addopts='' -q \
   tests/cron \
   tests/ik_profiles
 
-373 passed, 4 skipped in 15.95s
+375 passed, 4 skipped in 15.92s
 ```
 
 ```text
@@ -132,7 +141,7 @@ python3 -m pytest -o addopts='' -q \
   tests/gateway/test_api_server_toolset.py \
   tests/tools/test_call_orchestrator_tool.py
 
-26 passed in 0.29s
+27 passed in 0.25s
 ```
 
 Additional checks passed:
@@ -158,6 +167,8 @@ skips in `tests/cron/test_jobs.py`.
 - Third-pass real-contract and delivery fixes: committed after verification.
 - Fourth-pass completeness, precedence, queue, and redaction fixes: committed
   after verification.
+- Fifth-pass pending precedence, candidate-window, and fair-queue fixes:
+  committed after verification.
 
 ## Activation state
 

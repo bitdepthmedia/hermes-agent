@@ -216,6 +216,20 @@ def test_old_completed_session_is_not_an_improvement_candidate():
     assert result.candidates == ()
 
 
+def test_future_completed_session_is_not_an_improvement_candidate():
+    future = {
+        "session_id": "future-complete",
+        "created_at": NOW.timestamp() + 86400,
+        "updated_at": NOW.timestamp() + 86400,
+        "latest_status": "completed",
+        "entry_count": 1,
+        "latest_files_changed": ["future.py"],
+        "latest_backups_created": [],
+        "latest_refusal_reason": None,
+    }
+    assert collect_ernie_status(FakeClient([future], []), NOW).candidates == ()
+
+
 def test_full_real_session_cap_inside_window_is_unknown():
     sessions = [
         {

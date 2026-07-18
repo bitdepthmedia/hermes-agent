@@ -252,6 +252,10 @@ class DailyGoalStore:
                 claimed_at TEXT NOT NULL,
                 attempt_count INTEGER NOT NULL DEFAULT 0
             );
+            CREATE TABLE IF NOT EXISTS daily_goal_delivery_scheduler (
+                singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+                last_kind TEXT NOT NULL
+            );
             """
         )
         self._conn.commit()
@@ -707,6 +711,40 @@ class DailyGoalStore:
             "ORDER BY updated_at, cycle_id LIMIT 1",
             (MAX_DELIVERY_ATTEMPTS,),
         ).fetchone()
+
+    def select_due_delivery(self) -> dict | None:
+        """Fairly alternate across durable original and alert queues."""
+        original = self._conn.execute(
+            "SELECT cycle_id FROM daily_goal_outbox "
+            "WHERE (state='pending' AND attempt_count=0) "
+            "OR (state='failed' AND attempt_count < ?) "
+            "ORDER BY updated_at, cycle_id LIMIT 1",
+            (MAX_DELIVERY_ATTEMPTS,),
+        ).fetchone()
+        alert = self.get_next_alert()
+        if original is None and alert is None:
+            return None
+        last = self._conn.execute(
+            "SELECT last_kind FROM daily_goal_delivery_scheduler WHERE singleton=1"
+        ).fetchone()
+        if original is not None and alert is not None:
+            kind = (
+                "operator_alert"
+                if last is not None and last["last_kind"] == "original"
+                else "original"
+            )
+        else:
+            kind = "original" if original is not None else "operator_alert"
+        cycle_id = (
+            original["cycle_id"] if kind == "original" else alert["cycle_id"]
+        )
+        self._conn.execute(
+            "INSERT INTO daily_goal_delivery_scheduler VALUES (1, ?) "
+            "ON CONFLICT(singleton) DO UPDATE SET last_kind=excluded.last_kind",
+            (kind,),
+        )
+        self._conn.commit()
+        return {"kind": kind, "cycle_id": str(cycle_id)}
 
     def begin_alert_delivery(self, cycle_id: str) -> bool:
         now = datetime.now(UTC).isoformat()
