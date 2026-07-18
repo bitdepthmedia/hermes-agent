@@ -71,6 +71,7 @@ def _result_for_delivery(status, *, reran_work=False):
         {
             "cycle_id": "daily-goal:2026-07-18",
             "telegram_delivery": status,
+            "delivery_attempts": 0,
         },
     )()
     return type(

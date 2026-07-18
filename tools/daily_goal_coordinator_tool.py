@@ -99,9 +99,19 @@ def run_daily_goal_coordinator(mode: str = "checkin", dry_run: bool = False) -> 
         )
         receipt = result.receipt
         delivery_status = receipt.telegram_delivery if receipt is not None else None
+        original_eligible = bool(
+            receipt is not None
+            and (
+                delivery_status == "pending"
+                or (
+                    delivery_status == "failed"
+                    and receipt.delivery_attempts < 2
+                )
+            )
+        )
         alert = (
             store.get_next_alert()
-            if receipt is not None and not dry_run
+            if receipt is not None and not dry_run and not original_eligible
             else None
         )
         alert_eligible = bool(

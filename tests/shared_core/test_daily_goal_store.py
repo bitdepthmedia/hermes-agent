@@ -328,12 +328,18 @@ def test_delivery_error_is_redacted_before_alert_persistence(tmp_path):
         (), None, None, None, None, (), (), (), "pending",
     ))
     store.begin_delivery(cycle.cycle_id)
-    secret = "https://api.telegram.org/bot123456:ABC/send?token=hunter2 Authorization: Bearer xyz"
+    secret = (
+        "https://api.telegram.org/bot123456:ABC/send?token=hunter2 "
+        "Authorization: Bearer xyz TELEGRAM_BOT_TOKEN=abc "
+        "OPENAI_API_KEY=sk-secret"
+    )
     store.update_delivery(cycle.cycle_id, "unknown", error=secret)
     rendered = store.get_alert(cycle.cycle_id)["last_error"]
     assert "123456:ABC" not in rendered
     assert "hunter2" not in rendered
     assert "Bearer xyz" not in rendered
+    assert "TELEGRAM_BOT_TOKEN=abc" not in rendered
+    assert "OPENAI_API_KEY=sk-secret" not in rendered
 
 
 def test_new_semantic_receipt_resets_delivery_state(tmp_path):

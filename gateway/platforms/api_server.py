@@ -730,7 +730,12 @@ class APIServerAdapter(BasePlatformAdapter):
             if record["id"]
             and (record["has_last_error"] or record["has_delivery_error"])
         ]
-        coverage_complete = bool(cron_available and cron_complete)
+        coverage_complete = bool(
+            session_available
+            and session_complete
+            and cron_available
+            and cron_complete
+        )
         derived_status = (
             "UNKNOWN"
             if not coverage_complete

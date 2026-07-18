@@ -172,6 +172,12 @@ def _collect_status(
 def _normalize_status(
     status: AgentStatus, expected_agent: str, now: datetime
 ) -> AgentStatus:
+    if (
+        status.agent == expected_agent
+        and status.status is WorkStatus.PENDING_WORK
+        and bool(status.evidence)
+    ):
+        return status
     valid = (
         status.agent == expected_agent
         and bool(status.evidence)

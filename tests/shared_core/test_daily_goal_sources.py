@@ -184,6 +184,38 @@ def test_full_real_session_cap_is_complete_when_oldest_covers_window():
     assert result.history_complete is True
 
 
+def test_full_window_with_entry_cap_remains_unknown():
+    sessions = [
+        {
+            "session_id": f"s-{index}",
+            "created_at": NOW.timestamp() - (index * 86400),
+            "updated_at": NOW.timestamp() - (index * 86400),
+            "latest_status": "completed",
+            "entry_count": 40 if index == 0 else 1,
+            "latest_files_changed": [],
+            "latest_backups_created": [],
+            "latest_refusal_reason": None,
+        }
+        for index in range(25)
+    ]
+    assert collect_ernie_status(FakeClient(sessions, []), NOW).status is WorkStatus.UNKNOWN
+
+
+def test_old_completed_session_is_not_an_improvement_candidate():
+    old = {
+        "session_id": "old-complete",
+        "created_at": NOW.timestamp() - 30 * 86400,
+        "updated_at": NOW.timestamp() - 30 * 86400,
+        "latest_status": "completed",
+        "entry_count": 1,
+        "latest_files_changed": ["old.py"],
+        "latest_backups_created": [],
+        "latest_refusal_reason": None,
+    }
+    result = collect_ernie_status(FakeClient([old], []), NOW)
+    assert result.candidates == ()
+
+
 def test_full_real_session_cap_inside_window_is_unknown():
     sessions = [
         {

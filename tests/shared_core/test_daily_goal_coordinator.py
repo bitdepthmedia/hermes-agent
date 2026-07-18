@@ -459,6 +459,20 @@ def test_year_2000_empty_idle_provenance_is_unknown(tmp_path):
     assert result.receipt.trigger == "unknown"
 
 
+def test_verified_pending_survives_incomplete_history(tmp_path):
+    pending = AgentStatus(
+        "ernie", WorkStatus.PENDING_WORK, "open", ("queue:item:ready",),
+        "2000-01-01T00:00:00+00:00", (), history_complete=False,
+    )
+    result = run_daily_cycle(
+        mode="checkin", now=NOW, store=DailyGoalStore(tmp_path / "core.db"),
+        collect_ernie=lambda: pending,
+        collect_bert=lambda: status("bert", WorkStatus.NO_PENDING_WORK),
+        execute=lambda *_: None, review=lambda *_: None,
+    )
+    assert result.receipt.trigger == "normal_work"
+
+
 def test_watchdog_never_reruns_completed_work(tmp_path):
     store = DailyGoalStore(tmp_path / "core.db")
     calls = []

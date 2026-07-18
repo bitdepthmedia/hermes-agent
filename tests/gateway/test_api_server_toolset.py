@@ -296,6 +296,28 @@ class TestApiServerAdapterToolset:
         }
 
     @patch("gateway.platforms.api_server.AIOHTTP_AVAILABLE", True)
+    def test_incomplete_session_history_blocks_idle_activation(self):
+        from gateway.platforms import api_server
+        from gateway.platforms.api_server import APIServerAdapter
+        from gateway.config import PlatformConfig
+        adapter = APIServerAdapter(PlatformConfig())
+        db = MagicMock()
+        db.session_count.return_value = 2
+        db.search_sessions.return_value = [{
+            "id": "one", "source": "cli",
+            "started_at": datetime(2026, 7, 18, tzinfo=UTC).timestamp(),
+            "ended_at": datetime(2026, 7, 18, tzinfo=UTC).timestamp(),
+        }]
+        with patch.object(api_server, "READ_ONLY_SESSION_MAX_PAGES", 1), \
+             patch.object(adapter, "_ensure_session_db", return_value=db), \
+             patch("cron.jobs.list_jobs", return_value=[]):
+            receipt = adapter._collect_read_only_status_receipts(
+                now=datetime(2026, 7, 18, tzinfo=UTC)
+            )
+        assert receipt["items"][0]["pagination"]["complete"] is False
+        assert receipt["derived_status"]["status"] == "UNKNOWN"
+
+    @patch("gateway.platforms.api_server.AIOHTTP_AVAILABLE", True)
     def test_read_only_endpoint_attests_zero_tools_and_hash_bindings(self):
         from gateway.platforms.api_server import APIServerAdapter
         from gateway.config import PlatformConfig

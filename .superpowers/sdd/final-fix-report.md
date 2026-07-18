@@ -8,6 +8,21 @@ DigitalOcean, or activation action was performed.
 
 ## Finding closure
 
+### Fourth-pass closure
+
+1. Ernie completeness now combines cap/window coverage, valid timestamps, and
+   uncapped per-session entry history; no later check can overwrite failure.
+2. Bert idle activation requires complete bounded SessionDB and cron/task
+   pagination, while conversations remain non-pending.
+3. Verified `PENDING_WORK` retains suppression precedence even with incomplete
+   activation provenance; strict provenance applies to idle claims.
+4. Ernie candidates are limited to completed records from seven days plus
+   explicitly unresolved records; old completed records are excluded.
+5. Current eligible original delivery precedes older alerts, then later runs
+   drain prior/new alerts without orphaning either queue.
+6. Delivery redaction reuses the shared robust redactor and covers compound
+   environment secret names, bot URLs, query secrets, and auth headers.
+
 ### Third-pass closure
 
 1. Ernie history consumes the real `{sessions,count}` contract and derives
@@ -109,7 +124,7 @@ python3 -m pytest -o addopts='' -q \
   tests/cron \
   tests/ik_profiles
 
-370 passed, 4 skipped in 16.00s
+373 passed, 4 skipped in 15.95s
 ```
 
 ```text
@@ -117,7 +132,7 @@ python3 -m pytest -o addopts='' -q \
   tests/gateway/test_api_server_toolset.py \
   tests/tools/test_call_orchestrator_tool.py
 
-25 passed in 0.26s
+26 passed in 0.29s
 ```
 
 Additional checks passed:
@@ -141,6 +156,8 @@ skips in `tests/cron/test_jobs.py`.
 - First-pass safety fixes: `95a240d6b fix: close daily goal coordinator safety gaps`
 - Second-pass fixes and this report: committed together after verification.
 - Third-pass real-contract and delivery fixes: committed after verification.
+- Fourth-pass completeness, precedence, queue, and redaction fixes: committed
+  after verification.
 
 ## Activation state
 

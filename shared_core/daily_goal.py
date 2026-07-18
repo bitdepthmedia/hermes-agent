@@ -11,6 +11,7 @@ from datetime import UTC, date, datetime, timedelta
 from enum import Enum
 from pathlib import Path
 from zoneinfo import ZoneInfo
+from agent.redact import redact_sensitive_text
 
 
 CLAIM_LEASE_SECONDS = 15 * 60
@@ -24,7 +25,7 @@ _DELIVERY_FIELDS = {
 
 
 def sanitize_delivery_error(error: object) -> str:
-    text = str(error or "")
+    text = redact_sensitive_text(str(error or ""))
     text = re.sub(
         r"https?://[^\s]+", "[REDACTED_URL]", text, flags=re.IGNORECASE
     )
@@ -35,7 +36,8 @@ def sanitize_delivery_error(error: object) -> str:
         flags=re.IGNORECASE,
     )
     text = re.sub(
-        r"\b(?:token|secret|password|api[_-]?key|credential)\s*[=:]\s*[^\s&]+",
+        r"\b(?:[A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|API_KEY|CREDENTIAL)|"
+        r"token|secret|password|api[_-]?key|credential)\s*[=:]\s*[^\s&]+",
         "[REDACTED_SECRET]",
         text,
         flags=re.IGNORECASE,
@@ -156,6 +158,16 @@ def resolve_trigger(
     *,
     now: datetime | None = None,
 ) -> CycleState:
+    if (
+        ernie.agent == "ernie"
+        and ernie.status is WorkStatus.PENDING_WORK
+        and bool(ernie.evidence)
+    ) or (
+        bert.agent == "bert"
+        and bert.status is WorkStatus.PENDING_WORK
+        and bool(bert.evidence)
+    ):
+        return CycleState.NORMAL_WORK
     current = (now or datetime.now(UTC)).astimezone(UTC)
     local_zone = ZoneInfo("America/New_York")
     for expected, status in (("ernie", ernie), ("bert", bert)):

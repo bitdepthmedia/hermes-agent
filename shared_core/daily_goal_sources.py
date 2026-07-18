@@ -272,7 +272,8 @@ def _session_evidence(
     pending: list[str] = []
     unknown: list[str] = []
     timestamps: list[datetime] = []
-    history_complete = count < SESSION_LIMIT
+    cap_complete = count < SESSION_LIMIT
+    entries_complete = True
     for row in sessions:
         if not isinstance(row, dict):
             unknown.append("sessions:invalid-row")
@@ -304,14 +305,14 @@ def _session_evidence(
         except (TypeError, ValueError, OverflowError):
             unknown.append("sessions:invalid-timestamp")
         if entry_count == SESSION_ENTRY_LIMIT:
-            history_complete = False
+            entries_complete = False
         if state in PENDING_SESSION_STATES:
             pending.append(f"session:{session_id}:{state}")
     if count == SESSION_LIMIT:
         cutoff = now.astimezone(UTC) - timedelta(days=7)
-        history_complete = bool(timestamps) and min(timestamps) <= cutoff
-    if len(timestamps) != count:
-        history_complete = False
+        cap_complete = bool(timestamps) and min(timestamps) <= cutoff
+    timestamps_complete = len(timestamps) == count
+    history_complete = cap_complete and timestamps_complete and entries_complete
     if not history_complete:
         unknown.append("sessions:history-incomplete")
     receipt_digest = _sha256(_canonical_bytes({"count": count, "sessions": sessions}))
@@ -354,6 +355,7 @@ def collect_ernie_status(client: LoopbackJsonClient, now: datetime) -> AgentStat
             if isinstance(row, dict) and row.get("session_id")
         }
         try:
+            cutoff = now.astimezone(UTC) - timedelta(days=7)
             candidates = tuple(
                 ImprovementCandidate(
                     f"ernie-session-{row['session_id']}"[:80],
@@ -367,7 +369,15 @@ def collect_ernie_status(client: LoopbackJsonClient, now: datetime) -> AgentStat
                 )
                 for row in session_payload.get("sessions") or ()
                 if isinstance(row, dict)
-                and row.get("latest_status") == "completed"
+                and (
+                    (
+                        row.get("latest_status") == "completed"
+                        and datetime.fromtimestamp(
+                            float(row["updated_at"]), tz=UTC
+                        ) >= cutoff
+                    )
+                    or row.get("latest_status") in PENDING_SESSION_STATES
+                )
                 and row.get("latest_files_changed")
             )
         except Exception:
