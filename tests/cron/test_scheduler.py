@@ -12,6 +12,34 @@ import pytest
 from cron.scheduler import _resolve_origin, _resolve_delivery_target, _deliver_result, _send_media_via_adapter, run_job, SILENT_MARKER, _build_job_prompt
 
 
+def test_run_selected_job_never_scans_or_runs_other_due_jobs(monkeypatch):
+    import cron.scheduler as scheduler
+    from cron.scheduler import run_selected_job
+
+    selected = {
+        "id": "selected",
+        "name": "selected job",
+        "schedule": {"kind": "interval", "minutes": 5},
+        "deliver": "local",
+    }
+    other_due_mutating_job = {"id": "other", "name": "must not run"}
+    ran = []
+    marked = []
+
+    monkeypatch.setattr(scheduler, "get_job", lambda job_id: selected if job_id == "selected" else None, raising=False)
+    monkeypatch.setattr(scheduler, "advance_next_run", lambda job_id: ran.append(("advance", job_id)), raising=False)
+    monkeypatch.setattr(scheduler, "run_job", lambda job: (True, "output", "done", None))
+    monkeypatch.setattr(scheduler, "save_job_output", lambda job_id, output: ran.append(("output", job_id)))
+    monkeypatch.setattr(scheduler, "mark_job_run", lambda job_id, success, error, delivery_error=None: marked.append((job_id, success)))
+    monkeypatch.setattr(scheduler, "get_due_jobs", lambda: (_ for _ in ()).throw(AssertionError("due-job scan must not run")))
+    monkeypatch.setattr(scheduler, "tick", lambda **kwargs: (_ for _ in ()).throw(AssertionError("global tick must not run")))
+
+    assert run_selected_job("selected", verbose=False) == 1
+    assert ran == [("advance", "selected"), ("output", "selected")]
+    assert marked == [("selected", True)]
+    assert other_due_mutating_job["id"] not in {job_id for _, job_id in ran}
+
+
 class TestResolveOrigin:
     def test_full_origin(self):
         job = {

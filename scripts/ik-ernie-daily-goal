@@ -3,49 +3,78 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HERMES_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-STACK_ROOT="$(cd "${HERMES_ROOT}/../.." && pwd)"
+COMMON_GIT_DIR="$(git -C "${HERMES_ROOT}" rev-parse --path-format=absolute --git-common-dir)"
+CANONICAL_HERMES_ROOT="$(cd "$(dirname "${COMMON_GIT_DIR}")" && pwd -P)"
+STACK_ROOT="$(cd "${CANONICAL_HERMES_ROOT}/../.." && pwd -P)"
 PROFILE_ROOT="${HERMES_ROOT}/ik_profiles/hermes-ernie"
-HERMES_HOME_DIR="${HERMES_HOME:-${STACK_ROOT}/config/ik-agents/hermes-ernie}"
 CHECKIN_ID="bcfc1f4e449e"
 WATCHDOG_ID="d41a1c0de160"
 
-python_bin() {
-  if [[ -x "${HERMES_ROOT}/.venv/bin/python" ]]; then
-    printf '%s\n' "${HERMES_ROOT}/.venv/bin/python"
-  else
-    command -v python3
+fail() {
+  echo "ERROR: $*" >&2
+  exit 1
+}
+
+is_within() {
+  local child="$1" parent="$2"
+  [[ "${child}" == "${parent}/"* ]]
+}
+
+resolve_test_root() {
+  if [[ "${IK_ERNIE_ALLOW_TEST_HOME:-}" != "1" ]]; then
+    return
   fi
+  [[ -n "${IK_ERNIE_TEST_ROOT:-}" ]] || fail "IK_ERNIE_TEST_ROOT is required with IK_ERNIE_ALLOW_TEST_HOME=1"
+  [[ "${IK_ERNIE_TEST_ROOT}" == /* ]] || fail "IK_ERNIE_TEST_ROOT must be absolute"
+  [[ -d "${IK_ERNIE_TEST_ROOT}" ]] || fail "IK_ERNIE_TEST_ROOT must exist"
+  TEST_ROOT="$(cd "${IK_ERNIE_TEST_ROOT}" && pwd -P)"
+  local temp_root
+  temp_root="$(cd "${TMPDIR:-/tmp}" && pwd -P)"
+  is_within "${TEST_ROOT}" "${temp_root}" || fail "IK_ERNIE_TEST_ROOT must be under the system temporary directory"
+  STACK_ROOT="${TEST_ROOT}"
+}
+
+resolve_home() {
+  resolve_test_root
+  local candidate default_home resolved
+  default_home="${STACK_ROOT}/config/ik-agents/hermes-ernie"
+  if [[ "${HERMES_HOME+x}" == "x" ]]; then
+    candidate="${HERMES_HOME}"
+    [[ -n "${candidate}" ]] || fail "HERMES_HOME must not be empty"
+  else
+    candidate="${default_home}"
+  fi
+  [[ "${candidate}" == /* ]] || fail "HERMES_HOME must be an absolute path"
+  [[ "${candidate}" != "/" ]] || fail "HERMES_HOME must not be /"
+  [[ -d "${candidate}" ]] || fail "HERMES_HOME must exist"
+  resolved="$(cd "${candidate}" && pwd -P)"
+  [[ "${resolved}" != "/" ]] || fail "HERMES_HOME must not resolve to /"
+  if [[ "${resolved}" == "${default_home}" ]]; then
+    HERMES_HOME_DIR="${resolved}"
+    return
+  fi
+  [[ "${IK_ERNIE_ALLOW_TEST_HOME:-}" == "1" ]] || fail "non-default HERMES_HOME requires IK_ERNIE_ALLOW_TEST_HOME=1"
+  is_within "${resolved}" "${TEST_ROOT}" || fail "test HERMES_HOME must resolve under IK_ERNIE_TEST_ROOT"
+  HERMES_HOME_DIR="${resolved}"
+}
+
+resolve_home
+
+python_bin() {
+  local candidate="${HERMES_PYTHON:-${CANONICAL_HERMES_ROOT}/.venv/bin/python}"
+  [[ "${candidate}" == /* && -x "${candidate}" ]] || fail "HERMES_PYTHON must name an executable absolute path"
+  "${candidate}" -c 'import croniter' >/dev/null 2>&1 || fail "HERMES_PYTHON must provide croniter"
+  printf '%s\n' "${candidate}"
 }
 
 validate_deploy() {
-  HERMES_HOME="${HERMES_HOME_DIR}" PROFILE_ROOT="${PROFILE_ROOT}" "$(python_bin)" - <<'PY'
+  HERMES_HOME="${HERMES_HOME_DIR}" HERMES_TIMEZONE="America/New_York" PROFILE_ROOT="${PROFILE_ROOT}" "$(python_bin)" - <<'PY'
 import json
 import os
-from datetime import datetime, timedelta
+import re
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 from cron.jobs import compute_next_run
-
-
-def next_run(schedule):
-    calculated = compute_next_run(schedule)
-    if calculated is not None:
-        return calculated
-    if schedule.get("kind") != "cron":
-        return None
-    try:
-        minute, hour, day, month, weekday = schedule["expr"].split()
-        if (day, month, weekday) != ("*", "*", "*"):
-            return None
-        candidate = datetime.now(ZoneInfo("America/New_York")).replace(
-            hour=int(hour), minute=int(minute), second=0, microsecond=0
-        )
-        if candidate <= datetime.now(ZoneInfo("America/New_York")):
-            candidate += timedelta(days=1)
-        return candidate.isoformat()
-    except (TypeError, ValueError):
-        return None
 
 home = Path(os.environ["HERMES_HOME"])
 profile_root = Path(os.environ["PROFILE_ROOT"])
@@ -55,25 +84,31 @@ jobs = json.loads(jobs_path.read_text())["jobs"]
 if not config_path.is_file():
     raise RuntimeError(f"missing config: {config_path}")
 
-existing = next(
-    (item for item in jobs if item.get("id") == "bcfc1f4e449e" or item.get("name") == "ernie-telegram-daily-checkin"),
-    None,
-)
-if existing is None or not existing.get("deliver"):
+existing = next((item for item in jobs if item.get("id") == "bcfc1f4e449e"), None)
+delivery = None if existing is None else existing.get("deliver")
+if not isinstance(delivery, str) or not re.fullmatch(r"telegram:\S+", delivery):
     raise RuntimeError("existing Telegram group delivery target is required; refusing to invent one")
 
 for manifest_name in ("daily-goal-checkin.json", "daily-goal-watchdog.json"):
     job = json.loads((profile_root / "cron" / manifest_name).read_text())
-    if next_run(job["schedule"]) is None:
+    if compute_next_run(job["schedule"]) is None:
         raise RuntimeError(f"could not compute next run for {job['name']}")
 PY
 }
 
 backup_state() {
   local stamp backup
-  stamp="$(date +%Y%m%d-%H%M%S)"
-  backup="${HERMES_HOME_DIR}/backups/daily-goal-${stamp}"
-  mkdir -p "${backup}"
+  backup="$(HERMES_HOME="${HERMES_HOME_DIR}" "$(python_bin)" - <<'PY'
+import os
+import tempfile
+from pathlib import Path
+
+home = Path(os.environ["HERMES_HOME"])
+backup_root = home / "backups"
+backup_root.mkdir(parents=True, exist_ok=True)
+print(tempfile.mkdtemp(prefix="daily-goal-", dir=backup_root))
+PY
+)"
   [[ ! -f "${HERMES_HOME_DIR}/cron/jobs.json" ]] || cp -p "${HERMES_HOME_DIR}/cron/jobs.json" "${backup}/jobs.json"
   [[ ! -f "${HERMES_HOME_DIR}/config.yaml" ]] || cp -p "${HERMES_HOME_DIR}/config.yaml" "${backup}/config.yaml"
   printf '%s\n' "${backup}"
@@ -83,14 +118,13 @@ upsert_jobs() {
   local backup
   validate_deploy
   backup="$(backup_state)"
-  HERMES_HOME="${HERMES_HOME_DIR}" PROFILE_ROOT="${PROFILE_ROOT}" "$(python_bin)" - <<'PY'
+  HERMES_HOME="${HERMES_HOME_DIR}" HERMES_TIMEZONE="America/New_York" PROFILE_ROOT="${PROFILE_ROOT}" "$(python_bin)" - <<'PY'
 import json
 import os
 import re
 import tempfile
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
-from zoneinfo import ZoneInfo
 
 from cron.jobs import compute_next_run
 
@@ -106,25 +140,6 @@ def atomic_write(path: Path, text: str) -> None:
     os.replace(temporary, path)
 
 
-def next_run(schedule):
-    calculated = compute_next_run(schedule)
-    if calculated is not None:
-        return calculated
-    if schedule.get("kind") != "cron":
-        return None
-    try:
-        minute, hour, day, month, weekday = schedule["expr"].split()
-        if (day, month, weekday) != ("*", "*", "*"):
-            return None
-        now = datetime.now(ZoneInfo("America/New_York"))
-        candidate = now.replace(hour=int(hour), minute=int(minute), second=0, microsecond=0)
-        if candidate <= now:
-            candidate += timedelta(days=1)
-        return candidate.isoformat()
-    except (TypeError, ValueError):
-        return None
-
-
 home = Path(os.environ["HERMES_HOME"])
 profile_root = Path(os.environ["PROFILE_ROOT"])
 jobs_path = home / "cron" / "jobs.json"
@@ -132,13 +147,10 @@ config_path = home / "config.yaml"
 data = json.loads(jobs_path.read_text())
 jobs = data.setdefault("jobs", [])
 
-existing = next(
-    (item for item in jobs if item.get("id") == "bcfc1f4e449e" or item.get("name") == "ernie-telegram-daily-checkin"),
-    None,
-)
-if existing is None or not existing.get("deliver"):
+existing = next((item for item in jobs if item.get("id") == "bcfc1f4e449e"), None)
+delivery = None if existing is None else existing.get("deliver")
+if not isinstance(delivery, str) or not re.fullmatch(r"telegram:\S+", delivery):
     raise RuntimeError("existing Telegram group delivery target is required; refusing to invent one")
-delivery = existing["deliver"]
 runtime_fields = {
     "created_at", "last_run_at", "last_status", "last_error",
     "last_delivery_error", "repeat",
@@ -156,7 +168,7 @@ for manifest_name in ("daily-goal-checkin.json", "daily-goal-watchdog.json"):
             if old.get(key) is not None:
                 job[key] = old[key]
     job["deliver"] = delivery
-    job["next_run_at"] = next_run(job["schedule"])
+    job["next_run_at"] = compute_next_run(job["schedule"])
     if job["next_run_at"] is None:
         raise RuntimeError(f"could not compute next run for {job['name']}")
     jobs = [
@@ -185,12 +197,12 @@ trigger_job_id() {
   HERMES_HOME="${HERMES_HOME_DIR}" JOB_ID="${job_id}" "$(python_bin)" - <<'PY'
 import os
 from cron.jobs import get_job, trigger_job
-from cron.scheduler import tick
+from cron.scheduler import run_selected_job
 
 job_id = os.environ["JOB_ID"]
 if trigger_job(job_id) is None:
     raise SystemExit(f"missing job: {job_id}")
-tick(verbose=True)
+run_selected_job(job_id, verbose=True)
 job = get_job(job_id)
 for key in ("id", "name", "last_status", "last_error", "last_delivery_error", "last_run_at", "next_run_at"):
     print(key, job.get(key))

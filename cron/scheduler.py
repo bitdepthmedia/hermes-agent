@@ -47,7 +47,7 @@ _KNOWN_DELIVERY_PLATFORMS = frozenset({
     "wecom", "sms", "email", "webhook",
 })
 
-from cron.jobs import get_due_jobs, mark_job_run, save_job_output, advance_next_run
+from cron.jobs import get_due_jobs, get_job, mark_job_run, save_job_output, advance_next_run
 
 # Sentinel: when a cron agent has nothing new to report, it can start its
 # response with this marker to suppress delivery.  Output is still saved
@@ -900,6 +900,76 @@ def run_job(job: dict) -> tuple[bool, str, str, Optional[str]]:
                 _session_db.close()
             except (Exception, KeyboardInterrupt) as e:
                 logger.debug("Job '%s': failed to close SQLite session store: %s", job_id, e)
+
+
+def run_selected_job(job_id: str, verbose: bool = True, adapters=None, loop=None) -> int:
+    """Run only the named job, without scanning or executing any other due job."""
+    job = get_job(job_id)
+    if job is None:
+        return 0
+    try:
+        advance_next_run(job["id"])
+        success, output, final_response, error = run_job(job)
+        output_file = save_job_output(job["id"], output)
+        if verbose:
+            logger.info("Output saved to: %s", output_file)
+
+        deliver_content = final_response if success else f"⚠️ Cron job '{job.get('name', job['id'])}' failed:\n{error}"
+        suppress_daily_goal_delivery = bool(
+            job.get("_daily_goal_dry_run")
+            or job.get("_daily_goal_suppress_delivery")
+        )
+        should_deliver = bool(deliver_content) and not suppress_daily_goal_delivery
+        if should_deliver and success and SILENT_MARKER in deliver_content.strip().upper():
+            logger.info("Job '%s': agent returned %s — skipping delivery", job["id"], SILENT_MARKER)
+            should_deliver = False
+
+        delivery_error = None
+        delivery_exception = None
+        daily_goal_telegram_attempt = False
+        if should_deliver:
+            if job.get("_daily_goal_cycle_id"):
+                try:
+                    delivery_target = _resolve_delivery_target(job)
+                except Exception as target_error:
+                    delivery_target = None
+                    logger.error("Job '%s': daily goal delivery target resolution failed: %s", job["id"], target_error)
+                daily_goal_telegram_attempt = bool(
+                    delivery_target and str(delivery_target.get("platform", "")).lower() == "telegram"
+                )
+            try:
+                delivery_error = _deliver_result(job, deliver_content, adapters=adapters, loop=loop)
+            except Exception as de:
+                delivery_exception = de
+                delivery_error = str(de) or type(de).__name__
+                logger.error("Delivery failed for job %s: %s", job["id"], de)
+
+        cycle_id = job.get("_daily_goal_cycle_id")
+        if cycle_id and should_deliver and daily_goal_telegram_attempt:
+            try:
+                from tools.daily_goal_coordinator_tool import record_daily_goal_delivery
+
+                if delivery_exception is not None:
+                    delivery_status = "unknown" if isinstance(delivery_exception, (TimeoutError, ConnectionError)) else "failed"
+                elif delivery_error:
+                    lowered_delivery_error = delivery_error.lower()
+                    delivery_status = "unknown" if (
+                        "timed out" in lowered_delivery_error
+                        or "timeout" in lowered_delivery_error
+                        or "not retrying to avoid duplicate" in lowered_delivery_error
+                    ) else "failed"
+                else:
+                    delivery_status = "delivered"
+                record_daily_goal_delivery(cycle_id, delivery_status)
+            except Exception as re:
+                logger.error("Job '%s': daily goal delivery reconciliation failed: %s", job["id"], re)
+
+        mark_job_run(job["id"], success, error, delivery_error=delivery_error)
+        return 1
+    except Exception as e:
+        logger.error("Error processing job %s: %s", job_id, e)
+        mark_job_run(job_id, False, str(e))
+        return 1
 
 
 def tick(verbose: bool = True, adapters=None, loop=None) -> int:

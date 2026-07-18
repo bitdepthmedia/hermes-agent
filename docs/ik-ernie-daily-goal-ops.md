@@ -10,8 +10,16 @@
 6. Verify one receipt and one Telegram delivery.
 
 `status` and `dry-run` are nonmutating. `deploy` changes only the local Ernie
-profile and creates timestamped backups first. The trigger commands mutate job
-state and can send Telegram messages; obtain approval before using either.
+profile and creates a distinct collision-proof backup first. It refuses to
+invent a delivery target, requires the canonical check-in job to retain a
+nonempty `telegram:` target, and uses an interpreter with `croniter`.
+
+The normal target resolves from the Git common checkout, so invoking the wrapper
+from a linked worktree still selects the local stack's canonical
+`config/ik-agents/hermes-ernie` profile. `HERMES_HOME` must be an absolute,
+existing safe path; temporary homes are allowed only for tests with the explicit
+test-only guard. The trigger commands mutate only their selected job's state and
+can send Telegram messages; obtain approval before using either.
 
 ## Rollback
 
