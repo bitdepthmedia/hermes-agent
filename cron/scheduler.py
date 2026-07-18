@@ -396,6 +396,11 @@ def _run_direct_cron_tool(job: dict) -> Optional[str]:
     if not isinstance(tool_args, dict):
         raise ValueError("direct_tool args must be an object")
 
+    if tool_name == "daily_goal_coordinator":
+        job.pop("_daily_goal_cycle_id", None)
+        job.pop("_daily_goal_dry_run", None)
+        job.pop("_daily_goal_suppress_delivery", None)
+
     if tool_name == "call_orchestrator":
         import tools.call_orchestrator_tool  # noqa: F401 - registers the tool
     elif tool_name == "daily_goal_coordinator":
@@ -432,6 +437,12 @@ def _run_direct_cron_tool(job: dict) -> Optional[str]:
                     "daily_goal_coordinator returned a malformed result"
                 )
             job["_daily_goal_cycle_id"] = cycle_id
+            job["_daily_goal_dry_run"] = bool(
+                data.get("dry_run", tool_args.get("dry_run", False))
+            )
+            job["_daily_goal_suppress_delivery"] = bool(
+                data.get("suppress_delivery", False)
+            ) or job["_daily_goal_dry_run"]
         return str(data.get("content") or raw).strip()
 
     error = str(data.get("error") or raw).strip()
@@ -951,13 +962,33 @@ def tick(verbose: bool = True, adapters=None, loop=None) -> int:
                 # If the agent responded with [SILENT], skip delivery (but
                 # output is already saved above).  Failed jobs always deliver.
                 deliver_content = final_response if success else f"⚠️ Cron job '{job.get('name', job['id'])}' failed:\n{error}"
-                should_deliver = bool(deliver_content)
+                suppress_daily_goal_delivery = bool(
+                    job.get("_daily_goal_dry_run")
+                    or job.get("_daily_goal_suppress_delivery")
+                )
+                should_deliver = bool(deliver_content) and not suppress_daily_goal_delivery
                 if should_deliver and success and SILENT_MARKER in deliver_content.strip().upper():
                     logger.info("Job '%s': agent returned %s — skipping delivery", job["id"], SILENT_MARKER)
                     should_deliver = False
 
                 delivery_error = None
+                daily_goal_telegram_attempt = False
                 if should_deliver:
+                    if job.get("_daily_goal_cycle_id"):
+                        try:
+                            delivery_target = _resolve_delivery_target(job)
+                        except Exception as target_error:
+                            delivery_target = None
+                            logger.error(
+                                "Job '%s': daily goal delivery target resolution failed: %s",
+                                job["id"],
+                                target_error,
+                            )
+                        daily_goal_telegram_attempt = bool(
+                            delivery_target
+                            and str(delivery_target.get("platform", "")).lower()
+                            == "telegram"
+                        )
                     try:
                         delivery_error = _deliver_result(job, deliver_content, adapters=adapters, loop=loop)
                     except Exception as de:
@@ -965,15 +996,29 @@ def tick(verbose: bool = True, adapters=None, loop=None) -> int:
                         logger.error("Delivery failed for job %s: %s", job["id"], de)
 
                 cycle_id = job.get("_daily_goal_cycle_id")
-                if cycle_id and should_deliver:
+                if cycle_id and should_deliver and daily_goal_telegram_attempt:
                     try:
                         from tools.daily_goal_coordinator_tool import (
                             record_daily_goal_delivery,
                         )
 
+                        if delivery_error:
+                            lowered_delivery_error = delivery_error.lower()
+                            delivery_status = (
+                                "unknown"
+                                if (
+                                    "timed out" in lowered_delivery_error
+                                    or "timeout" in lowered_delivery_error
+                                    or "not retrying to avoid duplicate"
+                                    in lowered_delivery_error
+                                )
+                                else "failed"
+                            )
+                        else:
+                            delivery_status = "delivered"
                         record_daily_goal_delivery(
                             cycle_id,
-                            "failed" if delivery_error else "delivered",
+                            delivery_status,
                         )
                     except Exception as re:
                         logger.error(

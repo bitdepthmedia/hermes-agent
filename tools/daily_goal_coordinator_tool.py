@@ -93,18 +93,34 @@ def run_daily_goal_coordinator(mode: str = "checkin", dry_run: bool = False) -> 
             execute=execute,
             review=review,
         )
+        receipt = result.receipt
+        delivery_status = receipt.telegram_delivery if receipt is not None else None
+        reused_pending = (
+            receipt is not None
+            and not result.reran_work
+            and delivery_status == "pending"
+        )
+        suppress_delivery = (
+            bool(dry_run)
+            or receipt is None
+            or (delivery_status in {"delivered", "unknown"})
+            or reused_pending
+        )
         content = (
             "[SILENT]"
-            if (mode == "watchdog" and result.receipt.telegram_delivery == "delivered")
+            if receipt is None
+            or delivery_status in {"delivered", "unknown"}
+            or reused_pending
             else result.message
         )
         return json.dumps(
             {
                 "success": True,
                 "content": content,
-                "cycle_id": result.receipt.cycle_id,
+                "cycle_id": result.cycle_id,
                 "reran_work": result.reran_work,
                 "dry_run": bool(dry_run),
+                "suppress_delivery": suppress_delivery,
             }
         )
     except Exception as exc:
@@ -115,8 +131,8 @@ def run_daily_goal_coordinator(mode: str = "checkin", dry_run: bool = False) -> 
 
 
 def record_daily_goal_delivery(cycle_id: str, status: str) -> None:
-    if status not in {"delivered", "failed"}:
-        raise ValueError("delivery status must be delivered or failed")
+    if status not in {"delivered", "failed", "unknown"}:
+        raise ValueError("delivery status must be delivered, failed, or unknown")
     database = Path(
         os.getenv(
             "SHARED_CORE_DB",

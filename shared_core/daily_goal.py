@@ -100,7 +100,7 @@ class DailyGoalStore:
     """SQLite persistence for exactly one daily cycle and receipt per local date."""
 
     def __init__(self, database_path: str | Path):
-        self._conn = sqlite3.connect(str(database_path))
+        self._conn = sqlite3.connect(str(database_path), timeout=30)
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(
             """
@@ -116,6 +116,13 @@ class DailyGoalStore:
                 cycle_id TEXT PRIMARY KEY,
                 receipt TEXT NOT NULL,
                 created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS daily_goal_claims (
+                cycle_id TEXT NOT NULL,
+                claim_kind TEXT NOT NULL,
+                claimed_at TEXT NOT NULL,
+                PRIMARY KEY (cycle_id, claim_kind),
+                FOREIGN KEY (cycle_id) REFERENCES daily_goal_cycles(cycle_id)
             );
             """
         )
@@ -157,7 +164,9 @@ class DailyGoalStore:
             json.loads(row["payload"]),
         )
 
-    def update_cycle(self, cycle_id: str, state: CycleState, payload: dict) -> DailyCycle:
+    def update_cycle(
+        self, cycle_id: str, state: CycleState, payload: dict
+    ) -> DailyCycle:
         self._conn.execute(
             "UPDATE daily_goal_cycles SET state = ?, payload = ?, updated_at = ? "
             "WHERE cycle_id = ?",
@@ -171,19 +180,55 @@ class DailyGoalStore:
         self._conn.commit()
         return self.get_cycle(cycle_id)
 
+    def try_claim(self, cycle_id: str, claim_kind: str) -> bool:
+        """Atomically claim one check-in or UNKNOWN retry across connections."""
+        if claim_kind not in {"checkin", "unknown_retry"}:
+            raise ValueError("unsupported daily goal claim kind")
+        try:
+            self._conn.execute("BEGIN IMMEDIATE")
+            cursor = self._conn.execute(
+                """
+                INSERT OR IGNORE INTO daily_goal_claims
+                (cycle_id, claim_kind, claimed_at)
+                VALUES (?, ?, ?)
+                """,
+                (cycle_id, claim_kind, datetime.now(UTC).isoformat()),
+            )
+            self._conn.commit()
+            return cursor.rowcount == 1
+        except Exception:
+            self._conn.rollback()
+            raise
+
     def save_receipt(self, receipt: DailyReceipt) -> DailyReceipt:
-        self._conn.execute(
-            """
-            INSERT INTO daily_goal_receipts (cycle_id, receipt, created_at) VALUES (?, ?, ?)
-            ON CONFLICT(cycle_id) DO UPDATE SET receipt = excluded.receipt
-            """,
-            (
-                receipt.cycle_id,
-                json.dumps(asdict(receipt), sort_keys=True),
-                datetime.now(UTC).isoformat(),
-            ),
-        )
-        self._conn.commit()
+        try:
+            self._conn.execute("BEGIN IMMEDIATE")
+            row = self._conn.execute(
+                "SELECT receipt FROM daily_goal_receipts WHERE cycle_id = ?",
+                (receipt.cycle_id,),
+            ).fetchone()
+            data = asdict(receipt)
+            if row is not None:
+                current = json.loads(row["receipt"])
+                current_delivery = current.get("telegram_delivery")
+                if current_delivery in {"delivered", "failed", "unknown"}:
+                    data["telegram_delivery"] = current_delivery
+            self._conn.execute(
+                """
+                INSERT INTO daily_goal_receipts (cycle_id, receipt, created_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(cycle_id) DO UPDATE SET receipt = excluded.receipt
+                """,
+                (
+                    receipt.cycle_id,
+                    json.dumps(data, sort_keys=True),
+                    datetime.now(UTC).isoformat(),
+                ),
+            )
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
         saved = self.get_receipt(receipt.cycle_id)
         assert saved is not None
         return saved
@@ -212,16 +257,31 @@ class DailyGoalStore:
         )
 
     def update_delivery(self, cycle_id: str, status: str) -> DailyReceipt:
-        receipt = self.get_receipt(cycle_id)
-        if receipt is None:
-            raise KeyError(cycle_id)
-        data = asdict(receipt)
-        data["telegram_delivery"] = status
-        self._conn.execute(
-            "UPDATE daily_goal_receipts SET receipt = ? WHERE cycle_id = ?",
-            (json.dumps(data, sort_keys=True), cycle_id),
-        )
-        self._conn.commit()
+        if status not in {"delivered", "failed", "unknown"}:
+            raise ValueError("unsupported Telegram delivery status")
+        try:
+            self._conn.execute("BEGIN IMMEDIATE")
+            row = self._conn.execute(
+                "SELECT receipt FROM daily_goal_receipts WHERE cycle_id = ?",
+                (cycle_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(cycle_id)
+            data = json.loads(row["receipt"])
+            current = data.get("telegram_delivery")
+            if current == "delivered" or (
+                current == "unknown" and status != "delivered"
+            ):
+                status = current
+            data["telegram_delivery"] = status
+            self._conn.execute(
+                "UPDATE daily_goal_receipts SET receipt = ? WHERE cycle_id = ?",
+                (json.dumps(data, sort_keys=True), cycle_id),
+            )
+            self._conn.commit()
+        except Exception:
+            self._conn.rollback()
+            raise
         updated = self.get_receipt(cycle_id)
         assert updated is not None
         return updated

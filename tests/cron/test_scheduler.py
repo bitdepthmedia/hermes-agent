@@ -922,6 +922,8 @@ class TestRunJobDirectTool:
                         "success": True,
                         "content": "Daily tracker dry run complete",
                         "cycle_id": "daily-goal:2026-07-18",
+                        "dry_run": True,
+                        "suppress_delivery": True,
                     }
                 ),
             ),
@@ -932,6 +934,8 @@ class TestRunJobDirectTool:
         assert error is None
         assert final_response == "Daily tracker dry run complete"
         assert job["_daily_goal_cycle_id"] == "daily-goal:2026-07-18"
+        assert job["_daily_goal_dry_run"] is True
+        assert job["_daily_goal_suppress_delivery"] is True
         fake_agent_cls.assert_not_called()
 
     def test_daily_goal_direct_tool_rejects_malformed_result(self, tmp_path):
@@ -990,16 +994,29 @@ class TestRunJobDirectTool:
 
 
 class TestDailyGoalDeliveryReconciliation:
-    def _job(self):
-        return {
+    def _job(self, *, telegram=True):
+        job = {
             "id": "bcfc1f4e449e",
             "name": "ernie-telegram-daily-checkin",
             "schedule": {"kind": "cron", "expr": "5 9 * * *"},
         }
+        if telegram:
+            job.update(
+                {
+                    "deliver": "origin",
+                    "origin": {
+                        "platform": "telegram",
+                        "chat_id": "123",
+                    },
+                }
+            )
+        return job
 
     @staticmethod
     def _fake_run(current):
         current["_daily_goal_cycle_id"] = "daily-goal:2026-07-18"
+        current["_daily_goal_dry_run"] = False
+        current["_daily_goal_suppress_delivery"] = False
         return True, "output", "Daily tracker complete", None
 
     def test_receipt_records_real_delivery_result(self, tmp_path):
@@ -1055,6 +1072,184 @@ class TestDailyGoalDeliveryReconciliation:
             tick(verbose=False)
 
         record.assert_called_once_with("daily-goal:2026-07-18", "failed")
+
+    def test_definitive_failure_retries_delivery_then_records_success(
+        self, tmp_path
+    ):
+        first = self._job()
+        second = self._job()
+        with (
+            patch(
+                "cron.scheduler.get_due_jobs",
+                side_effect=[[first], [second]],
+            ),
+            patch("cron.scheduler.advance_next_run"),
+            patch(
+                "cron.scheduler.run_job",
+                side_effect=[self._fake_run(first), self._fake_run(second)],
+            ),
+            patch(
+                "cron.scheduler.save_job_output", return_value=tmp_path / "out.md"
+            ),
+            patch(
+                "cron.scheduler._deliver_result",
+                side_effect=["network down", None],
+            ) as deliver,
+            patch("cron.scheduler.mark_job_run"),
+            patch(
+                "tools.daily_goal_coordinator_tool.record_daily_goal_delivery"
+            ) as record,
+        ):
+            from cron.scheduler import tick
+
+            tick(verbose=False)
+            tick(verbose=False)
+
+        assert deliver.call_count == 2
+        assert [value.args for value in record.call_args_list] == [
+            ("daily-goal:2026-07-18", "failed"),
+            ("daily-goal:2026-07-18", "delivered"),
+        ]
+
+    def test_local_job_does_not_record_delivered(self, tmp_path):
+        with (
+            patch(
+                "cron.scheduler.get_due_jobs",
+                return_value=[self._job(telegram=False)],
+            ),
+            patch("cron.scheduler.advance_next_run"),
+            patch("cron.scheduler.run_job", side_effect=self._fake_run),
+            patch(
+                "cron.scheduler.save_job_output", return_value=tmp_path / "out.md"
+            ),
+            patch("cron.scheduler._deliver_result", return_value=None),
+            patch("cron.scheduler.mark_job_run"),
+            patch(
+                "tools.daily_goal_coordinator_tool.record_daily_goal_delivery"
+            ) as record,
+        ):
+            from cron.scheduler import tick
+
+            tick(verbose=False)
+
+        record.assert_not_called()
+
+    def test_scheduled_dry_run_skips_delivery_and_reconciliation(
+        self, tmp_path
+    ):
+        job = self._job()
+        job["direct_tool"] = {
+            "name": "daily_goal_coordinator",
+            "args": {"mode": "checkin", "dry_run": True},
+        }
+        database = tmp_path / "must-not-exist.db"
+
+        class ReadOnlyClient:
+            def get(self, path):
+                if path == "/v1/ernie/sessions":
+                    return {"sessions": []}
+                if path == "/ik/ernie-dashboard/work-queue/list":
+                    return {"items": []}
+                raise AssertionError(f"unexpected GET {path}")
+
+        with (
+            patch("cron.scheduler.get_due_jobs", return_value=[job]),
+            patch("cron.scheduler.advance_next_run"),
+            patch(
+                "cron.scheduler.save_job_output", return_value=tmp_path / "out.md"
+            ),
+            patch("cron.scheduler._deliver_result") as deliver,
+            patch("cron.scheduler.mark_job_run"),
+            patch("cron.scheduler._hermes_home", tmp_path),
+            patch("dotenv.load_dotenv"),
+            patch("hermes_state.SessionDB", return_value=MagicMock()),
+            patch(
+                "tools.daily_goal_coordinator_tool.LoopbackJsonClient",
+                return_value=ReadOnlyClient(),
+            ),
+            patch(
+                "tools.daily_goal_coordinator_tool.record_daily_goal_delivery"
+            ) as record,
+            patch.dict(
+                os.environ,
+                {"SHARED_CORE_DB": str(database)},
+            ),
+        ):
+            from cron.scheduler import tick
+
+            tick(verbose=False)
+
+        deliver.assert_not_called()
+        record.assert_not_called()
+        assert not database.exists()
+
+    def test_ambiguous_timeout_records_unknown(self, tmp_path):
+        with (
+            patch("cron.scheduler.get_due_jobs", return_value=[self._job()]),
+            patch("cron.scheduler.advance_next_run"),
+            patch("cron.scheduler.run_job", side_effect=self._fake_run),
+            patch(
+                "cron.scheduler.save_job_output", return_value=tmp_path / "out.md"
+            ),
+            patch(
+                "cron.scheduler._deliver_result",
+                return_value=(
+                    "delivery to telegram:123 timed out via live adapter; "
+                    "not retrying to avoid duplicate delivery"
+                ),
+            ),
+            patch("cron.scheduler.mark_job_run"),
+            patch(
+                "tools.daily_goal_coordinator_tool.record_daily_goal_delivery"
+            ) as record,
+        ):
+            from cron.scheduler import tick
+
+            tick(verbose=False)
+
+        record.assert_called_once_with("daily-goal:2026-07-18", "unknown")
+
+    def test_successful_telegram_delivery_is_not_duplicated(self, tmp_path):
+        first = self._job()
+        second = self._job()
+
+        def first_run(current):
+            return self._fake_run(current)
+
+        def second_run(current):
+            current["_daily_goal_cycle_id"] = "daily-goal:2026-07-18"
+            current["_daily_goal_dry_run"] = False
+            current["_daily_goal_suppress_delivery"] = True
+            return True, "output", "[SILENT]", None
+
+        with (
+            patch(
+                "cron.scheduler.get_due_jobs",
+                side_effect=[[first], [second]],
+            ),
+            patch("cron.scheduler.advance_next_run"),
+            patch(
+                "cron.scheduler.run_job",
+                side_effect=[first_run(first), second_run(second)],
+            ),
+            patch(
+                "cron.scheduler.save_job_output", return_value=tmp_path / "out.md"
+            ),
+            patch("cron.scheduler._deliver_result", return_value=None) as deliver,
+            patch("cron.scheduler.mark_job_run"),
+            patch(
+                "tools.daily_goal_coordinator_tool.record_daily_goal_delivery"
+            ) as record,
+        ):
+            from cron.scheduler import tick
+
+            tick(verbose=False)
+            tick(verbose=False)
+
+        deliver.assert_called_once()
+        record.assert_called_once_with(
+            "daily-goal:2026-07-18", "delivered"
+        )
 
     def test_reconciliation_error_does_not_break_other_jobs(
         self, tmp_path, caplog

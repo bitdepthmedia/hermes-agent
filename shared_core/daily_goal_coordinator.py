@@ -22,9 +22,10 @@ NEW_YORK = ZoneInfo("America/New_York")
 
 @dataclass(frozen=True)
 class CoordinatorResult:
-    receipt: DailyReceipt
+    receipt: DailyReceipt | None
     message: str
     reran_work: bool
+    cycle_id: str
 
 
 def _fallback_candidate() -> ImprovementCandidate:
@@ -93,13 +94,22 @@ def run_daily_cycle(
     cycle = store.get_or_create_cycle(local_date)
     existing = store.get_receipt(cycle.cycle_id)
     retry_unknown = (
-        mode == "watchdog"
-        and existing is not None
-        and existing.trigger == "unknown"
-        and not bool(cycle.payload.get("unknown_retry_attempted"))
+        mode == "watchdog" and existing is not None and existing.trigger == "unknown"
     )
-    if existing is not None and not retry_unknown:
-        return CoordinatorResult(existing, format_telegram_summary(existing), False)
+    if existing is not None:
+        if not retry_unknown:
+            return CoordinatorResult(
+                existing,
+                format_telegram_summary(existing),
+                False,
+                cycle.cycle_id,
+            )
+        claim_kind = "unknown_retry"
+    else:
+        claim_kind = "checkin"
+
+    if not store.try_claim(cycle.cycle_id, claim_kind):
+        return CoordinatorResult(None, "[SILENT]", False, cycle.cycle_id)
 
     ernie = collect_ernie()
     bert = collect_bert()
@@ -108,8 +118,6 @@ def run_daily_cycle(
         "ernie": ernie.status.value,
         "bert": bert.status.value,
         "mode": mode,
-        "unknown_retry_attempted": bool(cycle.payload.get("unknown_retry_attempted"))
-        or retry_unknown,
     }
     store.update_cycle(cycle.cycle_id, trigger, payload)
 
@@ -146,11 +154,14 @@ def run_daily_cycle(
             "pending",
         )
     else:
-        ranked = rank_candidates((ernie, bert))
+        ranked = [
+            value
+            for value in rank_candidates((ernie, bert))
+            if value.candidate.candidate_id != "daily-process-health-audit"
+        ]
         attempts = [value.candidate for value in ranked]
         fallback = _fallback_candidate()
-        if not any(value.candidate_id == fallback.candidate_id for value in attempts):
-            attempts.append(fallback)
+        attempts.append(fallback)
 
         candidate = attempts[0]
         owner, collaborator = assign_roles(candidate)
@@ -161,6 +172,7 @@ def run_daily_cycle(
 
         for candidate in attempts:
             owner, collaborator = assign_roles(candidate)
+            counterpart = None
             store.update_cycle(
                 cycle.cycle_id,
                 CycleState.IMPROVEMENT_RUNNING,
@@ -190,7 +202,7 @@ def run_daily_cycle(
                     f"{candidate.candidate_id}:"
                     f"{counterpart.blocker or 'review failed'}"
                 )
-                continue
+                break
 
             ok = True
             break
@@ -204,6 +216,20 @@ def run_daily_cycle(
             ),
             None,
         )
+        if selected is None:
+            selection_reason = (
+                "No eligible history candidate; used deterministic "
+                "process-health audit"
+            )
+        elif ranked and selected is ranked[0]:
+            selection_reason = (
+                f"{candidate.candidate_id} ranked highest at score " f"{selected.score}"
+            )
+        else:
+            selection_reason = (
+                f"{candidate.candidate_id} selected after higher-ranked "
+                f"candidates were blocked; score {selected.score}"
+            )
         receipt = DailyReceipt(
             cycle.cycle_id,
             ernie.status.value,
@@ -211,14 +237,7 @@ def run_daily_cycle(
             "improvement",
             tuple(value.candidate.candidate_id for value in ranked),
             candidate.title,
-            (
-                f"{candidate.candidate_id} ranked highest at score " f"{selected.score}"
-                if selected is not None
-                else (
-                    "No eligible history candidate; used deterministic "
-                    "process-health audit"
-                )
-            ),
+            selection_reason,
             owner,
             collaborator,
             (execution.summary,) if execution.summary else (),
@@ -236,4 +255,9 @@ def run_daily_cycle(
         )
 
     receipt = store.save_receipt(receipt)
-    return CoordinatorResult(receipt, format_telegram_summary(receipt), True)
+    return CoordinatorResult(
+        receipt,
+        format_telegram_summary(receipt),
+        True,
+        cycle.cycle_id,
+    )
