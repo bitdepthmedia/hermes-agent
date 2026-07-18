@@ -1,7 +1,7 @@
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from shared_core.daily_goal import (
@@ -460,3 +460,118 @@ def test_concurrent_watchdogs_retry_unknown_exactly_once(tmp_path):
         DailyGoalStore(database).get_receipt("daily-goal:2026-07-18").trigger
         == "normal_work"
     )
+
+
+def test_delivered_unknown_retry_with_new_content_starts_pending(tmp_path):
+    store = DailyGoalStore(tmp_path / "core.db")
+    morning = run_daily_cycle(
+        mode="checkin",
+        now=NOW,
+        store=store,
+        collect_ernie=lambda: status("ernie", WorkStatus.NO_PENDING_WORK),
+        collect_bert=lambda: status("bert", WorkStatus.UNKNOWN),
+        execute=lambda *_: None,
+        review=lambda *_: None,
+    )
+    store.update_delivery(morning.receipt.cycle_id, "delivered")
+
+    watchdog = run_daily_cycle(
+        mode="watchdog",
+        now=NOW,
+        store=store,
+        collect_ernie=lambda: status("ernie", WorkStatus.NO_PENDING_WORK),
+        collect_bert=lambda: status("bert", WorkStatus.NO_PENDING_WORK),
+        execute=lambda _candidate, owner: ExecutionOutcome(
+            True, owner, "audit complete", ("audit",)
+        ),
+        review=lambda *_: ExecutionOutcome(
+            True, "bert", "REVIEW_PASS", ("bert:review",)
+        ),
+    )
+
+    assert watchdog.receipt.trigger == "improvement"
+    assert watchdog.receipt.telegram_delivery == "pending"
+
+
+def test_fresh_claim_loser_is_silent(tmp_path):
+    store = DailyGoalStore(tmp_path / "core.db")
+    cycle = store.get_or_create_cycle(NOW.date())
+    assert store.try_claim(cycle.cycle_id, "checkin", now=NOW) is True
+
+    result = run_daily_cycle(
+        mode="checkin",
+        now=NOW,
+        store=store,
+        collect_ernie=lambda: (_ for _ in ()).throw(
+            AssertionError("fresh loser must not collect")
+        ),
+        collect_bert=lambda: (_ for _ in ()).throw(
+            AssertionError("fresh loser must not collect")
+        ),
+        execute=lambda *_: None,
+        review=lambda *_: None,
+    )
+
+    assert result.receipt is None
+    assert result.message == "[SILENT]"
+
+
+def test_stale_claim_takeover_runs_once(tmp_path):
+    store = DailyGoalStore(tmp_path / "core.db")
+    cycle = store.get_or_create_cycle(NOW.date())
+    assert (
+        store.try_claim(
+            cycle.cycle_id,
+            "checkin",
+            now=NOW - timedelta(hours=1),
+        )
+        is True
+    )
+    calls = {"collect": 0}
+
+    def collect_ernie():
+        calls["collect"] += 1
+        return status("ernie", WorkStatus.PENDING_WORK)
+
+    first = run_daily_cycle(
+        mode="checkin",
+        now=NOW,
+        store=store,
+        collect_ernie=collect_ernie,
+        collect_bert=lambda: status("bert", WorkStatus.NO_PENDING_WORK),
+        execute=lambda *_: None,
+        review=lambda *_: None,
+    )
+    second = run_daily_cycle(
+        mode="checkin",
+        now=NOW,
+        store=store,
+        collect_ernie=lambda: (_ for _ in ()).throw(
+            AssertionError("completed takeover must not recollect")
+        ),
+        collect_bert=lambda: (_ for _ in ()).throw(
+            AssertionError("completed takeover must not recollect")
+        ),
+        execute=lambda *_: None,
+        review=lambda *_: None,
+    )
+
+    assert first.receipt.trigger == "normal_work"
+    assert second.reran_work is False
+    assert calls["collect"] == 1
+
+
+def test_collector_exception_persists_unknown_receipt(tmp_path):
+    result = run_daily_cycle(
+        mode="checkin",
+        now=NOW,
+        store=DailyGoalStore(tmp_path / "core.db"),
+        collect_ernie=lambda: (_ for _ in ()).throw(RuntimeError("collector crashed")),
+        collect_bert=lambda: status("bert", WorkStatus.NO_PENDING_WORK),
+        execute=lambda *_: None,
+        review=lambda *_: None,
+    )
+
+    assert result.receipt.trigger == "unknown"
+    assert result.receipt.ernie_status == "UNKNOWN"
+    assert any("RuntimeError" in blocker for blocker in result.receipt.blockers)

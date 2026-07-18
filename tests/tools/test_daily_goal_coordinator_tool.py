@@ -55,7 +55,7 @@ def test_dry_run_never_posts_persists_executes_or_reviews(tmp_path):
     orchestrator.assert_not_called()
 
 
-def _result_for_delivery(status):
+def _result_for_delivery(status, *, reran_work=False):
     receipt = type(
         "Receipt",
         (),
@@ -71,7 +71,7 @@ def _result_for_delivery(status):
             "receipt": receipt,
             "cycle_id": receipt.cycle_id,
             "message": "duplicate",
-            "reran_work": False,
+            "reran_work": reran_work,
         },
     )()
 
@@ -120,6 +120,17 @@ def test_reused_pending_receipt_is_silent_while_delivery_is_unreconciled():
 
     assert payload["content"] == "[SILENT]"
     assert payload["suppress_delivery"] is True
+
+
+def test_new_pending_receipt_requires_delivery():
+    with patch(
+        "tools.daily_goal_coordinator_tool.run_daily_cycle",
+        return_value=_result_for_delivery("pending", reran_work=True),
+    ):
+        payload = json.loads(run_daily_goal_coordinator(mode="watchdog", dry_run=False))
+
+    assert payload["content"] == "duplicate"
+    assert payload["suppress_delivery"] is False
 
 
 def test_claim_loser_is_silent_without_receipt():

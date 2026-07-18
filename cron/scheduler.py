@@ -972,6 +972,7 @@ def tick(verbose: bool = True, adapters=None, loop=None) -> int:
                     should_deliver = False
 
                 delivery_error = None
+                delivery_exception = None
                 daily_goal_telegram_attempt = False
                 if should_deliver:
                     if job.get("_daily_goal_cycle_id"):
@@ -992,7 +993,8 @@ def tick(verbose: bool = True, adapters=None, loop=None) -> int:
                     try:
                         delivery_error = _deliver_result(job, deliver_content, adapters=adapters, loop=loop)
                     except Exception as de:
-                        delivery_error = str(de)
+                        delivery_exception = de
+                        delivery_error = str(de) or type(de).__name__
                         logger.error("Delivery failed for job %s: %s", job["id"], de)
 
                 cycle_id = job.get("_daily_goal_cycle_id")
@@ -1002,7 +1004,16 @@ def tick(verbose: bool = True, adapters=None, loop=None) -> int:
                             record_daily_goal_delivery,
                         )
 
-                        if delivery_error:
+                        if delivery_exception is not None:
+                            delivery_status = (
+                                "unknown"
+                                if isinstance(
+                                    delivery_exception,
+                                    (TimeoutError, ConnectionError),
+                                )
+                                else "failed"
+                            )
+                        elif delivery_error:
                             lowered_delivery_error = delivery_error.lower()
                             delivery_status = (
                                 "unknown"

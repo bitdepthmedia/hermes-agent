@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from zoneinfo import ZoneInfo
 
 from .daily_goal import (
     ActionKind,
+    AgentStatus,
     CycleState,
     DailyReceipt,
     ImprovementCandidate,
+    WorkStatus,
     resolve_trigger,
 )
 from .daily_goal_execution import ExecutionOutcome
@@ -75,6 +77,29 @@ def _failed_outcome(actor: str, exc: Exception) -> ExecutionOutcome:
     )
 
 
+def _collect_status(
+    agent: str, collector, now: datetime
+) -> tuple[AgentStatus, str | None]:
+    try:
+        result = collector()
+        if not isinstance(result, AgentStatus):
+            raise TypeError("collector returned an invalid status")
+        return result, None
+    except Exception as exc:
+        blocker = f"{agent.capitalize()} status collection failed: {type(exc).__name__}"
+        return (
+            AgentStatus(
+                agent,
+                WorkStatus.UNKNOWN,
+                blocker,
+                (blocker,),
+                now.astimezone(UTC).isoformat(),
+                (),
+            ),
+            blocker,
+        )
+
+
 def run_daily_cycle(
     *,
     mode,
@@ -108,11 +133,20 @@ def run_daily_cycle(
     else:
         claim_kind = "checkin"
 
-    if not store.try_claim(cycle.cycle_id, claim_kind):
+    if not store.try_claim(
+        cycle.cycle_id,
+        claim_kind,
+        now=now.astimezone(UTC),
+    ):
         return CoordinatorResult(None, "[SILENT]", False, cycle.cycle_id)
 
-    ernie = collect_ernie()
-    bert = collect_bert()
+    ernie, ernie_collection_blocker = _collect_status("ernie", collect_ernie, now)
+    bert, bert_collection_blocker = _collect_status("bert", collect_bert, now)
+    collection_blockers = tuple(
+        blocker
+        for blocker in (ernie_collection_blocker, bert_collection_blocker)
+        if blocker is not None
+    )
     trigger = resolve_trigger(ernie, bert)
     payload = {
         "ernie": ernie.status.value,
@@ -150,7 +184,7 @@ def run_daily_cycle(
             None,
             (),
             (),
-            ("missing or ambiguous agent status",),
+            collection_blockers or ("missing or ambiguous agent status",),
             "pending",
         )
     else:

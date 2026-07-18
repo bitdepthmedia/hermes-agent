@@ -5,9 +5,12 @@ from __future__ import annotations
 import json
 import sqlite3
 from dataclasses import asdict, dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from enum import Enum
 from pathlib import Path
+
+
+CLAIM_LEASE_SECONDS = 15 * 60
 
 
 class WorkStatus(str, Enum):
@@ -180,19 +183,38 @@ class DailyGoalStore:
         self._conn.commit()
         return self.get_cycle(cycle_id)
 
-    def try_claim(self, cycle_id: str, claim_kind: str) -> bool:
+    def try_claim(
+        self,
+        cycle_id: str,
+        claim_kind: str,
+        *,
+        now: datetime | None = None,
+    ) -> bool:
         """Atomically claim one check-in or UNKNOWN retry across connections."""
         if claim_kind not in {"checkin", "unknown_retry"}:
             raise ValueError("unsupported daily goal claim kind")
+        claimed_at = now or datetime.now(UTC)
+        if claimed_at.tzinfo is None:
+            raise ValueError("claim time must be timezone-aware")
+        claimed_at = claimed_at.astimezone(UTC)
+        stale_before = claimed_at - timedelta(seconds=CLAIM_LEASE_SECONDS)
         try:
             self._conn.execute("BEGIN IMMEDIATE")
             cursor = self._conn.execute(
                 """
-                INSERT OR IGNORE INTO daily_goal_claims
+                INSERT INTO daily_goal_claims
                 (cycle_id, claim_kind, claimed_at)
                 VALUES (?, ?, ?)
+                ON CONFLICT(cycle_id, claim_kind) DO UPDATE
+                SET claimed_at = excluded.claimed_at
+                WHERE daily_goal_claims.claimed_at <= ?
                 """,
-                (cycle_id, claim_kind, datetime.now(UTC).isoformat()),
+                (
+                    cycle_id,
+                    claim_kind,
+                    claimed_at.isoformat(),
+                    stale_before.isoformat(),
+                ),
             )
             self._conn.commit()
             return cursor.rowcount == 1
@@ -210,8 +232,23 @@ class DailyGoalStore:
             data = asdict(receipt)
             if row is not None:
                 current = json.loads(row["receipt"])
+                normalized_data = json.loads(json.dumps(data))
                 current_delivery = current.get("telegram_delivery")
-                if current_delivery in {"delivered", "failed", "unknown"}:
+                semantic_current = {
+                    key: value
+                    for key, value in current.items()
+                    if key != "telegram_delivery"
+                }
+                semantic_new = {
+                    key: value
+                    for key, value in normalized_data.items()
+                    if key != "telegram_delivery"
+                }
+                if semantic_current == semantic_new and current_delivery in {
+                    "delivered",
+                    "failed",
+                    "unknown",
+                }:
                     data["telegram_delivery"] = current_delivery
             self._conn.execute(
                 """

@@ -1209,6 +1209,48 @@ class TestDailyGoalDeliveryReconciliation:
 
         record.assert_called_once_with("daily-goal:2026-07-18", "unknown")
 
+    def test_empty_timeout_exception_records_unknown_and_suppresses_retry(
+        self, tmp_path
+    ):
+        first = self._job()
+        second = self._job()
+
+        def second_run(current):
+            current["_daily_goal_cycle_id"] = "daily-goal:2026-07-18"
+            current["_daily_goal_dry_run"] = False
+            current["_daily_goal_suppress_delivery"] = True
+            return True, "output", "[SILENT]", None
+
+        with (
+            patch(
+                "cron.scheduler.get_due_jobs",
+                side_effect=[[first], [second]],
+            ),
+            patch("cron.scheduler.advance_next_run"),
+            patch(
+                "cron.scheduler.run_job",
+                side_effect=[self._fake_run(first), second_run(second)],
+            ),
+            patch(
+                "cron.scheduler.save_job_output", return_value=tmp_path / "out.md"
+            ),
+            patch(
+                "cron.scheduler._deliver_result",
+                side_effect=TimeoutError(),
+            ) as deliver,
+            patch("cron.scheduler.mark_job_run"),
+            patch(
+                "tools.daily_goal_coordinator_tool.record_daily_goal_delivery"
+            ) as record,
+        ):
+            from cron.scheduler import tick
+
+            tick(verbose=False)
+            tick(verbose=False)
+
+        deliver.assert_called_once()
+        record.assert_called_once_with("daily-goal:2026-07-18", "unknown")
+
     def test_successful_telegram_delivery_is_not_duplicated(self, tmp_path):
         first = self._job()
         second = self._job()
