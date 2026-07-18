@@ -1,0 +1,239 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HERMES_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+STACK_ROOT="$(cd "${HERMES_ROOT}/../.." && pwd)"
+PROFILE_ROOT="${HERMES_ROOT}/ik_profiles/hermes-ernie"
+HERMES_HOME_DIR="${HERMES_HOME:-${STACK_ROOT}/config/ik-agents/hermes-ernie}"
+CHECKIN_ID="bcfc1f4e449e"
+WATCHDOG_ID="d41a1c0de160"
+
+python_bin() {
+  if [[ -x "${HERMES_ROOT}/.venv/bin/python" ]]; then
+    printf '%s\n' "${HERMES_ROOT}/.venv/bin/python"
+  else
+    command -v python3
+  fi
+}
+
+validate_deploy() {
+  HERMES_HOME="${HERMES_HOME_DIR}" PROFILE_ROOT="${PROFILE_ROOT}" "$(python_bin)" - <<'PY'
+import json
+import os
+from datetime import datetime, timedelta
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+from cron.jobs import compute_next_run
+
+
+def next_run(schedule):
+    calculated = compute_next_run(schedule)
+    if calculated is not None:
+        return calculated
+    if schedule.get("kind") != "cron":
+        return None
+    try:
+        minute, hour, day, month, weekday = schedule["expr"].split()
+        if (day, month, weekday) != ("*", "*", "*"):
+            return None
+        candidate = datetime.now(ZoneInfo("America/New_York")).replace(
+            hour=int(hour), minute=int(minute), second=0, microsecond=0
+        )
+        if candidate <= datetime.now(ZoneInfo("America/New_York")):
+            candidate += timedelta(days=1)
+        return candidate.isoformat()
+    except (TypeError, ValueError):
+        return None
+
+home = Path(os.environ["HERMES_HOME"])
+profile_root = Path(os.environ["PROFILE_ROOT"])
+jobs_path = home / "cron" / "jobs.json"
+config_path = home / "config.yaml"
+jobs = json.loads(jobs_path.read_text())["jobs"]
+if not config_path.is_file():
+    raise RuntimeError(f"missing config: {config_path}")
+
+existing = next(
+    (item for item in jobs if item.get("id") == "bcfc1f4e449e" or item.get("name") == "ernie-telegram-daily-checkin"),
+    None,
+)
+if existing is None or not existing.get("deliver"):
+    raise RuntimeError("existing Telegram group delivery target is required; refusing to invent one")
+
+for manifest_name in ("daily-goal-checkin.json", "daily-goal-watchdog.json"):
+    job = json.loads((profile_root / "cron" / manifest_name).read_text())
+    if next_run(job["schedule"]) is None:
+        raise RuntimeError(f"could not compute next run for {job['name']}")
+PY
+}
+
+backup_state() {
+  local stamp backup
+  stamp="$(date +%Y%m%d-%H%M%S)"
+  backup="${HERMES_HOME_DIR}/backups/daily-goal-${stamp}"
+  mkdir -p "${backup}"
+  [[ ! -f "${HERMES_HOME_DIR}/cron/jobs.json" ]] || cp -p "${HERMES_HOME_DIR}/cron/jobs.json" "${backup}/jobs.json"
+  [[ ! -f "${HERMES_HOME_DIR}/config.yaml" ]] || cp -p "${HERMES_HOME_DIR}/config.yaml" "${backup}/config.yaml"
+  printf '%s\n' "${backup}"
+}
+
+upsert_jobs() {
+  local backup
+  validate_deploy
+  backup="$(backup_state)"
+  HERMES_HOME="${HERMES_HOME_DIR}" PROFILE_ROOT="${PROFILE_ROOT}" "$(python_bin)" - <<'PY'
+import json
+import os
+import re
+import tempfile
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+from cron.jobs import compute_next_run
+
+
+def atomic_write(path: Path, text: str) -> None:
+    mode = path.stat().st_mode & 0o777
+    with tempfile.NamedTemporaryFile("w", encoding="utf-8", dir=path.parent, delete=False) as handle:
+        handle.write(text)
+        handle.flush()
+        os.fsync(handle.fileno())
+        temporary = Path(handle.name)
+    os.chmod(temporary, mode)
+    os.replace(temporary, path)
+
+
+def next_run(schedule):
+    calculated = compute_next_run(schedule)
+    if calculated is not None:
+        return calculated
+    if schedule.get("kind") != "cron":
+        return None
+    try:
+        minute, hour, day, month, weekday = schedule["expr"].split()
+        if (day, month, weekday) != ("*", "*", "*"):
+            return None
+        now = datetime.now(ZoneInfo("America/New_York"))
+        candidate = now.replace(hour=int(hour), minute=int(minute), second=0, microsecond=0)
+        if candidate <= now:
+            candidate += timedelta(days=1)
+        return candidate.isoformat()
+    except (TypeError, ValueError):
+        return None
+
+
+home = Path(os.environ["HERMES_HOME"])
+profile_root = Path(os.environ["PROFILE_ROOT"])
+jobs_path = home / "cron" / "jobs.json"
+config_path = home / "config.yaml"
+data = json.loads(jobs_path.read_text())
+jobs = data.setdefault("jobs", [])
+
+existing = next(
+    (item for item in jobs if item.get("id") == "bcfc1f4e449e" or item.get("name") == "ernie-telegram-daily-checkin"),
+    None,
+)
+if existing is None or not existing.get("deliver"):
+    raise RuntimeError("existing Telegram group delivery target is required; refusing to invent one")
+delivery = existing["deliver"]
+runtime_fields = {
+    "created_at", "last_run_at", "last_status", "last_error",
+    "last_delivery_error", "repeat",
+}
+
+for manifest_name in ("daily-goal-checkin.json", "daily-goal-watchdog.json"):
+    job = json.loads((profile_root / "cron" / manifest_name).read_text())
+    matching = [
+        item for item in jobs
+        if item.get("id") == job["id"] or item.get("name") == job["name"]
+    ]
+    old = next((item for item in matching if item.get("id") == job["id"]), matching[0] if matching else None)
+    if old is not None:
+        for key in runtime_fields:
+            if old.get(key) is not None:
+                job[key] = old[key]
+    job["deliver"] = delivery
+    job["next_run_at"] = next_run(job["schedule"])
+    if job["next_run_at"] is None:
+        raise RuntimeError(f"could not compute next run for {job['name']}")
+    jobs = [
+        item for item in jobs
+        if item.get("id") != job["id"] and item.get("name") != job["name"]
+    ]
+    jobs.append(job)
+
+data["jobs"] = jobs
+data["updated_at"] = datetime.now(UTC).isoformat()
+atomic_write(jobs_path, json.dumps(data, indent=2) + "\n")
+
+text = config_path.read_text()
+if re.search(r"(?m)^timezone:\s*.*$", text):
+    text = re.sub(r"(?m)^timezone:\s*.*$", "timezone: America/New_York", text, count=1)
+else:
+    text += "\ntimezone: America/New_York\n"
+atomic_write(config_path, text)
+print(json.dumps({"jobs": ["bcfc1f4e449e", "d41a1c0de160"], "timezone": "America/New_York"}, sort_keys=True))
+PY
+  echo "backup: ${backup}"
+}
+
+trigger_job_id() {
+  local job_id="$1"
+  HERMES_HOME="${HERMES_HOME_DIR}" JOB_ID="${job_id}" "$(python_bin)" - <<'PY'
+import os
+from cron.jobs import get_job, trigger_job
+from cron.scheduler import tick
+
+job_id = os.environ["JOB_ID"]
+if trigger_job(job_id) is None:
+    raise SystemExit(f"missing job: {job_id}")
+tick(verbose=True)
+job = get_job(job_id)
+for key in ("id", "name", "last_status", "last_error", "last_delivery_error", "last_run_at", "next_run_at"):
+    print(key, job.get(key))
+PY
+}
+
+status_cmd() {
+  HERMES_HOME="${HERMES_HOME_DIR}" "$(python_bin)" - <<'PY'
+import json
+import os
+from pathlib import Path
+
+jobs_path = Path(os.environ["HERMES_HOME"]) / "cron" / "jobs.json"
+jobs = json.loads(jobs_path.read_text()).get("jobs", []) if jobs_path.is_file() else []
+for job_id in ("bcfc1f4e449e", "d41a1c0de160"):
+    job = next((item for item in jobs if item.get("id") == job_id), None)
+    print(json.dumps({
+        "id": job_id,
+        "present": job is not None,
+        "schedule": None if job is None else job.get("schedule"),
+        "next_run_at": None if job is None else job.get("next_run_at"),
+        "last_status": None if job is None else job.get("last_status"),
+        "last_error": None if job is None else job.get("last_error"),
+        "last_delivery_error": None if job is None else job.get("last_delivery_error"),
+    }, sort_keys=True))
+PY
+}
+
+dry_run_cmd() {
+  HERMES_HOME="${HERMES_HOME_DIR}" "$(python_bin)" - <<'PY'
+from tools.daily_goal_coordinator_tool import run_daily_goal_coordinator
+print(run_daily_goal_coordinator(mode="checkin", dry_run=True))
+PY
+}
+
+case "${1:-}" in
+  deploy) upsert_jobs ;;
+  status) status_cmd ;;
+  dry-run) dry_run_cmd ;;
+  trigger-checkin) trigger_job_id "${CHECKIN_ID}" ;;
+  trigger-watchdog) trigger_job_id "${WATCHDOG_ID}" ;;
+  *)
+    echo "Usage: scripts/ik-ernie-daily-goal <deploy|status|dry-run|trigger-checkin|trigger-watchdog>" >&2
+    exit 2
+    ;;
+esac

@@ -1,0 +1,18 @@
+{
+  "id": "bcfc1f4e449e",
+  "name": "ernie-telegram-daily-checkin",
+  "prompt": "Run the evidence-backed Bert-Ernie daily tracker.",
+  "direct_tool": {
+    "name": "daily_goal_coordinator",
+    "args": {"mode": "checkin", "dry_run": false}
+  },
+  "schedule": {"kind": "cron", "expr": "5 9 * * *", "display": "5 9 * * *"},
+  "schedule_display": "5 9 * * *",
+  "repeat": {"times": null, "completed": 0},
+  "enabled": true,
+  "state": "scheduled",
+  "deliver": null,
+  "origin": null,
+  "timeout_seconds": 300,
+  "wrap_response": false
+}

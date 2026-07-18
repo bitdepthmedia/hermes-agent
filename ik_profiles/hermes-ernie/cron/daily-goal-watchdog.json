@@ -1,0 +1,18 @@
+{
+  "id": "d41a1c0de160",
+  "name": "ernie-daily-goal-watchdog",
+  "prompt": "Verify today's Bert-Ernie daily cycle and retry delivery without duplicating work.",
+  "direct_tool": {
+    "name": "daily_goal_coordinator",
+    "args": {"mode": "watchdog", "dry_run": false}
+  },
+  "schedule": {"kind": "cron", "expr": "0 16 * * *", "display": "0 16 * * *"},
+  "schedule_display": "0 16 * * *",
+  "repeat": {"times": null, "completed": 0},
+  "enabled": true,
+  "state": "scheduled",
+  "deliver": null,
+  "origin": null,
+  "timeout_seconds": 300,
+  "wrap_response": false
+}
