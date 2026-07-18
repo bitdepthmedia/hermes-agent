@@ -42,6 +42,20 @@ class LoopbackJsonClient:
 
 OPEN_QUEUE_STATES = {"ready", "in-progress", "waiting"}
 OPEN_SESSION_STATES = {"pending", "in-progress", "running", "waiting", "blocked"}
+TERMINAL_QUEUE_STATES = {"completed", "failed", "cancelled", "canceled", "skipped"}
+TERMINAL_SESSION_STATES = {
+    "completed",
+    "failed",
+    "error",
+    "cancelled",
+    "canceled",
+    "stopped",
+}
+
+
+def _has_known_status(record: object, field: str, known_states: set[str]) -> bool:
+    value = record.get(field) if isinstance(record, dict) else None
+    return isinstance(value, str) and value.lower() in known_states
 
 
 def queue_item_is_open(item: dict) -> bool:
@@ -63,6 +77,26 @@ def collect_ernie_status(client: LoopbackJsonClient, now: datetime) -> AgentStat
             WorkStatus.UNKNOWN,
             "Ernie status unavailable",
             (type(exc).__name__,),
+            now.isoformat(),
+            (),
+        )
+
+    if any(
+        not _has_known_status(
+            item, "status", OPEN_QUEUE_STATES | TERMINAL_QUEUE_STATES
+        )
+        for item in items
+    ) or any(
+        not _has_known_status(
+            row, "latest_status", OPEN_SESSION_STATES | TERMINAL_SESSION_STATES
+        )
+        for row in sessions
+    ):
+        return AgentStatus(
+            "ernie",
+            WorkStatus.UNKNOWN,
+            "Ernie status contains an unrecognized state",
+            ("invalid-status",),
             now.isoformat(),
             (),
         )

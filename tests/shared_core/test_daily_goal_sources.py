@@ -49,6 +49,21 @@ def test_ernie_reports_pending_for_a_real_ready_item():
     assert result.status is WorkStatus.PENDING_WORK
 
 
+def test_ernie_reports_unknown_for_missing_or_malformed_queue_status():
+    for item in ({"item_id": "missing"}, {"item_id": "malformed", "status": "unknown"}):
+        result = collect_ernie_status(FakeClient([], [item]), NOW)
+        assert result.status is WorkStatus.UNKNOWN
+
+
+def test_ernie_reports_unknown_for_missing_or_malformed_session_status():
+    for session in (
+        {"session_id": "missing"},
+        {"session_id": "malformed", "latest_status": "unrecognized-state"},
+    ):
+        result = collect_ernie_status(FakeClient([session], []), NOW)
+        assert result.status is WorkStatus.UNKNOWN
+
+
 def test_malformed_bert_payload_is_unknown():
     result = collect_bert_status(
         lambda **_: json.dumps({"success": True, "content": "not-json"}), NOW
