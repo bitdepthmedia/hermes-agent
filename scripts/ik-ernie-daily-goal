@@ -1,0 +1,310 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+HERMES_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+COMMON_GIT_DIR="$(git -C "${HERMES_ROOT}" rev-parse --path-format=absolute --git-common-dir)"
+CANONICAL_HERMES_ROOT="$(cd "$(dirname "${COMMON_GIT_DIR}")" && pwd -P)"
+STACK_ROOT="$(cd "${CANONICAL_HERMES_ROOT}/../.." && pwd -P)"
+PROFILE_ROOT="${HERMES_ROOT}/ik_profiles/hermes-ernie"
+CHECKIN_ID="bcfc1f4e449e"
+WATCHDOG_ID="d41a1c0de160"
+
+fail() {
+  echo "ERROR: $*" >&2
+  exit 1
+}
+
+is_within() {
+  local child="$1" parent="$2"
+  [[ "${child}" == "${parent}/"* ]]
+}
+
+resolve_test_root() {
+  if [[ "${IK_ERNIE_ALLOW_TEST_HOME:-}" != "1" ]]; then
+    return
+  fi
+  [[ -n "${IK_ERNIE_TEST_ROOT:-}" ]] || fail "IK_ERNIE_TEST_ROOT is required with IK_ERNIE_ALLOW_TEST_HOME=1"
+  [[ "${IK_ERNIE_TEST_ROOT}" == /* ]] || fail "IK_ERNIE_TEST_ROOT must be absolute"
+  [[ -d "${IK_ERNIE_TEST_ROOT}" ]] || fail "IK_ERNIE_TEST_ROOT must exist"
+  TEST_ROOT="$(cd "${IK_ERNIE_TEST_ROOT}" && pwd -P)"
+  local temp_root
+  temp_root="$(cd "${TMPDIR:-/tmp}" && pwd -P)"
+  is_within "${TEST_ROOT}" "${temp_root}" || fail "IK_ERNIE_TEST_ROOT must be under the system temporary directory"
+  STACK_ROOT="${TEST_ROOT}"
+}
+
+resolve_home() {
+  resolve_test_root
+  local candidate default_home resolved
+  default_home="${STACK_ROOT}/config/ik-agents/hermes-ernie"
+  if [[ "${HERMES_HOME+x}" == "x" ]]; then
+    candidate="${HERMES_HOME}"
+    [[ -n "${candidate}" ]] || fail "HERMES_HOME must not be empty"
+  else
+    candidate="${default_home}"
+  fi
+  [[ "${candidate}" == /* ]] || fail "HERMES_HOME must be an absolute path"
+  [[ "${candidate}" != "/" ]] || fail "HERMES_HOME must not be /"
+  [[ -d "${candidate}" ]] || fail "HERMES_HOME must exist"
+  resolved="$(cd "${candidate}" && pwd -P)"
+  [[ "${resolved}" != "/" ]] || fail "HERMES_HOME must not resolve to /"
+  if [[ "${resolved}" == "${default_home}" ]]; then
+    HERMES_HOME_DIR="${resolved}"
+    return
+  fi
+  [[ "${IK_ERNIE_ALLOW_TEST_HOME:-}" == "1" ]] || fail "non-default HERMES_HOME requires IK_ERNIE_ALLOW_TEST_HOME=1"
+  is_within "${resolved}" "${TEST_ROOT}" || fail "test HERMES_HOME must resolve under IK_ERNIE_TEST_ROOT"
+  HERMES_HOME_DIR="${resolved}"
+}
+
+resolve_home
+cd "${HERMES_ROOT}"
+
+python_bin() {
+  local candidate="${HERMES_PYTHON:-${CANONICAL_HERMES_ROOT}/.venv/bin/python}"
+  [[ "${candidate}" == /* && -x "${candidate}" ]] || fail "HERMES_PYTHON must name an executable absolute path"
+  "${candidate}" -c 'import croniter' >/dev/null 2>&1 || fail "HERMES_PYTHON must provide croniter"
+  printf '%s\n' "${candidate}"
+}
+
+upsert_jobs() {
+  HERMES_HOME="${HERMES_HOME_DIR}" \
+  HERMES_TIMEZONE="America/New_York" \
+  PROFILE_ROOT="${PROFILE_ROOT}" \
+  IK_ERNIE_ALLOW_TEST_HOME="${IK_ERNIE_ALLOW_TEST_HOME:-}" \
+  IK_ERNIE_TEST_FAIL_AFTER_JOBS_WRITE="${IK_ERNIE_TEST_FAIL_AFTER_JOBS_WRITE:-}" \
+  "$(python_bin)" - <<'PY'
+import fcntl
+import json
+import os
+import re
+import shutil
+import sys
+import tempfile
+from datetime import UTC, datetime
+from pathlib import Path
+
+from cron.jobs import compute_next_run
+
+
+def atomic_write(path: Path, payload: bytes) -> None:
+    mode = path.stat().st_mode & 0o777
+    with tempfile.NamedTemporaryFile("wb", dir=path.parent, delete=False) as handle:
+        handle.write(payload)
+        handle.flush()
+        os.fsync(handle.fileno())
+        temporary = Path(handle.name)
+    os.chmod(temporary, mode)
+    os.replace(temporary, path)
+
+
+home = Path(os.environ["HERMES_HOME"])
+profile_root = Path(os.environ["PROFILE_ROOT"])
+jobs_path = home / "cron" / "jobs.json"
+config_path = home / "config.yaml"
+lock_path = home / "cron" / ".tick.lock"
+lock_path.parent.mkdir(parents=True, exist_ok=True)
+lock_handle = lock_path.open("a+")
+try:
+    fcntl.flock(lock_handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+except BlockingIOError:
+    print("deploy busy: scheduler lock is held", file=sys.stderr)
+    raise SystemExit(75)
+
+backup = None
+try:
+    if not jobs_path.is_file():
+        raise RuntimeError(f"missing jobs file: {jobs_path}")
+    if not config_path.is_file():
+        raise RuntimeError(f"missing config: {config_path}")
+    data = json.loads(jobs_path.read_text())
+    jobs = data.get("jobs")
+    if not isinstance(jobs, list):
+        raise RuntimeError("jobs.json must contain a jobs list")
+    existing = next(
+        (item for item in jobs if item.get("id") == "bcfc1f4e449e"),
+        None,
+    )
+    delivery = None if existing is None else existing.get("deliver")
+    if not isinstance(delivery, str) or not re.fullmatch(r"telegram:\S+", delivery):
+        raise RuntimeError(
+            "existing Telegram group delivery target is required; refusing to invent one"
+        )
+
+    manifests = []
+    for manifest_name in (
+        "daily-goal-checkin.json",
+        "daily-goal-watchdog.json",
+    ):
+        job = json.loads((profile_root / "cron" / manifest_name).read_text())
+        next_run = compute_next_run(job["schedule"])
+        if next_run is None:
+            raise RuntimeError(f"could not compute next run for {job['name']}")
+        manifests.append((job, next_run))
+
+    backup_root = home / "backups"
+    backup_root.mkdir(parents=True, exist_ok=True)
+    backup = Path(
+        tempfile.mkdtemp(prefix="daily-goal-", dir=backup_root)
+    )
+    shutil.copy2(jobs_path, backup / "jobs.json")
+    shutil.copy2(config_path, backup / "config.yaml")
+
+    runtime_fields = {
+        "created_at",
+        "last_run_at",
+        "last_status",
+        "last_error",
+        "last_delivery_error",
+        "repeat",
+    }
+    for job, next_run in manifests:
+        matching = [
+            item
+            for item in jobs
+            if item.get("id") == job["id"]
+            or item.get("name") == job["name"]
+        ]
+        old = next(
+            (
+                item
+                for item in matching
+                if item.get("id") == job["id"]
+            ),
+            matching[0] if matching else None,
+        )
+        if old is not None:
+            for key in runtime_fields:
+                if old.get(key) is not None:
+                    job[key] = old[key]
+        job["deliver"] = delivery
+        job["next_run_at"] = next_run
+        jobs = [
+            item
+            for item in jobs
+            if item.get("id") != job["id"]
+            and item.get("name") != job["name"]
+        ]
+        jobs.append(job)
+
+    data["jobs"] = jobs
+    data["updated_at"] = datetime.now(UTC).isoformat()
+    atomic_write(
+        jobs_path,
+        (json.dumps(data, indent=2) + "\n").encode("utf-8"),
+    )
+    if os.getenv("IK_ERNIE_TEST_FAIL_AFTER_JOBS_WRITE") == "1":
+        if os.getenv("IK_ERNIE_ALLOW_TEST_HOME") != "1":
+            raise RuntimeError("test-only failure hook rejected")
+        raise RuntimeError("injected failure after jobs write")
+
+    text = config_path.read_text()
+    if re.search(r"(?m)^timezone:\s*.*$", text):
+        text = re.sub(
+            r"(?m)^timezone:\s*.*$",
+            "timezone: America/New_York",
+            text,
+            count=1,
+        )
+    else:
+        text += "\ntimezone: America/New_York\n"
+    atomic_write(config_path, text.encode("utf-8"))
+
+    persisted = json.loads(jobs_path.read_text())
+    persisted_ids = {
+        item.get("id") for item in persisted.get("jobs", [])
+    }
+    if not {"bcfc1f4e449e", "d41a1c0de160"} <= persisted_ids:
+        raise RuntimeError("deployed jobs failed validation")
+    if config_path.read_text().count("timezone: America/New_York") != 1:
+        raise RuntimeError("deployed timezone failed validation")
+except BaseException as exc:
+    if backup is not None:
+        try:
+            atomic_write(jobs_path, (backup / "jobs.json").read_bytes())
+            atomic_write(config_path, (backup / "config.yaml").read_bytes())
+            print(f"rollback complete: {exc}", file=sys.stderr)
+        except Exception as rollback_error:
+            print(
+                f"rollback failed after {exc}: {rollback_error}",
+                file=sys.stderr,
+            )
+    raise
+else:
+    print(
+        json.dumps(
+            {
+                "jobs": ["bcfc1f4e449e", "d41a1c0de160"],
+                "timezone": "America/New_York",
+            },
+            sort_keys=True,
+        )
+    )
+    print(f"backup: {backup}")
+finally:
+    fcntl.flock(lock_handle, fcntl.LOCK_UN)
+    lock_handle.close()
+PY
+}
+
+trigger_job_id() {
+  local job_id="$1"
+  HERMES_HOME="${HERMES_HOME_DIR}" JOB_ID="${job_id}" "$(python_bin)" - <<'PY'
+import os
+from cron.jobs import get_job
+from cron.scheduler import trigger_and_run_selected_job
+
+job_id = os.environ["JOB_ID"]
+outcome = trigger_and_run_selected_job(job_id, verbose=True)
+print("trigger_outcome", outcome)
+if outcome == "busy":
+    raise SystemExit(75)
+if outcome != "executed":
+    raise SystemExit(1)
+job = get_job(job_id)
+for key in ("id", "name", "last_status", "last_error", "last_delivery_error", "last_run_at", "next_run_at"):
+    print(key, job.get(key))
+PY
+}
+
+status_cmd() {
+  HERMES_HOME="${HERMES_HOME_DIR}" "$(python_bin)" - <<'PY'
+import json
+import os
+from pathlib import Path
+
+jobs_path = Path(os.environ["HERMES_HOME"]) / "cron" / "jobs.json"
+jobs = json.loads(jobs_path.read_text()).get("jobs", []) if jobs_path.is_file() else []
+for job_id in ("bcfc1f4e449e", "d41a1c0de160"):
+    job = next((item for item in jobs if item.get("id") == job_id), None)
+    print(json.dumps({
+        "id": job_id,
+        "present": job is not None,
+        "schedule": None if job is None else job.get("schedule"),
+        "next_run_at": None if job is None else job.get("next_run_at"),
+        "last_status": None if job is None else job.get("last_status"),
+        "last_error": None if job is None else job.get("last_error"),
+        "last_delivery_error": None if job is None else job.get("last_delivery_error"),
+    }, sort_keys=True))
+PY
+}
+
+dry_run_cmd() {
+  HERMES_HOME="${HERMES_HOME_DIR}" "$(python_bin)" - <<'PY'
+from tools.daily_goal_coordinator_tool import run_daily_goal_coordinator
+print(run_daily_goal_coordinator(mode="checkin", dry_run=True))
+PY
+}
+
+case "${1:-}" in
+  deploy) upsert_jobs ;;
+  status) status_cmd ;;
+  dry-run) dry_run_cmd ;;
+  trigger-checkin) trigger_job_id "${CHECKIN_ID}" ;;
+  trigger-watchdog) trigger_job_id "${WATCHDOG_ID}" ;;
+  *)
+    echo "Usage: scripts/ik-ernie-daily-goal <deploy|status|dry-run|trigger-checkin|trigger-watchdog>" >&2
+    exit 2
+    ;;
+esac

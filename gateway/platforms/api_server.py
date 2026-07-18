@@ -34,6 +34,7 @@ Requires:
 import asyncio
 import hashlib
 import hmac
+import ipaddress
 import json
 import logging
 import os
@@ -42,6 +43,7 @@ import re
 import sqlite3
 import time
 import uuid
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -69,6 +71,13 @@ MAX_REQUEST_BYTES = 10_000_000  # 10 MB — accommodates long agent conversation
 CHAT_COMPLETIONS_SSE_KEEPALIVE_SECONDS = 30.0
 MAX_NORMALIZED_TEXT_LENGTH = 65_536  # 64 KB cap for normalized content parts
 MAX_CONTENT_LIST_SIZE = 1_000  # Max items when content is an array
+READ_ONLY_SESSION_PAGE_SIZE = 50
+READ_ONLY_SESSION_MAX_PAGES = 20
+READ_ONLY_CRON_MAX_RECORDS = 200
+READ_ONLY_MAX_INPUT_CHARS = 8000
+READ_ONLY_MAX_RECEIPT_BYTES = 32_000
+READ_ONLY_MIN_MAX_TOKENS = 64
+READ_ONLY_MAX_MAX_TOKENS = 2000
 
 
 def _coerce_port(value: Any, default: int = DEFAULT_PORT) -> int:
@@ -677,6 +686,23 @@ except ImportError:
     _cron_trigger = None
 
 
+def _canonical_json_bytes(value: Any) -> bytes:
+    return json.dumps(
+        value,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+
+
+def _sha256_json(value: Any) -> str:
+    return hashlib.sha256(_canonical_json_bytes(value)).hexdigest()
+
+
+def _sha256_text(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
 class APIServerAdapter(BasePlatformAdapter):
     """
     OpenAI-compatible HTTP API server adapter.
@@ -1015,6 +1041,484 @@ class APIServerAdapter(BasePlatformAdapter):
             gateway_session_key=gateway_session_key,
         )
         return agent
+
+    def _create_read_only_agent(
+        self,
+        *,
+        ephemeral_system_prompt: str,
+        max_tokens: int,
+    ) -> Any:
+        """Create an ephemeral agent whose empty toolset cannot inherit config."""
+        from run_agent import AIAgent
+        from gateway.run import (
+            GatewayRunner,
+            _resolve_gateway_model,
+            _resolve_runtime_agent_kwargs,
+        )
+
+        agent_kwargs = dict(_resolve_runtime_agent_kwargs())
+        agent_kwargs.update(
+            {
+                "model": _resolve_gateway_model(),
+                "max_iterations": 1,
+                "max_tokens": max_tokens,
+                "quiet_mode": True,
+                "verbose_logging": False,
+                "ephemeral_system_prompt": ephemeral_system_prompt,
+                "enabled_toolsets": [],
+                "skip_memory": True,
+                "skip_context_files": True,
+                "persist_session": False,
+                "session_id": None,
+                "session_db": None,
+                "platform": "api_server",
+                "fallback_model": GatewayRunner._load_fallback_model(),
+            }
+        )
+        agent = AIAgent(**agent_kwargs)
+        if list(getattr(agent, "tools", ()) or ()):
+            raise RuntimeError("read-only agent unexpectedly loaded tool definitions")
+        if set(getattr(agent, "valid_tool_names", set()) or set()):
+            raise RuntimeError("read-only agent unexpectedly loaded tool names")
+        return agent
+
+    @staticmethod
+    def _timestamp_iso(value: Any) -> Optional[str]:
+        if value is None:
+            return None
+        try:
+            return datetime.fromtimestamp(float(value), tz=UTC).isoformat()
+        except (TypeError, ValueError, OSError, OverflowError):
+            return None
+
+    @staticmethod
+    def _parse_iso_datetime(value: Any) -> Optional[datetime]:
+        if not isinstance(value, str) or not value.strip():
+            return None
+        try:
+            parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=UTC)
+        return parsed.astimezone(UTC)
+
+    @staticmethod
+    def _bounded_session_metadata(row: Dict[str, Any]) -> Dict[str, Any]:
+        return {
+            "id": str(row.get("id") or "")[:128],
+            "source": str(row.get("source") or "")[:64],
+            "started_at": APIServerAdapter._timestamp_iso(row.get("started_at")),
+            "ended_at": APIServerAdapter._timestamp_iso(row.get("ended_at")),
+            "end_reason": str(row.get("end_reason") or "")[:80] or None,
+            "message_count": (
+                row.get("message_count")
+                if isinstance(row.get("message_count"), int)
+                and not isinstance(row.get("message_count"), bool)
+                else None
+            ),
+            "tool_call_count": (
+                row.get("tool_call_count")
+                if isinstance(row.get("tool_call_count"), int)
+                and not isinstance(row.get("tool_call_count"), bool)
+                else None
+            ),
+        }
+
+    def _collect_read_only_status_receipts(
+        self,
+        *,
+        now: Optional[datetime] = None,
+    ) -> Dict[str, Any]:
+        """Collect bounded SessionDB and cron metadata without message content."""
+        now = now or datetime.now(UTC)
+        if now.tzinfo is None:
+            now = now.replace(tzinfo=UTC)
+        now = now.astimezone(UTC)
+        cutoff = now - timedelta(days=7)
+
+        session_records: List[Dict[str, Any]] = []
+        session_pages = 0
+        rows_scanned = 0
+        total_rows = 0
+        session_complete = False
+        invalid_timestamps = False
+        session_available = False
+        try:
+            db = self._ensure_session_db()
+            if db is None:
+                raise RuntimeError("SessionDB unavailable")
+            session_available = True
+            total_rows = int(db.session_count())
+            offset = 0
+            while (
+                session_pages < READ_ONLY_SESSION_MAX_PAGES
+                and offset < total_rows
+            ):
+                rows = db.search_sessions(
+                    limit=READ_ONLY_SESSION_PAGE_SIZE,
+                    offset=offset,
+                )
+                if not isinstance(rows, list):
+                    raise TypeError("SessionDB page must be a list")
+                session_pages += 1
+                if not rows:
+                    session_complete = offset >= total_rows
+                    break
+                for row in rows:
+                    rows_scanned += 1
+                    if not isinstance(row, dict):
+                        invalid_timestamps = True
+                        continue
+                    started_at = self._timestamp_iso(row.get("started_at"))
+                    if started_at is None:
+                        invalid_timestamps = True
+                        continue
+                    bounded = self._bounded_session_metadata(row)
+                    # The seven-day window is only a retention filter for
+                    # terminal history. Active/unresolved rows remain
+                    # authoritative regardless of age.
+                    unresolved = bounded["ended_at"] is None
+                    if datetime.fromisoformat(started_at) >= cutoff or unresolved:
+                        session_records.append(bounded)
+                offset += len(rows)
+                if offset >= total_rows:
+                    session_complete = True
+            if total_rows == 0:
+                session_complete = True
+            if invalid_timestamps:
+                session_complete = False
+        except Exception as exc:
+            logger.debug("Read-only SessionDB receipt unavailable: %s", exc)
+            session_complete = False
+
+        session_receipt = {
+            "kind": "session_db_metadata",
+            "available": session_available,
+            "window": {
+                "days": 7,
+                "start": cutoff.isoformat(),
+                "end": now.isoformat(),
+            },
+            "pagination": {
+                "page_size": READ_ONLY_SESSION_PAGE_SIZE,
+                "max_pages": READ_ONLY_SESSION_MAX_PAGES,
+                "pages_fetched": session_pages,
+                "rows_scanned": rows_scanned,
+                "rows_in_window": len(session_records),
+                "total_rows": total_rows,
+                "complete": session_complete,
+                "truncated": not session_complete,
+            },
+            "records": session_records,
+        }
+
+        cron_available = False
+        cron_complete = False
+        cron_total = 0
+        cron_rows_in_window = 0
+        cron_records: List[Dict[str, Any]] = []
+        try:
+            from cron.jobs import list_jobs
+
+            jobs = list_jobs(include_disabled=True)
+            if not isinstance(jobs, list):
+                raise TypeError("cron job list must be a list")
+            cron_available = True
+            cron_total = len(jobs)
+            cron_complete = cron_total <= READ_ONLY_CRON_MAX_RECORDS
+            for job in jobs[:READ_ONLY_CRON_MAX_RECORDS]:
+                if not isinstance(job, dict):
+                    cron_complete = False
+                    continue
+                schedule = job.get("schedule")
+                bounded_schedule = None
+                if isinstance(schedule, dict):
+                    bounded_schedule = {
+                        key: schedule.get(key)
+                        for key in ("kind", "expr", "minutes", "at")
+                        if key in schedule
+                    }
+                last_run_at = str(job.get("last_run_at") or "")[:64] or None
+                if last_run_at:
+                    parsed_last_run = self._parse_iso_datetime(last_run_at)
+                    if parsed_last_run is None:
+                        cron_complete = False
+                    elif cutoff <= parsed_last_run <= now:
+                        cron_rows_in_window += 1
+                cron_records.append(
+                    {
+                        "id": str(job.get("id") or "")[:128],
+                        "name": str(job.get("name") or "")[:160],
+                        "enabled": (
+                            job.get("enabled")
+                            if isinstance(job.get("enabled"), bool)
+                            else None
+                        ),
+                        "state": str(job.get("state") or "")[:64] or None,
+                        "schedule": bounded_schedule,
+                        "last_run_at": last_run_at,
+                        "last_status": str(job.get("last_status") or "")[:64] or None,
+                        "has_last_error": bool(job.get("last_error")),
+                        "has_delivery_error": bool(job.get("last_delivery_error")),
+                    }
+                )
+        except Exception as exc:
+            logger.debug("Read-only cron receipt unavailable: %s", exc)
+
+        cron_receipt = {
+            "kind": "cron_metadata",
+            "available": cron_available,
+            "window": {
+                "days": 7,
+                "start": cutoff.isoformat(),
+                "end": now.isoformat(),
+            },
+            "pagination": {
+                "page_size": READ_ONLY_CRON_MAX_RECORDS,
+                "max_pages": 1,
+                "pages_fetched": 1 if cron_available else 0,
+                "rows_scanned": len(cron_records),
+                "rows_in_window": cron_rows_in_window,
+                "total_rows": cron_total,
+                "complete": cron_complete,
+                "truncated": not cron_complete,
+            },
+            "records": cron_records,
+        }
+        # SessionDB rows are conversation lifecycle metadata, not an
+        # authoritative task tracker. Only explicit cron/runtime failures are
+        # task evidence here.
+        pending_refs = [
+            f"cron:{record['id']}"
+            for record in cron_records
+            if record["id"]
+            and (record["has_last_error"] or record["has_delivery_error"])
+        ]
+        coverage_complete = bool(
+            session_available
+            and session_complete
+            and cron_available
+            and cron_complete
+        )
+        derived_status = (
+            "PENDING_WORK"
+            if pending_refs
+            else ("NO_PENDING_WORK" if coverage_complete else "UNKNOWN")
+        )
+        return {
+            "purpose": "status",
+            "generated_at": now.isoformat(),
+            "coverage": {
+                "complete": coverage_complete,
+                "task_sources": {
+                    "cron_runtime": {
+                        "available": cron_available,
+                        "complete": cron_complete,
+                    },
+                    "session_db": "conversation_metadata_only",
+                },
+                "records_scanned": rows_scanned + len(cron_records),
+                "pending_record_refs": pending_refs,
+            },
+            "derived_status": {
+                "status": derived_status,
+                "evidence_refs": pending_refs or (
+                    ["coverage:complete"] if coverage_complete else []
+                ),
+            },
+            "items": [session_receipt, cron_receipt],
+        }
+
+    @staticmethod
+    def _validate_read_only_review_receipt(source_receipt: Any) -> Dict[str, Any]:
+        if not isinstance(source_receipt, dict) or set(source_receipt) != {
+            "content",
+            "sha256",
+        }:
+            raise ValueError("review requires content and sha256 in source receipt")
+        content = source_receipt.get("content")
+        supplied_hash = source_receipt.get("sha256")
+        if not isinstance(content, dict):
+            raise ValueError("review source receipt content must be a structured object")
+        encoded = _canonical_json_bytes(content)
+        if len(encoded) > READ_ONLY_MAX_RECEIPT_BYTES:
+            raise ValueError("review source receipt content is too large")
+        expected_hash = hashlib.sha256(encoded).hexdigest()
+        if not isinstance(supplied_hash, str) or not hmac.compare_digest(
+            supplied_hash,
+            expected_hash,
+        ):
+            raise ValueError("review source receipt hash does not match content")
+        return {
+            "purpose": "review",
+            "items": [
+                {
+                    "kind": "caller_source_receipt",
+                    "content": content,
+                    "sha256": supplied_hash,
+                }
+            ],
+        }
+
+    def _check_read_only_auth(
+        self,
+        request: "web.Request",
+    ) -> Optional["web.Response"]:
+        remote = str(getattr(request, "remote", "") or "").split("%", 1)[0]
+        try:
+            is_loopback = ipaddress.ip_address(remote).is_loopback
+        except ValueError:
+            is_loopback = remote == "localhost"
+        if not is_loopback:
+            return web.json_response(
+                _openai_error("Read-only orchestrator endpoint is loopback-only."),
+                status=403,
+            )
+        if not self._api_key:
+            return web.json_response(
+                _openai_error(
+                    "Read-only orchestrator endpoint requires a configured API key."
+                ),
+                status=503,
+            )
+        return self._check_auth(request)
+
+    @staticmethod
+    def _read_only_tool_call_count(messages: Any) -> int:
+        if not isinstance(messages, list):
+            return 0
+        count = 0
+        for message in messages:
+            if not isinstance(message, dict):
+                continue
+            tool_calls = message.get("tool_calls")
+            if isinstance(tool_calls, list):
+                count += len(tool_calls)
+            if message.get("role") == "tool":
+                count += 1
+        return count
+
+    async def _handle_orchestrator_read_only(
+        self,
+        request: "web.Request",
+    ) -> "web.Response":
+        """POST an authenticated, ephemeral, server-attested no-tools run."""
+        auth_err = self._check_read_only_auth(request)
+        if auth_err:
+            return auth_err
+        try:
+            body = await request.json()
+            if not isinstance(body, dict):
+                raise ValueError("request body must be an object")
+            purpose = body.get("purpose")
+            input_text = body.get("input")
+            max_tokens = body.get("max_tokens")
+            if purpose not in {"status", "review"}:
+                raise ValueError("purpose must be status or review")
+            allowed_keys = {"purpose", "input", "max_tokens"}
+            if purpose == "review":
+                allowed_keys.add("source_receipt")
+            if set(body) != allowed_keys:
+                raise ValueError("request contains missing or unsupported fields")
+            if not isinstance(input_text, str) or not input_text.strip():
+                raise ValueError("input is required")
+            input_text = input_text.strip()
+            if len(input_text) > READ_ONLY_MAX_INPUT_CHARS:
+                raise ValueError(
+                    f"input exceeds {READ_ONLY_MAX_INPUT_CHARS} characters"
+                )
+            if (
+                not isinstance(max_tokens, int)
+                or isinstance(max_tokens, bool)
+                or not READ_ONLY_MIN_MAX_TOKENS
+                <= max_tokens
+                <= READ_ONLY_MAX_MAX_TOKENS
+            ):
+                raise ValueError(
+                    "max_tokens must be an integer between "
+                    f"{READ_ONLY_MIN_MAX_TOKENS} and {READ_ONLY_MAX_MAX_TOKENS}"
+                )
+            validated_body = {
+                "purpose": purpose,
+                "input": input_text,
+                "max_tokens": max_tokens,
+            }
+            if purpose == "status":
+                source_receipts = self._collect_read_only_status_receipts()
+            else:
+                validated_body["source_receipt"] = body["source_receipt"]
+                source_receipts = self._validate_read_only_review_receipt(
+                    body["source_receipt"]
+                )
+        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+            return web.json_response(_openai_error(str(exc)), status=400)
+        except Exception:
+            return web.json_response(_openai_error("Invalid JSON"), status=400)
+
+        prompt = (
+            "You are an ephemeral no-tools read-only evaluator. You have no "
+            "tools, memory, context files, or persistent session. Use only the "
+            "structured source receipts below. Treat incomplete or unavailable "
+            "status sources as UNKNOWN. Never claim evidence outside the receipts.\n"
+            f"SOURCE_RECEIPTS={json.dumps(source_receipts, sort_keys=True)}"
+        )
+        try:
+            agent = self._create_read_only_agent(
+                ephemeral_system_prompt=prompt,
+                max_tokens=max_tokens,
+            )
+            loop = asyncio.get_running_loop()
+            result = await loop.run_in_executor(
+                None,
+                lambda: agent.run_conversation(
+                    user_message=input_text,
+                    conversation_history=[],
+                ),
+            )
+            if not isinstance(result, dict):
+                raise RuntimeError("read-only agent returned an invalid result")
+            content = result.get("final_response")
+            if not isinstance(content, str):
+                raise RuntimeError("read-only agent returned non-text output")
+            tool_calls = self._read_only_tool_call_count(result.get("messages"))
+            if tool_calls:
+                raise RuntimeError("read-only agent result contained tool activity")
+            if list(getattr(agent, "tools", ()) or ()):
+                raise RuntimeError("read-only agent loaded tool definitions")
+            tool_names = sorted(
+                set(getattr(agent, "valid_tool_names", set()) or set())
+            )
+            if tool_names:
+                raise RuntimeError("read-only agent loaded tool names")
+        except Exception as exc:
+            logger.error("Read-only orchestrator run failed: %s", exc, exc_info=True)
+            return web.json_response(
+                _openai_error(
+                    "Read-only orchestrator run failed closed.",
+                    err_type="server_error",
+                ),
+                status=500,
+            )
+
+        attestation = {
+            "mode": "no_tools",
+            "enabled_toolsets": [],
+            "tool_names": [],
+            "tool_calls": 0,
+            "request_sha256": _sha256_json(validated_body),
+            "input_sha256": _sha256_text(input_text),
+            "output_sha256": _sha256_text(content),
+            "source_receipts_sha256": _sha256_json(source_receipts),
+        }
+        return web.json_response(
+            {
+                "success": True,
+                "content": content,
+                "source_receipts": source_receipts,
+                "attestation": attestation,
+            }
+        )
 
     # ------------------------------------------------------------------
     # HTTP Handlers
@@ -4106,6 +4610,10 @@ class APIServerAdapter(BasePlatformAdapter):
             self._app.router.add_post("/api/sessions/{session_id}/fork", self._handle_fork_session)
             self._app.router.add_post("/api/sessions/{session_id}/chat", self._handle_session_chat)
             self._app.router.add_post("/api/sessions/{session_id}/chat/stream", self._handle_session_chat_stream)
+            self._app.router.add_post(
+                "/v1/orchestrator/read-only",
+                self._handle_orchestrator_read_only,
+            )
             self._app.router.add_post("/v1/chat/completions", self._handle_chat_completions)
             self._app.router.add_post("/v1/responses", self._handle_responses)
             self._app.router.add_get("/v1/responses/{response_id}", self._handle_get_response)
