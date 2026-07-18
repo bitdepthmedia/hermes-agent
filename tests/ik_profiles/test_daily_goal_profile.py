@@ -2,6 +2,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -10,7 +11,48 @@ from zoneinfo import ZoneInfo
 ROOT = Path(__file__).resolve().parents[2]
 PROFILE = ROOT / "ik_profiles" / "hermes-ernie" / "cron"
 WRAPPER = ROOT / "scripts" / "ik-ernie-daily-goal"
-RUNTIME_PYTHON = ROOT.parents[1] / ".venv" / "bin" / "python"
+
+
+def checkout_root_for_common_git_dir(common_git_dir):
+    return common_git_dir.parent
+
+
+def common_checkout_root(root):
+    result = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "--path-format=absolute", "--git-common-dir"],
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+    return checkout_root_for_common_git_dir(Path(result.stdout.strip()))
+
+
+def runtime_python_supports_cron(python):
+    return subprocess.run(
+        [str(python), "-c", "import croniter; from cron.jobs import compute_next_run"],
+        text=True,
+        capture_output=True,
+        check=False,
+    ).returncode == 0
+
+
+def resolve_runtime_python():
+    system = Path(sys.executable)
+    if runtime_python_supports_cron(system):
+        return system
+    repository_python = common_checkout_root(ROOT) / ".venv" / "bin" / "python"
+    if runtime_python_supports_cron(repository_python):
+        return repository_python
+    raise RuntimeError("no Python runtime with croniter is available for profile tests")
+
+
+def test_runtime_python_resolution_works_from_linked_and_normal_checkouts():
+    runtime_python = resolve_runtime_python()
+    assert runtime_python_supports_cron(runtime_python)
+    common_root = common_checkout_root(ROOT)
+    assert common_root.name == "hermes-agent"
+    assert (common_root / ".venv" / "bin" / "python").is_file()
+    assert checkout_root_for_common_git_dir(Path("/tmp/hermes-agent/.git")) == Path("/tmp/hermes-agent")
 
 
 def load(name):
@@ -64,7 +106,7 @@ def run_wrapper(home, action):
     env["HERMES_HOME"] = str(home)
     env["IK_ERNIE_ALLOW_TEST_HOME"] = "1"
     env["IK_ERNIE_TEST_ROOT"] = str(home.parent)
-    env["HERMES_PYTHON"] = str(RUNTIME_PYTHON)
+    env["HERMES_PYTHON"] = str(resolve_runtime_python())
     return subprocess.run(
         [str(WRAPPER), action],
         cwd=ROOT,
@@ -75,11 +117,11 @@ def run_wrapper(home, action):
     )
 
 
-def run_wrapper_with_test_root(test_root, action, home=None, python=RUNTIME_PYTHON):
+def run_wrapper_with_test_root(test_root, action, home=None, python=None):
     env = dict(os.environ)
     env["IK_ERNIE_ALLOW_TEST_HOME"] = "1"
     env["IK_ERNIE_TEST_ROOT"] = str(test_root)
-    env["HERMES_PYTHON"] = str(python)
+    env["HERMES_PYTHON"] = str(resolve_runtime_python() if python is None else python)
     if home is None:
         env.pop("HERMES_HOME", None)
     else:

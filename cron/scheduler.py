@@ -902,8 +902,36 @@ def run_job(job: dict) -> tuple[bool, str, str, Optional[str]]:
                 logger.debug("Job '%s': failed to close SQLite session store: %s", job_id, e)
 
 
-def run_selected_job(job_id: str, verbose: bool = True, adapters=None, loop=None) -> int:
-    """Run only the named job, without scanning or executing any other due job."""
+def _acquire_scheduler_lock() -> Optional[object]:
+    """Acquire the scheduler's non-blocking process lock, or return ``None``."""
+    _LOCK_DIR.mkdir(parents=True, exist_ok=True)
+    lock_fd = None
+    try:
+        lock_fd = open(_LOCK_FILE, "w")
+        if fcntl:
+            fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        elif msvcrt:
+            msvcrt.locking(lock_fd.fileno(), msvcrt.LK_NBLCK, 1)
+        return lock_fd
+    except (OSError, IOError):
+        if lock_fd is not None:
+            lock_fd.close()
+        return None
+
+
+def _release_scheduler_lock(lock_fd) -> None:
+    if fcntl:
+        fcntl.flock(lock_fd, fcntl.LOCK_UN)
+    elif msvcrt:
+        try:
+            msvcrt.locking(lock_fd.fileno(), msvcrt.LK_UNLCK, 1)
+        except (OSError, IOError):
+            pass
+    lock_fd.close()
+
+
+def _run_selected_job_unlocked(job_id: str, verbose: bool = True, adapters=None, loop=None) -> int:
+    """Run only the named job. The caller must hold the scheduler lock."""
     job = get_job(job_id)
     if job is None:
         return 0
@@ -972,6 +1000,18 @@ def run_selected_job(job_id: str, verbose: bool = True, adapters=None, loop=None
         return 1
 
 
+def run_selected_job(job_id: str, verbose: bool = True, adapters=None, loop=None) -> int:
+    """Run one selected job while holding the same lock used by ``tick``."""
+    lock_fd = _acquire_scheduler_lock()
+    if lock_fd is None:
+        logger.debug("Selected job '%s' skipped — scheduler lock is held", job_id)
+        return 0
+    try:
+        return _run_selected_job_unlocked(job_id, verbose=verbose, adapters=adapters, loop=loop)
+    finally:
+        _release_scheduler_lock(lock_fd)
+
+
 def tick(verbose: bool = True, adapters=None, loop=None) -> int:
     """
     Check and run all due jobs.
@@ -987,20 +1027,9 @@ def tick(verbose: bool = True, adapters=None, loop=None) -> int:
     Returns:
         Number of jobs executed (0 if another tick is already running)
     """
-    _LOCK_DIR.mkdir(parents=True, exist_ok=True)
-
-    # Cross-platform file locking: fcntl on Unix, msvcrt on Windows
-    lock_fd = None
-    try:
-        lock_fd = open(_LOCK_FILE, "w")
-        if fcntl:
-            fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        elif msvcrt:
-            msvcrt.locking(lock_fd.fileno(), msvcrt.LK_NBLCK, 1)
-    except (OSError, IOError):
+    lock_fd = _acquire_scheduler_lock()
+    if lock_fd is None:
         logger.debug("Tick skipped — another instance holds the lock")
-        if lock_fd is not None:
-            lock_fd.close()
         return 0
 
     try:
@@ -1117,14 +1146,7 @@ def tick(verbose: bool = True, adapters=None, loop=None) -> int:
 
         return executed
     finally:
-        if fcntl:
-            fcntl.flock(lock_fd, fcntl.LOCK_UN)
-        elif msvcrt:
-            try:
-                msvcrt.locking(lock_fd.fileno(), msvcrt.LK_UNLCK, 1)
-            except (OSError, IOError):
-                pass
-        lock_fd.close()
+        _release_scheduler_lock(lock_fd)
 
 
 if __name__ == "__main__":

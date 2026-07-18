@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import subprocess
 import sys
 import types
 from unittest.mock import AsyncMock, patch, MagicMock
@@ -38,6 +39,47 @@ def test_run_selected_job_never_scans_or_runs_other_due_jobs(monkeypatch):
     assert ran == [("advance", "selected"), ("output", "selected")]
     assert marked == [("selected", True)]
     assert other_due_mutating_job["id"] not in {job_id for _, job_id in ran}
+
+
+def test_run_selected_job_respects_scheduler_lock_contention(monkeypatch, tmp_path):
+    import cron.scheduler as scheduler
+    from cron.scheduler import run_selected_job
+
+    if scheduler.fcntl is None:
+        pytest.skip("requires fcntl")
+
+    lock_path = tmp_path / ".tick.lock"
+    locker = subprocess.Popen(
+        [
+            sys.executable,
+            "-c",
+            "import fcntl, sys; lock = open(sys.argv[1], 'w'); fcntl.flock(lock, fcntl.LOCK_EX); print('locked', flush=True); sys.stdin.read()",
+            str(lock_path),
+        ],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    assert locker.stdout.readline().strip() == "locked"
+    selected = {"id": "selected", "name": "selected", "schedule": {"kind": "interval", "minutes": 5}, "deliver": "local"}
+    executed = []
+    monkeypatch.setattr(scheduler, "_LOCK_DIR", tmp_path)
+    monkeypatch.setattr(scheduler, "_LOCK_FILE", lock_path)
+    monkeypatch.setattr(scheduler, "get_job", lambda job_id: selected)
+    monkeypatch.setattr(scheduler, "advance_next_run", lambda job_id: None)
+    monkeypatch.setattr(scheduler, "run_job", lambda job: executed.append(job["id"]) or (True, "output", "done", None))
+    monkeypatch.setattr(scheduler, "save_job_output", lambda job_id, output: tmp_path / "output.md")
+    monkeypatch.setattr(scheduler, "mark_job_run", lambda *args, **kwargs: None)
+
+    try:
+        assert run_selected_job("selected", verbose=False) == 0
+        assert executed == []
+    finally:
+        locker.stdin.close()
+        locker.wait(timeout=5)
+
+    assert run_selected_job("selected", verbose=False) == 1
+    assert executed == ["selected"]
 
 
 class TestResolveOrigin:

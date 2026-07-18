@@ -23,7 +23,7 @@ can send Telegram messages; obtain approval before using either.
 
 ## Rollback
 
-Restore the timestamped `jobs.json` and `config.yaml` backups created by `deploy`,
+Restore the unique `jobs.json` and `config.yaml` backup directory created by `deploy`,
 restart the same local service, and verify the original check-in job is scheduled.
 
 The wrapper never changes the DigitalOcean Bert runtime.
