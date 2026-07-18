@@ -355,6 +355,10 @@ class TestApiServerAdapterToolset:
         source_receipts = {
             "purpose": "status",
             "items": [{"kind": "session_db_metadata", "pagination": {"complete": True}}],
+            "derived_status": {
+                "status": "NO_PENDING_WORK",
+                "evidence_refs": ["coverage:complete"],
+            },
         }
         fake_agent = MagicMock()
         fake_agent.tools = []
@@ -440,6 +444,67 @@ class TestApiServerAdapterToolset:
 
         assert response.status == 500
         assert "failed closed" in response.text.lower()
+
+    @patch("gateway.platforms.api_server.AIOHTTP_AVAILABLE", True)
+    def test_status_endpoint_normalizes_status_and_evidence_to_authoritative_receipt(self):
+        from gateway.platforms.api_server import APIServerAdapter
+        from gateway.config import PlatformConfig
+
+        adapter = APIServerAdapter(
+            PlatformConfig(extra={"key": "test-secret", "host": "127.0.0.1", "port": 8643})
+        )
+        payload = {
+            "purpose": "status",
+            "input": "Return strict status JSON.",
+            "max_tokens": 400,
+        }
+        source_receipts = {
+            "purpose": "status",
+            "items": [],
+            "derived_status": {
+                "status": "NO_PENDING_WORK",
+                "evidence_refs": ["coverage:complete"],
+            },
+        }
+        fake_agent = MagicMock()
+        fake_agent.tools = []
+        fake_agent.valid_tool_names = set()
+        fake_agent.run_conversation.return_value = {
+            "final_response": json.dumps(
+                {
+                    "status": "UNKNOWN",
+                    "summary": "No explicit pending work was found.",
+                    "evidence": ["model-generated explanation"],
+                    "candidates": [],
+                }
+            ),
+            "messages": [],
+        }
+        request = types.SimpleNamespace(
+            remote="127.0.0.1",
+            headers={"Authorization": "Bearer test-secret"},
+            json=AsyncMock(return_value=payload),
+        )
+
+        with patch.object(
+            adapter,
+            "_collect_read_only_status_receipts",
+            return_value=source_receipts,
+        ), patch.object(
+            adapter,
+            "_create_read_only_agent",
+            return_value=fake_agent,
+        ):
+            response = asyncio.run(adapter._handle_orchestrator_read_only(request))
+
+        assert response.status == 200
+        body = json.loads(response.text)
+        normalized = json.loads(body["content"])
+        assert normalized["status"] == "NO_PENDING_WORK"
+        assert normalized["evidence"] == ["coverage:complete"]
+        assert body["attestation"]["output_sha256"] == hashlib.sha256(
+            body["content"].encode("utf-8")
+        ).hexdigest()
 
     @patch("gateway.platforms.api_server.AIOHTTP_AVAILABLE", True)
     def test_review_endpoint_rejects_tampered_caller_receipt(self):
