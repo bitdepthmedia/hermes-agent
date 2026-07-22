@@ -813,7 +813,7 @@ def _deliver_result(job: dict, content: str, adapters=None, loop=None) -> Option
 _DEFAULT_SCRIPT_TIMEOUT = 120  # seconds
 # Backward-compatible module override used by tests and emergency monkeypatches.
 _SCRIPT_TIMEOUT = _DEFAULT_SCRIPT_TIMEOUT
-_DIRECT_CRON_TOOLS = {"call_orchestrator"}
+_DIRECT_CRON_TOOLS = {"call_orchestrator", "daily_goal_coordinator"}
 
 
 def _get_script_timeout() -> int:
@@ -890,8 +890,14 @@ def _run_direct_cron_tool(job: dict) -> Optional[str]:
     if tool_name == "call_orchestrator":
         import tools.call_orchestrator_tool  # noqa: F401 - registers the tool
 
-    from tools.registry import registry
-    raw = registry.dispatch(tool_name, tool_args)
+    if tool_name == "daily_goal_coordinator":
+        from tools.daily_goal_coordinator_tool import run_daily_goal_coordinator
+
+        raw = run_daily_goal_coordinator(**tool_args)
+    else:
+        from tools.registry import registry
+
+        raw = registry.dispatch(tool_name, tool_args)
     try:
         data = json.loads(raw)
     except json.JSONDecodeError:

@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, patch, MagicMock
 
 import pytest
 
-from cron.scheduler import _resolve_origin, _resolve_delivery_target, _deliver_result, _send_media_via_adapter, run_job, SILENT_MARKER, _build_job_prompt
+from cron.scheduler import _resolve_origin, _resolve_delivery_target, _deliver_result, _send_media_via_adapter, run_job, SILENT_MARKER, _build_job_prompt, _run_direct_cron_tool
 from tools.env_passthrough import clear_env_passthrough
 from tools.credential_files import clear_credential_files
 
@@ -1534,6 +1534,27 @@ class TestRunJobDirectTool:
         assert "Unsupported direct cron tool: terminal" in error
         assert "Unsupported direct cron tool: terminal" in output
         fake_agent_cls.assert_not_called()
+
+    def test_direct_tool_supports_daily_goal_coordinator_without_agent(self):
+        job = {
+            "id": "daily-goal-direct",
+            "name": "daily goal direct",
+            "direct_tool": {
+                "name": "daily_goal_coordinator",
+                "args": {"mode": "checkin", "dry_run": True},
+            },
+        }
+
+        payload = json.dumps({"success": True, "content": "daily summary"})
+
+        with patch(
+            "tools.daily_goal_coordinator_tool.run_daily_goal_coordinator",
+            return_value=payload,
+        ) as runner:
+            result = _run_direct_cron_tool(job)
+
+        assert result == "daily summary"
+        runner.assert_called_once_with(mode="checkin", dry_run=True)
 
 
 class TestRunJobConfigLogging:
