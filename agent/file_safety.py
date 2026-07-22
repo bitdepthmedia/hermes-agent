@@ -98,6 +98,14 @@ def is_write_denied(path: str) -> bool:
     home = os.path.realpath(os.path.expanduser("~"))
     resolved = os.path.realpath(os.path.expanduser(str(path)))
 
+    try:
+        from tools.live_runtime_guard import protected_write_error
+
+        if protected_write_error(path):
+            return True
+    except Exception:
+        pass
+
     if resolved in build_write_denied_paths(home):
         return True
     for prefix in build_write_denied_prefixes(home):

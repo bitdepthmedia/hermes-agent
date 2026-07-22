@@ -1842,6 +1842,20 @@ def terminal_tool(
         default_timeout = config["timeout"]
         effective_timeout = timeout or default_timeout
 
+        try:
+            from tools.live_runtime_guard import protected_terminal_error
+
+            protected_error = protected_terminal_error(command, workdir or cwd)
+        except Exception:
+            protected_error = None
+        if protected_error:
+            return json.dumps({
+                "output": "",
+                "exit_code": -1,
+                "error": protected_error,
+                "status": "blocked",
+            }, ensure_ascii=False)
+
         # Reject foreground commands where the model explicitly requests
         # a timeout above FOREGROUND_MAX_TIMEOUT — nudge it toward background.
         if not background and timeout and timeout > FOREGROUND_MAX_TIMEOUT:
