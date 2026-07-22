@@ -1063,6 +1063,20 @@ def terminal_tool(
         default_timeout = config["timeout"]
         effective_timeout = timeout or default_timeout
 
+        try:
+            from tools.live_runtime_guard import protected_terminal_error
+
+            protected_error = protected_terminal_error(command, workdir or cwd)
+        except Exception:
+            protected_error = None
+        if protected_error:
+            return json.dumps({
+                "output": "",
+                "exit_code": -1,
+                "error": protected_error,
+                "status": "blocked",
+            }, ensure_ascii=False)
+
         # Start cleanup thread
         _start_cleanup_thread()
 

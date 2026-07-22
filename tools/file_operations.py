@@ -100,6 +100,17 @@ def _is_write_denied(path: str) -> bool:
     """Return True if path is on the write deny list."""
     resolved = os.path.realpath(os.path.expanduser(str(path)))
 
+    # 0) Optional live-runtime protected checkout. This is stricter than the
+    # safe-root sandbox because the production gateway may read its own checkout
+    # but must not edit it in response to Telegram/tool sessions.
+    try:
+        from tools.live_runtime_guard import protected_write_error
+
+        if protected_write_error(path):
+            return True
+    except Exception:
+        pass
+
     # 1) Static deny list
     if resolved in WRITE_DENIED_PATHS:
         return True
