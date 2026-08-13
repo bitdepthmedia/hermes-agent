@@ -813,7 +813,7 @@ def _deliver_result(job: dict, content: str, adapters=None, loop=None) -> Option
 _DEFAULT_SCRIPT_TIMEOUT = 120  # seconds
 # Backward-compatible module override used by tests and emergency monkeypatches.
 _SCRIPT_TIMEOUT = _DEFAULT_SCRIPT_TIMEOUT
-_DIRECT_CRON_TOOLS = {"call_orchestrator", "daily_goal_coordinator"}
+_DIRECT_CRON_TOOLS = {"call_orchestrator", "daily_goal_coordinator", "script"}
 
 
 def _get_script_timeout() -> int:
@@ -886,6 +886,15 @@ def _run_direct_cron_tool(job: dict) -> Optional[str]:
         raise ValueError(f"Unsupported direct cron tool: {tool_name}")
     if not isinstance(tool_args, dict):
         raise ValueError("direct_tool args must be an object")
+
+    if tool_name == "script":
+        script_path = str(job.get("script") or "").strip()
+        if not script_path:
+            raise ValueError("direct script cron job requires a script path")
+        success, output = _run_job_script(script_path)
+        if not success:
+            raise RuntimeError(output)
+        return output
 
     if tool_name == "call_orchestrator":
         import tools.call_orchestrator_tool  # noqa: F401 - registers the tool
@@ -1081,7 +1090,8 @@ def _build_job_prompt(job: dict, prerun_script: Optional[tuple] = None) -> str:
 
     # Run data-collection script if configured, inject output as context.
     script_path = job.get("script")
-    if script_path:
+    direct_tool = job.get("direct_tool")
+    if script_path and not direct_tool:
         if prerun_script is not None:
             success, script_output = prerun_script
         else:
@@ -1416,7 +1426,7 @@ def _run_job_impl(job: dict) -> tuple[bool, str, str, Optional[str]]:
     # the script is only executed once.
     prerun_script = None
     script_path = job.get("script")
-    if script_path:
+    if script_path and not job.get("direct_tool"):
         prerun_script = _run_job_script(script_path)
         _ran_ok, _script_output = prerun_script
         if _ran_ok and not _parse_wake_gate(_script_output):

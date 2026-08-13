@@ -1438,6 +1438,79 @@ class TestRunJobSessionPersistence:
 
 
 class TestRunJobDirectTool:
+    def test_script_direct_tool_runs_once_and_bypasses_agent(self, tmp_path, monkeypatch):
+        hermes_home = tmp_path / ".hermes"
+        scripts_dir = hermes_home / "scripts"
+        scripts_dir.mkdir(parents=True)
+        marker = tmp_path / "runs.txt"
+        script = scripts_dir / "report.py"
+        script.write_text(
+            "from pathlib import Path\n"
+            f"marker = Path({str(marker)!r})\n"
+            "count = int(marker.read_text()) + 1 if marker.exists() else 1\n"
+            "marker.write_text(str(count))\n"
+            "print('script-ok')\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+        job = {
+            "id": "direct-script",
+            "name": "direct script",
+            "prompt": "Return the script result.",
+            "script": "report.py",
+            "schedule_display": "every 1h",
+            "direct_tool": {"name": "script", "args": {}},
+        }
+        fake_db = MagicMock()
+        fake_agent_cls = MagicMock()
+        fake_run_agent = types.SimpleNamespace(AIAgent=fake_agent_cls)
+
+        with patch("cron.scheduler._hermes_home", hermes_home), \
+             patch("cron.scheduler._resolve_origin", return_value=None), \
+             patch("dotenv.load_dotenv"), \
+             patch("hermes_state.SessionDB", return_value=fake_db), \
+             patch.dict(sys.modules, {"run_agent": fake_run_agent}):
+            success, output, final_response, error = run_job(job)
+
+        assert success is True
+        assert error is None
+        assert final_response == "script-ok"
+        assert "script-ok" in output
+        assert marker.read_text(encoding="utf-8") == "1"
+        fake_agent_cls.assert_not_called()
+
+    def test_script_direct_tool_propagates_script_failure(self, tmp_path, monkeypatch):
+        hermes_home = tmp_path / ".hermes"
+        scripts_dir = hermes_home / "scripts"
+        scripts_dir.mkdir(parents=True)
+        (scripts_dir / "fail.py").write_text(
+            "import sys\nprint('maintenance failed')\nsys.exit(7)\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+        job = {
+            "id": "direct-script-failure",
+            "name": "direct script failure",
+            "prompt": "Return the script result.",
+            "script": "fail.py",
+            "direct_tool": {"name": "script", "args": {}},
+        }
+        fake_agent_cls = MagicMock()
+        fake_run_agent = types.SimpleNamespace(AIAgent=fake_agent_cls)
+
+        with patch("cron.scheduler._hermes_home", hermes_home), \
+             patch("cron.scheduler._resolve_origin", return_value=None), \
+             patch("dotenv.load_dotenv"), \
+             patch("hermes_state.SessionDB", return_value=MagicMock()), \
+             patch.dict(sys.modules, {"run_agent": fake_run_agent}):
+            success, output, final_response, error = run_job(job)
+
+        assert success is False
+        assert final_response == ""
+        assert "Script exited with code 7" in error
+        assert "maintenance failed" in output
+        fake_agent_cls.assert_not_called()
+
     def test_call_orchestrator_direct_tool_bypasses_agent(self, tmp_path):
         job = {
             "id": "1c4376c9c569",
@@ -1512,17 +1585,28 @@ class TestRunJobDirectTool:
         assert final_response in output
         fake_agent_cls.assert_not_called()
 
-    def test_direct_tool_rejects_unknown_tool_before_agent(self, tmp_path):
+    def test_direct_tool_rejects_unknown_tool_before_agent(self, tmp_path, monkeypatch):
+        hermes_home = tmp_path / ".hermes"
+        scripts_dir = hermes_home / "scripts"
+        scripts_dir.mkdir(parents=True)
+        marker = tmp_path / "unexpected-script-run"
+        (scripts_dir / "must_not_run.py").write_text(
+            "from pathlib import Path\n"
+            f"Path({str(marker)!r}).write_text('ran')\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
         job = {
             "id": "bad-direct",
             "name": "bad direct",
             "prompt": "run something",
+            "script": "must_not_run.py",
             "direct_tool": {"name": "terminal", "args": {"cmd": "echo unsafe"}},
         }
         fake_agent_cls = MagicMock()
         fake_run_agent = types.SimpleNamespace(AIAgent=fake_agent_cls)
 
-        with patch("cron.scheduler._hermes_home", tmp_path), \
+        with patch("cron.scheduler._hermes_home", hermes_home), \
              patch("cron.scheduler._resolve_origin", return_value=None), \
              patch("dotenv.load_dotenv"), \
              patch("hermes_state.SessionDB", return_value=MagicMock()), \
@@ -1533,6 +1617,42 @@ class TestRunJobDirectTool:
         assert final_response == ""
         assert "Unsupported direct cron tool: terminal" in error
         assert "Unsupported direct cron tool: terminal" in output
+        assert not marker.exists()
+        fake_agent_cls.assert_not_called()
+
+    def test_direct_tool_rejects_missing_name_without_running_script(self, tmp_path, monkeypatch):
+        hermes_home = tmp_path / ".hermes"
+        scripts_dir = hermes_home / "scripts"
+        scripts_dir.mkdir(parents=True)
+        marker = tmp_path / "unexpected-missing-name-script-run"
+        (scripts_dir / "must_not_run.py").write_text(
+            "from pathlib import Path\n"
+            f"Path({str(marker)!r}).write_text('ran')\n",
+            encoding="utf-8",
+        )
+        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+        job = {
+            "id": "missing-direct-name",
+            "name": "missing direct name",
+            "prompt": "run something",
+            "script": "must_not_run.py",
+            "direct_tool": {"args": {}},
+        }
+        fake_agent_cls = MagicMock()
+        fake_run_agent = types.SimpleNamespace(AIAgent=fake_agent_cls)
+
+        with patch("cron.scheduler._hermes_home", hermes_home), \
+             patch("cron.scheduler._resolve_origin", return_value=None), \
+             patch("dotenv.load_dotenv"), \
+             patch("hermes_state.SessionDB", return_value=MagicMock()), \
+             patch.dict(sys.modules, {"run_agent": fake_run_agent}):
+            success, output, final_response, error = run_job(job)
+
+        assert success is False
+        assert final_response == ""
+        assert "Unsupported direct cron tool" in error
+        assert "Unsupported direct cron tool" in output
+        assert not marker.exists()
         fake_agent_cls.assert_not_called()
 
     def test_direct_tool_supports_daily_goal_coordinator_without_agent(self):
