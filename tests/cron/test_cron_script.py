@@ -134,6 +134,27 @@ class TestRunJobScript:
         assert "exited with code 1" in output
         assert "error info" in output
 
+    def test_script_nonzero_exit_redacts_sensitive_output(self, cron_env):
+        from cron.scheduler import _run_job_script
+
+        api_key = "sk-proj-abc123def456ghi789jkl012"
+        bot_token = "123456789:ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef1234"
+        script = cron_env / "scripts" / "fail_with_secrets.py"
+        script.write_text(textwrap.dedent(f"""\
+            import sys
+            print("OPENAI_API_KEY={api_key}")
+            print("TELEGRAM_BOT_TOKEN={bot_token}", file=sys.stderr)
+            sys.exit(1)
+        """))
+
+        success, output = _run_job_script(str(script))
+
+        assert success is False
+        assert api_key not in output
+        assert bot_token not in output
+        assert "OPENAI_API_KEY=" in output
+        assert "TELEGRAM_BOT_TOKEN=" in output
+
     def test_script_empty_output(self, cron_env):
         from cron.scheduler import _run_job_script
 

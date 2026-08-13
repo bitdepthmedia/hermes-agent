@@ -424,7 +424,7 @@ def _deliver_result(job: dict, content: str, adapters=None, loop=None) -> Option
 
 
 _SCRIPT_TIMEOUT = 120  # seconds
-_DIRECT_CRON_TOOLS = {"call_orchestrator", "daily_goal_coordinator"}
+_DIRECT_CRON_TOOLS = {"call_orchestrator", "daily_goal_coordinator", "script"}
 _DAILY_GOAL_DIRECT_TIMEOUT = 300.0
 
 
@@ -527,6 +527,15 @@ def _run_direct_cron_tool(job: dict) -> Optional[str]:
         raise ValueError(f"Unsupported direct cron tool: {tool_name}")
     if not isinstance(tool_args, dict):
         raise ValueError("direct_tool args must be an object")
+
+    if tool_name == "script":
+        script_path = str(job.get("script") or "").strip()
+        if not script_path:
+            raise ValueError("direct script cron job requires a script path")
+        success, output = _run_job_script(script_path)
+        if not success:
+            raise RuntimeError(output)
+        return output
 
     if tool_name == "daily_goal_coordinator":
         job.pop("_daily_goal_cycle_id", None)
@@ -654,6 +663,15 @@ def _run_job_script(script_path: str) -> tuple[bool, str]:
         stdout = (result.stdout or "").strip()
         stderr = (result.stderr or "").strip()
 
+        # Redact before either success or failure output can be persisted,
+        # injected into a prompt, or delivered by the scheduler.
+        try:
+            from agent.redact import redact_sensitive_text
+            stdout = redact_sensitive_text(stdout)
+            stderr = redact_sensitive_text(stderr)
+        except Exception:
+            pass
+
         if result.returncode != 0:
             parts = [f"Script exited with code {result.returncode}"]
             if stderr:
@@ -662,13 +680,6 @@ def _run_job_script(script_path: str) -> tuple[bool, str]:
                 parts.append(f"stdout:\n{stdout}")
             return False, "\n".join(parts)
 
-        # Redact any secrets that may appear in script output before
-        # they are injected into the LLM prompt context.
-        try:
-            from agent.redact import redact_sensitive_text
-            stdout = redact_sensitive_text(stdout)
-        except Exception:
-            pass
         return True, stdout
 
     except subprocess.TimeoutExpired:
@@ -684,7 +695,8 @@ def _build_job_prompt(job: dict) -> str:
 
     # Run data-collection script if configured, inject output as context.
     script_path = job.get("script")
-    if script_path:
+    direct_tool = job.get("direct_tool")
+    if script_path and not direct_tool:
         success, script_output = _run_job_script(script_path)
         if success:
             if script_output:
