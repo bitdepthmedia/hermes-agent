@@ -1887,12 +1887,21 @@ def test_run_conversation_codex_continues_after_reasoning_only_response(monkeypa
         _codex_reasoning_only_response(),
         _codex_message_response("The final answer is 42."),
     ]
-    monkeypatch.setattr(agent, "_interruptible_api_call", lambda api_kwargs: responses.pop(0))
+    requests = []
+
+    def _fake_api_call(api_kwargs):
+        requests.append(api_kwargs)
+        return responses.pop(0)
+
+    monkeypatch.setattr(agent, "_interruptible_api_call", _fake_api_call)
 
     result = agent.run_conversation("what is the answer?")
 
     assert result["completed"] is True
     assert result["final_response"] == "The final answer is 42."
+    replay_input = requests[1]["input"]
+    assert replay_input[-1]["role"] == "user"
+    assert "produce the final answer" in replay_input[-1]["content"]
     # The reasoning-only turn should be in messages as an incomplete interim
     assert any(
         msg.get("role") == "assistant"

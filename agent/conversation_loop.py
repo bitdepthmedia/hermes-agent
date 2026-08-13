@@ -3630,6 +3630,14 @@ def run_conversation(
                         agent._emit_interim_assistant_message(interim_msg)
 
                 if agent._codex_incomplete_retries < 3:
+                    messages.append({
+                        "role": "user",
+                        "content": (
+                            "[System: Continue from the incomplete Codex response. "
+                            "Use any preserved reasoning state, then produce the final answer directly. "
+                            "Do not restart or repeat prior text.]"
+                        ),
+                    })
                     if not agent.quiet_mode:
                         agent._vprint(f"{agent.log_prefix}↻ Codex response incomplete; continuing turn ({agent._codex_incomplete_retries}/3)")
                     agent._session_messages = messages
