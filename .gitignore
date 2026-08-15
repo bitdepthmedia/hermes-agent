@@ -63,6 +63,8 @@ environments/benchmarks/evals/
 
 # Web UI build output
 hermes_cli/web_dist/
+.bytecode-fingerprint
+.web_ui_build.lock
 apps/desktop/build/
 apps/desktop/dist/
 apps/desktop/release/
