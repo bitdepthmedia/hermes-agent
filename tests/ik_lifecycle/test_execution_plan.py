@@ -212,6 +212,28 @@ class ExecutionPlanTests(unittest.TestCase):
         self.assertEqual(approval["status"], "DECISION_REQUIRED")
         self.assertIn("any dependency or package-manager command", approval["not_authorized"])
 
+    def test_committed_composed_plan_and_decision_input_are_digest_bound_and_non_executable(self) -> None:
+        repo = Path(__file__).resolve().parents[2]
+        plan = json.loads((repo / "docs/planning-receipts/2026-08-21-hermes-composed-execution-plan-v2.json").read_text())
+        claimed_plan = plan["plan_sha256"]
+        unsigned_plan = {key: value for key, value in plan.items() if key != "plan_sha256"}
+        self.assertEqual(
+            hashlib.sha256(json.dumps(unsigned_plan, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest(),
+            claimed_plan,
+        )
+        self.assertEqual(plan["schema_id"], "ik.hermes.composed-execution-plan.v2")
+        self.assertFalse(plan["authorization"]["executable"])
+        self.assertEqual(plan["command_count"], 7)
+
+        approval = json.loads((repo / "docs/planning-receipts/2026-08-21-hermes-composed-execution-approval-input.json").read_text())
+        claimed_approval = approval.pop("approval_input_sha256")
+        self.assertEqual(
+            hashlib.sha256(json.dumps(approval, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest(),
+            claimed_approval,
+        )
+        self.assertEqual(approval["status"], "DECISION_REQUIRED")
+        self.assertEqual(approval["plan_sha256"], claimed_plan)
+
 
 if __name__ == "__main__":
     unittest.main()

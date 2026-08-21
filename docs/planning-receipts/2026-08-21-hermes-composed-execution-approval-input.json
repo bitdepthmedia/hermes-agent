@@ -1,0 +1,58 @@
+{
+  "approval_input_sha256": "395bf0e3b31aa5a4d515ec1cbec4624e5a1f70297de2ca727f4a209c0077c5b3",
+  "approval_receipt_requirement": "A separate ik.hermes.execution-approval.v1 receipt must be APPROVED and bind this exact plan, ordered command digests and validity window.",
+  "candidate_id": "1e79082041b08781ca40",
+  "cell_id": "ernie",
+  "command_digests": [
+    "83c1509979705e92b7a524f01819466395abcb95dab4f8460346153b9d8ada25",
+    "f39b6216b06c723d26bf080210eeac4db9cc1d0344ab96b0106e882e23c6969f",
+    "437ad728958e1c30cf7c712dd318cbf77bf2fe055ace672798e16807ccdf77ea",
+    "e2af3c023424df160fbd89939ac318e2ba8aa77caa95b84e4fa1e41ffe6048bc",
+    "008fa2a43e1daf604444073b63ace866cbcb8e9729759cabd467f42c632d79fa",
+    "e6090a7079f05f5b0754c12904b346839bc06eafb483e421b90f6514954e6b1e",
+    "f76604414997a17e5203e38ce53161be30d45971cd7c06187f810607cb4b7903"
+  ],
+  "command_ids": [
+    "build-ui-tui",
+    "build-dashboard-web",
+    "check-ui-tui",
+    "check-dashboard-web",
+    "check-shared-dashboard-source",
+    "check-root-javascript-tests",
+    "run-focused-lifecycle-unittest"
+  ],
+  "commands_sha256": "8fb06a1ec9ac9975e08507dd729dce2d8929cbf069a26fdf128aff2d96043589",
+  "composition_id": "85500d41b3165a9d2c9a957c",
+  "execution_effects": [
+    "write candidate-only UI and dashboard build artifacts",
+    "run four offline JavaScript checks",
+    "run focused dependency-free lifecycle unit tests",
+    "retain candidate-only logs, caches and failures"
+  ],
+  "material_risks": [
+    "reviewed npm build scripts execute inside an isolated writable candidate",
+    "build or check may fail because audit dependencies were installed with scripts disabled",
+    "macOS sandbox-exec is deprecated but is currently present and was empirically proven to deny outbound sockets",
+    "the full pytest suite remains deferred because its test environment is not materialized"
+  ],
+  "network_contract": {
+    "adapter_id": "macos-sandbox-exec-deny-network-v1",
+    "adapter_sha256": "6fdf49544e2c57d69f7a7f4a892e062265aa292cc31f2ee43a42a0e1673e5a4f",
+    "fresh_proof_ttl_seconds": 300,
+    "policy_sha256": "5c358b8d847211333e7ba22df82d84f796b5f30a41a2682209a949d783adbd08",
+    "runtime_sha256": "c220ae7b6c2b9da2a4e498c09cdbc64b03b43db96dbbf9f64d26bfbbd698e2bd",
+    "sandbox_exec_sha256": "8290e4be7387a0df83cd1559e86afd880464f269450573d012795761fe298f16"
+  },
+  "not_authorized": [
+    "dependency install or resolution",
+    "lifecycle hook outside the seven exact commands",
+    "profiles, history, credentials or models",
+    "services, automations, live Bert, promotion, deployment or push"
+  ],
+  "plan_file_sha256": "9aee9254c2af036b3d71fa1acd0512155c8401a5ef2bb65e0dd54e43bdbe3ac1",
+  "plan_path": "docs/planning-receipts/2026-08-21-hermes-composed-execution-plan-v2.json",
+  "plan_sha256": "11385283fa7dcd7755a37f77dca56ecd19818aaafd68bc7d6815add0e56fdc43",
+  "requested_scope": "exact_composed_candidate_batch",
+  "schema_id": "ik.hermes.execution-approval-input.v1",
+  "status": "DECISION_REQUIRED"
+}
