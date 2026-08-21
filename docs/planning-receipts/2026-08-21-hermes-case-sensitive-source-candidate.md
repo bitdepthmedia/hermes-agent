@@ -106,7 +106,9 @@ Before execution, the lifecycle approval validator must bind this safer derived
 execution-plan digest rather than the earlier relative static-command digest.
 That code bridge is not permission to execute dependencies and remains the
 last local implementation prerequisite. No command in the approval input was
-run.
+run. The bridge was subsequently completed and verified in the
+[dependency approval bridge receipt](2026-08-21-hermes-dependency-approval-bridge.md);
+dependency execution remains approval-required.
 
 ## Automation and remaining boundaries
 

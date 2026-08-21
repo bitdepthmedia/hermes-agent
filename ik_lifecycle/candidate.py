@@ -417,18 +417,110 @@ def _load_verified_receipt(path: Path, *, kind: str, status: str, missing_code: 
     return body["data"], hashlib.sha256(raw).hexdigest()
 
 
+def _load_dependency_execution_plan(
+    candidate: Candidate,
+    manifest: dict[str, Any],
+    path: Path | None,
+) -> tuple[dict[str, Any], str]:
+    if path is None or not Path(path).is_file() or Path(path).is_symlink():
+        raise LifecycleBlockedError(
+            "dependency_execution_plan_required",
+            "A derived dependency execution plan is required",
+        )
+    try:
+        plan = json.loads(Path(path).read_bytes())
+    except (OSError, json.JSONDecodeError) as exc:
+        raise LifecycleBlockedError(
+            "dependency_execution_plan_invalid",
+            "Cannot read the derived dependency execution plan",
+        ) from exc
+    if not isinstance(plan, dict):
+        raise LifecycleBlockedError(
+            "dependency_execution_plan_invalid",
+            "Derived dependency execution plan must be an object",
+        )
+    plan_digest = plan.get("approval_input_sha256")
+    unsigned_plan = {key: value for key, value in plan.items() if key != "approval_input_sha256"}
+    if not isinstance(plan_digest, str) or plan_digest != hashlib.sha256(_canonical_bytes(unsigned_plan)).hexdigest():
+        raise LifecycleBlockedError(
+            "dependency_execution_plan_invalid",
+            "Derived dependency execution plan digest is invalid",
+        )
+    commands = plan.get("commands")
+    if not isinstance(commands, list) or not commands:
+        raise LifecycleBlockedError(
+            "dependency_execution_plan_invalid",
+            "Derived dependency execution plan has no commands",
+        )
+    commands_digest = hashlib.sha256(_canonical_bytes(commands)).hexdigest()
+    if plan.get("commands_sha256") != commands_digest:
+        raise LifecycleBlockedError(
+            "dependency_execution_plan_invalid",
+            "Derived dependency command digest is invalid",
+        )
+    audit_source = (candidate.path / "dependency-audit" / "source").resolve()
+    for command in commands:
+        if not isinstance(command, dict) or not isinstance(command.get("argv"), list) or not command["argv"]:
+            raise LifecycleBlockedError(
+                "dependency_execution_plan_invalid",
+                "Derived dependency command shape is invalid",
+            )
+        if not all(isinstance(argument, str) and argument for argument in command["argv"]):
+            raise LifecycleBlockedError(
+                "dependency_execution_plan_invalid",
+                "Derived dependency command arguments are invalid",
+            )
+        workdir = command.get("workdir")
+        if not isinstance(workdir, str) or not Path(workdir).is_absolute():
+            raise LifecycleBlockedError(
+                "dependency_execution_plan_invalid",
+                "Derived dependency command workdir must be absolute",
+            )
+        try:
+            Path(workdir).resolve().relative_to(audit_source)
+        except ValueError as exc:
+            raise LifecycleBlockedError(
+                "dependency_execution_plan_invalid",
+                "Derived dependency command escapes the isolated audit mirror",
+            ) from exc
+    manifest_digest = hashlib.sha256(candidate.manifest_path.read_bytes()).hexdigest()
+    artifact_digest = hashlib.sha256(_canonical_bytes(manifest["supply_chain"]["artifact_sha256"])).hexdigest()
+    expected = {
+        "artifact_map_sha256": artifact_digest,
+        "audit_mirror_tree_sha256": manifest["source"]["tree_sha256"],
+        "candidate_id": candidate.candidate_id,
+        "candidate_manifest_sha256": manifest_digest,
+        "execution_performed": False,
+        "replay_manifest_sha256": manifest["replay"]["sha256"],
+        "source_commit_sha": manifest["source"]["commit_sha"],
+        "source_tree_sha256": manifest["source"]["tree_sha256"],
+        "status": "APPROVAL_REQUIRED",
+    }
+    if any(plan.get(key) != value for key, value in expected.items()):
+        raise LifecycleBlockedError(
+            "dependency_execution_plan_mismatch",
+            "Derived dependency execution plan does not match this candidate",
+        )
+    return plan, plan_digest
+
+
 def _validate_dependency_receipts(candidate: Candidate, manifest: dict[str, Any], gates: GateSet) -> None:
+    plan, plan_digest = _load_dependency_execution_plan(
+        candidate,
+        manifest,
+        gates.dependency_execution_plan,
+    )
     approval, approval_file_sha = _load_verified_receipt(
         gates.dependency_approval_receipt,
         kind="dependency_execution_approval",
         status="APPROVED",
         missing_code="dependency_approval_required",
     )
-    planned_sha = hashlib.sha256(_canonical_bytes(manifest["dependency_phase"]["planned_commands"])).hexdigest()
     expected = {
         "candidate_id": candidate.candidate_id,
         "candidate_tree_sha256": manifest["source"]["tree_sha256"],
-        "planned_commands_sha256": planned_sha,
+        "execution_plan_sha256": plan_digest,
+        "commands_sha256": plan["commands_sha256"],
     }
     if any(approval.get(key) != value for key, value in expected.items()):
         raise LifecycleBlockedError("approval_receipt_mismatch", "Dependency approval does not match this candidate")
@@ -441,6 +533,8 @@ def _validate_dependency_receipts(candidate: Candidate, manifest: dict[str, Any]
     install_expected = {
         "candidate_id": candidate.candidate_id,
         "candidate_tree_sha256": manifest["source"]["tree_sha256"],
+        "execution_plan_sha256": plan_digest,
+        "commands_sha256": plan["commands_sha256"],
         "approval_file_sha256": approval_file_sha,
     }
     if any(install.get(key) != value for key, value in install_expected.items()):

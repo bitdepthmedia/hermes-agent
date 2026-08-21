@@ -70,5 +70,6 @@ class GateSet:
     dependency_install_clear: bool
     rollback_release_pointer: Path | None = None
     rollback_profile_pointer: Path | None = None
+    dependency_execution_plan: Path | None = None
     dependency_approval_receipt: Path | None = None
     dependency_install_receipt: Path | None = None

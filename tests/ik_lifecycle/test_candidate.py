@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 from datetime import datetime, timezone
@@ -67,6 +68,85 @@ def _cell(cell_id: str, protected_paths: tuple[Path, ...] = ()) -> CellSpec:
         protected_paths=protected_paths,
         legacy_health_automation_status="ACTIVE",
         computer_history_path_status="approval_required",
+    )
+
+
+def _canonical(document: object) -> bytes:
+    return json.dumps(document, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
+
+
+def _write_evidence(path: Path, kind: str, status: str, data: dict[str, object]) -> str:
+    body = {
+        "data": data,
+        "kind": kind,
+        "observed_at": "2026-08-21T18:45:00Z",
+        "schema_version": 1,
+        "status": status,
+    }
+    document = {"receipt": body, "sha256": hashlib.sha256(_canonical(body)).hexdigest()}
+    path.write_bytes(_canonical(document) + b"\n")
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _dependency_plan(candidate) -> tuple[Path, dict[str, object]]:
+    manifest = json.loads(candidate.manifest_path.read_text())
+    audit_source = candidate.path / "dependency-audit" / "source"
+    audit_source.mkdir(parents=True)
+    commands = [
+        {
+            "workdir": str(audit_source),
+            "argv": [
+                "/usr/bin/env",
+                "-i",
+                "HOME=/isolated/home",
+                "/isolated/bin/npm",
+                "ci",
+                "--ignore-scripts",
+                "--no-audit",
+                "--no-fund",
+            ],
+        }
+    ]
+    plan: dict[str, object] = {
+        "artifact_map_sha256": hashlib.sha256(_canonical(manifest["supply_chain"]["artifact_sha256"])).hexdigest(),
+        "audit_mirror_tree_sha256": manifest["source"]["tree_sha256"],
+        "candidate_id": candidate.candidate_id,
+        "candidate_manifest_sha256": hashlib.sha256(candidate.manifest_path.read_bytes()).hexdigest(),
+        "commands": commands,
+        "commands_sha256": hashlib.sha256(_canonical(commands)).hexdigest(),
+        "execution_performed": False,
+        "replay_manifest_sha256": manifest["replay"]["sha256"],
+        "runtime": {"npm": {"version": "11.17.0", "sha256": "a" * 64}},
+        "source_commit_sha": manifest["source"]["commit_sha"],
+        "source_tree_sha256": manifest["source"]["tree_sha256"],
+        "status": "APPROVAL_REQUIRED",
+    }
+    plan["approval_input_sha256"] = hashlib.sha256(_canonical(plan)).hexdigest()
+    path = candidate.path / "dependency-approval-input.json"
+    path.write_bytes(json.dumps(plan, sort_keys=True, indent=2).encode() + b"\n")
+    return path, plan
+
+
+def _sealing_gates(candidate, plan: Path, approval: Path, install: Path):
+    rollback_release = candidate.layout.releases / "rollback-release"
+    rollback_profile = candidate.layout.profiles / "rollback-profile"
+    rollback_release.mkdir()
+    rollback_profile.mkdir()
+    release_pointer = candidate.layout.cell_root / "rollback-release"
+    profile_pointer = candidate.layout.cell_root / "rollback-profile"
+    release_pointer.symlink_to(rollback_release, target_is_directory=True)
+    profile_pointer.symlink_to(rollback_profile, target_is_directory=True)
+    return GateSet(
+        static_scan_clear=True,
+        source_identity_clear=True,
+        tests_clear=True,
+        hooks_reviewed=True,
+        dependency_install_clear=True,
+        rollback_release_pointer=release_pointer,
+        rollback_profile_pointer=profile_pointer,
+        dependency_execution_plan=plan,
+        dependency_approval_receipt=approval,
+        dependency_install_receipt=install,
     )
 
 
@@ -305,6 +385,7 @@ def test_sealing_requires_rollback_pair_and_all_build_gates(tmp_path: Path) -> N
 def test_build_gate_boolean_cannot_replace_dependency_approval_receipt(tmp_path: Path) -> None:
     source, target_sha = _source_repo(tmp_path)
     candidate = build_candidate(_selection(target_sha), _cell("ernie"), tmp_path / "platform", source=source)
+    plan_path, _ = _dependency_plan(candidate)
     rollback_release = candidate.layout.releases / "rollback-release"
     rollback_profile = candidate.layout.profiles / "rollback-profile"
     rollback_release.mkdir()
@@ -321,6 +402,7 @@ def test_build_gate_boolean_cannot_replace_dependency_approval_receipt(tmp_path:
         dependency_install_clear=True,
         rollback_release_pointer=release_pointer,
         rollback_profile_pointer=profile_pointer,
+        dependency_execution_plan=plan_path,
     )
 
     with pytest.raises(LifecycleBlockedError) as error:
@@ -328,3 +410,110 @@ def test_build_gate_boolean_cannot_replace_dependency_approval_receipt(tmp_path:
 
     assert error.value.code == "dependency_approval_required"
     assert not any(path.name != "rollback-release" for path in candidate.layout.releases.iterdir())
+
+
+def test_relative_static_plan_digest_cannot_authorize_dependency_sealing(tmp_path: Path) -> None:
+    source, target_sha = _source_repo(tmp_path)
+    candidate = build_candidate(_selection(target_sha), _cell("ernie"), tmp_path / "platform", source=source)
+    plan_path, _ = _dependency_plan(candidate)
+    manifest = json.loads(candidate.manifest_path.read_text())
+    approval_path = tmp_path / "approval.json"
+    approval_sha = _write_evidence(
+        approval_path,
+        "dependency_execution_approval",
+        "APPROVED",
+        {
+            "candidate_id": candidate.candidate_id,
+            "candidate_tree_sha256": manifest["source"]["tree_sha256"],
+            "planned_commands_sha256": hashlib.sha256(
+                _canonical(manifest["dependency_phase"]["planned_commands"])
+            ).hexdigest(),
+        },
+    )
+    install_path = tmp_path / "install.json"
+    _write_evidence(
+        install_path,
+        "dependency_install_result",
+        "CLEAR",
+        {
+            "candidate_id": candidate.candidate_id,
+            "candidate_tree_sha256": manifest["source"]["tree_sha256"],
+            "approval_file_sha256": approval_sha,
+        },
+    )
+
+    with pytest.raises(LifecycleBlockedError) as error:
+        seal_candidate(candidate, _sealing_gates(candidate, plan_path, approval_path, install_path))
+
+    assert error.value.code == "approval_receipt_mismatch"
+    assert not any(path.name != "rollback-release" for path in candidate.layout.releases.iterdir())
+
+
+def test_sealing_binds_approval_and_install_to_derived_execution_plan(tmp_path: Path) -> None:
+    source, target_sha = _source_repo(tmp_path)
+    candidate = build_candidate(_selection(target_sha), _cell("ernie"), tmp_path / "platform", source=source)
+    plan_path, plan = _dependency_plan(candidate)
+    manifest = json.loads(candidate.manifest_path.read_text())
+    binding = {
+        "candidate_id": candidate.candidate_id,
+        "candidate_tree_sha256": manifest["source"]["tree_sha256"],
+        "execution_plan_sha256": plan["approval_input_sha256"],
+        "commands_sha256": plan["commands_sha256"],
+    }
+    approval_path = tmp_path / "approval.json"
+    approval_sha = _write_evidence(
+        approval_path,
+        "dependency_execution_approval",
+        "APPROVED",
+        binding,
+    )
+    install_path = tmp_path / "install.json"
+    _write_evidence(
+        install_path,
+        "dependency_install_result",
+        "CLEAR",
+        {**binding, "approval_file_sha256": approval_sha},
+    )
+
+    release = seal_candidate(candidate, _sealing_gates(candidate, plan_path, approval_path, install_path))
+
+    assert release.is_dir()
+    verify_tree_read_only(release)
+
+
+def test_tampered_dependency_execution_plan_fails_closed(tmp_path: Path) -> None:
+    source, target_sha = _source_repo(tmp_path)
+    candidate = build_candidate(_selection(target_sha), _cell("ernie"), tmp_path / "platform", source=source)
+    plan_path, plan = _dependency_plan(candidate)
+    plan["commands"][0]["argv"].append("--foreground-scripts")
+    plan_path.write_bytes(json.dumps(plan, sort_keys=True, indent=2).encode() + b"\n")
+    approval_path = tmp_path / "approval.json"
+    approval_sha = _write_evidence(
+        approval_path,
+        "dependency_execution_approval",
+        "APPROVED",
+        {
+            "candidate_id": candidate.candidate_id,
+            "candidate_tree_sha256": plan["source_tree_sha256"],
+            "execution_plan_sha256": plan["approval_input_sha256"],
+            "commands_sha256": plan["commands_sha256"],
+        },
+    )
+    install_path = tmp_path / "install.json"
+    _write_evidence(
+        install_path,
+        "dependency_install_result",
+        "CLEAR",
+        {
+            "candidate_id": candidate.candidate_id,
+            "candidate_tree_sha256": plan["source_tree_sha256"],
+            "execution_plan_sha256": plan["approval_input_sha256"],
+            "commands_sha256": plan["commands_sha256"],
+            "approval_file_sha256": approval_sha,
+        },
+    )
+
+    with pytest.raises(LifecycleBlockedError) as error:
+        seal_candidate(candidate, _sealing_gates(candidate, plan_path, approval_path, install_path))
+
+    assert error.value.code == "dependency_execution_plan_invalid"
