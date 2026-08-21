@@ -1,0 +1,135 @@
+{
+  "schema_id": "ik.hermes.script-hook-inventory.v1",
+  "observed_at": "2026-08-21T22:00:00Z",
+  "candidate": {
+    "candidate_id": "1e79082041b08781ca40",
+    "target_tag": "v2026.8.18",
+    "target_commit_sha": "e624e9fde561e1add9388384012b295fde669ade",
+    "source_tree_sha256": "d146de1593a89f1fb9b71c1dc98bd77c554c5d589435f97023635b3da0907b83"
+  },
+  "project_surfaces": [
+    {
+      "path": "package.json",
+      "sha256": "94c33965e5ddd0cdb86a32ae330f467776741451217db370010a0dba33bb79d1",
+      "classification": "required_workspace_but_install_hook_not_required",
+      "scripts": ["postinstall", "install:root", "install:web", "install:tui", "install:desktop", "audit:root", "audit:web", "audit:tui", "audit:fix:root", "audit:fix:web", "audit:fix:tui", "check", "fix"],
+      "decision": "never rerun npm ci with scripts enabled; invoke only reviewed build/check scripts explicitly"
+    },
+    {
+      "path": "web/package.json",
+      "sha256": "e43304b4782420a91ed11461940156b19f56570798d3b72ceb54469c6d294d50",
+      "classification": "required_candidate_runtime",
+      "scripts": ["dev", "build", "lint", "lint:fix", "fix", "preview", "typecheck", "test", "check"],
+      "decision": "build and check only; dev, preview and mutation scripts excluded"
+    },
+    {
+      "path": "ui-tui/package.json",
+      "sha256": "f46f2ebf0f5d85dd6994cea3c5b612fd68dac526ae09bcca37fda1b060d94d6b",
+      "classification": "required_candidate_runtime",
+      "scripts": ["dev", "start", "build", "build:ink", "visual", "typecheck", "lint", "lint:fix", "fmt", "fix", "check", "test", "test:watch"],
+      "decision": "build and check only; interactive, watch and mutation scripts excluded"
+    },
+    {
+      "path": "ui-tui/packages/hermes-ink/package.json",
+      "sha256": "109258a3f307cf7e687d7e8874edbdd6b51a69022fae0c7c33f82fee7ffd0fd8",
+      "classification": "required_candidate_runtime_transitive",
+      "scripts": ["build", "check", "typecheck", "lint", "fix"],
+      "decision": "build runs transitively from the reviewed ui-tui check/build commands"
+    },
+    {
+      "path": "website/package.json",
+      "sha256": "96ce1e80f55f099f29262800c2d2ed92c935866dd3ef6648c74cb66e5e22855e",
+      "classification": "documentation_only",
+      "scripts": ["docusaurus", "prestart", "start", "prebuild", "build", "build:fast", "swizzle", "deploy", "clear", "serve", "write-translations", "write-heading-ids", "typecheck", "lint:diagrams"],
+      "decision": "exclude from Ernie and Bert runtime candidates; prebuild can fetch remote skills-index data"
+    },
+    {
+      "path": "scripts/whatsapp-bridge/package.json",
+      "sha256": "fabad4f584362fa41e963f5bc4444bad69446d2130947e75a0f14597cbb8f0ad",
+      "classification": "optional_profile_feature",
+      "scripts": ["start"],
+      "decision": "static syntax/import validation only until an approved profile inventory proves WhatsApp is required"
+    },
+    {
+      "path": "plugins/platforms/photon/sidecar/package.json",
+      "sha256": "63cc82f3daab81549f20b1049cb5c08c858bc3687c71b9d9a02cac306e9db74d",
+      "classification": "optional_platform_sidecar",
+      "scripts": ["start", "postinstall"],
+      "decision": "defer native install and patch until an approved cell capability inventory proves Photon is required"
+    },
+    {
+      "path": "apps/desktop/package.json",
+      "sha256": "66fd5747a11197f8efa258ecfa33eb02c182b617cf16dcc9126f57341414145b",
+      "classification": "irrelevant_to_headless_cells",
+      "scripts": ["clean", "clean:e2e", "clean:renderer", "clean:electron", "dev", "dev:fake-boot", "dev:mock", "dev:renderer", "dev:electron", "profile:main", "profile:main:cpu", "start", "prebuild", "build", "postbuild", "prebuilder", "builder", "pack", "dist", "dist:mac", "dist:mac:dmg", "dist:mac:zip", "dist:win", "dist:win:msi", "dist:win:nsis", "dist:linux", "perf", "update:shim", "update:shim:fail", "update:repro:fresh", "update:repro:behind", "update:repro:error", "update:repro:gate", "update:repro:launch", "perf:serve", "test:desktop", "test:desktop:all", "test:desktop:dmg", "test:desktop:nsis", "test:desktop:existing", "test:desktop:fresh", "typecheck", "lint", "lint:fix", "fmt", "fix", "test:ui", "test:desktop:platforms", "test:find-in-page-native", "test", "preview", "check:test:desktop:platforms", "check:test:plugins", "check:test:ui:shard-1of3", "check:test:ui:shard-2of3", "check:test:ui:shard-3of3", "check:test:desktop:all", "check:lint", "check", "test:e2e", "test:e2e:visual", "test:e2e:update-snapshots", "repro:short-session-hang", "repro:short-session-hang:test"],
+      "decision": "exclude all desktop build, packaging, updater, Electron and Playwright surfaces from the two headless cells"
+    },
+    {
+      "path": "apps/bootstrap-installer/package.json",
+      "sha256": "10d44059febefcaa0e5b2e8d4083f66c1f827c3c24d0e5b244028c18fb161e0d",
+      "classification": "distribution_installer_only",
+      "scripts": ["dev", "build", "preview", "tauri", "tauri:dev", "tauri:build", "tauri:build:debug", "typecheck", "check", "lint", "lint:fix", "fix"],
+      "decision": "exclude all Tauri/installer surfaces from cell candidates"
+    },
+    {
+      "path": "apps/shared/package.json",
+      "sha256": "61ee3dfa7d2097d9310732a3ab3554b25829c1802ed5120cdeb3d0574055be95",
+      "classification": "required_dashboard_source_transitive",
+      "scripts": ["lint", "lint:fix", "fix", "typecheck", "check"],
+      "decision": "check only; source is compiled through the web build"
+    },
+    {
+      "path": "tests-js/package.json",
+      "sha256": "08657cd581bcaacec53c834c703cd6254579db0223c45d2d9a21b629060acec5",
+      "classification": "required_validation",
+      "scripts": ["typecheck", "test", "check", "lint", "lint:fix", "fix"],
+      "decision": "check only"
+    },
+    {
+      "path": "setup-hermes.sh",
+      "sha256": "56bfeabbe3bbce34b6133f403aed669405b9314256809dbc75f22591feb0e8b2",
+      "classification": "interactive_installer_not_candidate_builder",
+      "scripts": ["uv_bootstrap", "python_download", "uv_sync_with_fallback", "pip_editable_fallback"],
+      "decision": "reject for staged lifecycle because it downloads runtimes, falls back across dependency sets and mutates an installation in place"
+    },
+    {
+      "path": "setup.py",
+      "sha256": "b81382e9c4d1bc10694c42177edec65fdab9afe6511dd4c43b2279440b6ad13e",
+      "classification": "distribution_guard",
+      "scripts": ["bdist_wheel_guard", "sdist_guard"],
+      "decision": "do not run wheel, sdist, uv build, pip wheel or python -m build outside Nix"
+    },
+    {
+      "path": "scripts/run_tests.sh",
+      "sha256": "9ef635bcee1f879d31f37b4eeccab6e203283036d38ed0bf4e249efcd7d0469e",
+      "classification": "required_validation",
+      "scripts": ["compileall_best_effort", "run_tests_parallel"],
+      "decision": "run only with a digest-bound test Python containing pytest and a synthetic HERMES_HOME"
+    }
+  ],
+  "install_eligible_hooks": [
+    {"surface":"root","package":"hermes-agent","version":"0.20.4","hook":"postinstall","command":"echo only","network":"none","mutation":"none","decision":"not_required"},
+    {"surface":"root","package":"electron","version":"40.10.2","hook":"postinstall","command":"node install.js","network":"downloads Electron binary when absent","mutation":"node_modules/electron/dist and path metadata","decision":"exclude_desktop"},
+    {"surface":"root","package":"electron-winstaller","version":"5.4.0","hook":"install","command":"node ./script/select-7z-arch.js","network":"none","mutation":"copies vendor 7z executable and dll","decision":"exclude_desktop"},
+    {"surface":"root","package":"esbuild","version":"0.28.1","hook":"postinstall","command":"node install.js","network":"npm subprocess or registry tarball fallback when platform binary is absent","mutation":"esbuild bin wrapper/binary and temporary npm-install directory","decision":"do_not_rerun; use already materialized locked platform package and fail if unavailable"},
+    {"surface":"root","package":"get-windows","version":"9.3.0","hook":"install","command":"node-pre-gyp install --fallback-to-build","network":"GitHub prebuild download or native toolchain fallback","mutation":"native binding output","decision":"exclude_desktop"},
+    {"surface":"root","package":"node-pty","version":"1.1.0","hook":"install","command":"node scripts/prebuild.js || node-gyp rebuild","network":"none when bundled prebuild exists; toolchain on fallback","mutation":"prebuild removal or native build output","decision":"exclude_from_headless_candidate_unless_later_runtime evidence requires PTY native module"},
+    {"surface":"root","package":"node-pty","version":"1.1.0","hook":"postinstall","command":"node scripts/post-install.js","network":"none","mutation":"copies or removes spawn-helper/conpty artifacts","decision":"same_as_node_pty_install"},
+    {"surface":"root","package":"unicode-animations","version":"1.0.3","hook":"postinstall","command":"node scripts/postinstall.cjs","network":"none","mutation":"terminal output only","decision":"explicitly_denied_by_allowScripts"},
+    {"surface":"website","package":"core-js","version":"3.49.0","hook":"postinstall","command":"node -e try require postinstall","network":"none","mutation":"may write funding banner state in temp directory","decision":"exclude_website"},
+    {"surface":"website","package":"ljharb-monorepo-symlink-test","version":"0.0.0","hook":"postinstall","command":"lerna bootstrap","network":"may invoke package manager resolution","mutation":"nested test fixture dependencies","decision":"never_execute"},
+    {"surface":"whatsapp","package":"@whiskeysockets/baileys","version":"7.0.0-rc13","hook":"preinstall","command":"node ./engine-requirements.js","network":"none","mutation":"none","decision":"defer_with_optional_whatsapp_surface"},
+    {"surface":"whatsapp","package":"protobufjs","version":"7.6.5","hook":"postinstall","command":"node scripts/postinstall","network":"none","mutation":"none; compatibility warning only","decision":"defer_with_optional_whatsapp_surface"},
+    {"surface":"photon","package":"better-sqlite3","version":"12.11.1","hook":"install","command":"prebuild-install || node-gyp rebuild --release","network":"prebuilt binary download or native toolchain fallback","mutation":"native addon output","decision":"separate_optional_approval"},
+    {"surface":"photon","package":"@hermes/photon-sidecar","version":"1.0.0","hook":"postinstall","command":"node patch-spectrum-mixed-attachments.mjs","network":"none","mutation":"patches installed @spectrum-ts/imessage dist file; idempotent marker","decision":"separate_optional_approval_after_capability_inventory"}
+  ],
+  "non_install_prepare_hooks": {
+    "note": "prepare and development-only scripts discovered in installed registry package metadata are not run by npm ci for registry tarballs; they remain bound through installed-metadata hashes in the CLEAR V2 receipt and are not approval candidates",
+    "root_unique_declared_hook_packages": 256,
+    "website_unique_declared_hook_packages": 96,
+    "whatsapp_unique_declared_hook_packages": 11,
+    "photon_unique_declared_hook_packages": 24
+  },
+  "forbidden_version_screen": "CLEAR",
+  "execution_performed": false
+}

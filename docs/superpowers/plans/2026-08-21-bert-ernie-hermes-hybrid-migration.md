@@ -10,6 +10,14 @@
 
 **Spec:** `docs/architecture/bert-ernie-hermes-cell-architecture.md`
 
+**Execution checkpoint (2026-08-21):** Tasks 1–2 and the scripts-disabled V2
+dependency audit are complete. Before Task 3 implementation or any build/test
+script, use the fail-closed
+[`Hermes candidate build and sealing plan`](2026-08-21-hermes-candidate-build-and-sealing-plan.md).
+It records that the current candidate is upstream-only and that the sealer does
+not yet bind the overlay, runtime environment, or built assets. Its next gate is
+the local code-only prerequisite approval, not script execution.
+
 ## Global Constraints
 
 - Re-read repo `AGENTS.md`, the spec, current Nate OS index/standing rules/Bert-Hermes/background/supply-chain/shared-memory workflows, and the current upstream release before each execution phase.
