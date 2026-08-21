@@ -57,7 +57,7 @@ class ComposedExecutionAuthorityTests(unittest.TestCase):
                 "target_commit_sha": "e624e9fde561e1add9388384012b295fde669ade",
                 "source_tree_sha256": "d" * 64,
                 "immutable_source": str(self.immutable),
-                "execution_root": str(self.build),
+                "execution_root": str(self.root),
             },
             "composition": {
                 "composition_id": "composed-1",

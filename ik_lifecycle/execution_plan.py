@@ -251,12 +251,14 @@ def validate_composed_execution_plan(
     immutable = Path(str(composition.get("immutable_source", "")))
     build_root = Path(str(composition.get("build_root", "")))
     manifest_path = Path(str(composition.get("manifest_path", "")))
+    execution_root = Path(str(candidate.get("execution_root", "")))
     if (
         not immutable.is_absolute()
         or not build_root.is_absolute()
         or not manifest_path.is_absolute()
+        or not execution_root.is_absolute()
         or candidate.get("immutable_source") != str(immutable)
-        or candidate.get("execution_root") != str(build_root)
+        or not _inside(build_root, execution_root)
     ):
         raise LifecycleBlockedError("composed_execution_plan_binding_invalid", "composed paths are inconsistent")
     try:
