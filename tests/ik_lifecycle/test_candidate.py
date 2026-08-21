@@ -179,6 +179,31 @@ def test_case_colliding_tracked_paths_fail_with_specific_retained_evidence(tmp_p
     ]
 
 
+def test_case_distinct_tracked_paths_build_when_filesystem_preserves_both(tmp_path: Path) -> None:
+    probe_upper = tmp_path / "CaseProbe"
+    probe_lower = tmp_path / "caseprobe"
+    probe_upper.write_text("upper\n", encoding="utf-8")
+    probe_lower.write_text("lower\n", encoding="utf-8")
+    if probe_upper.read_text(encoding="utf-8") == probe_lower.read_text(encoding="utf-8"):
+        pytest.skip("test requires a case-sensitive filesystem")
+    probe_upper.unlink()
+    probe_lower.unlink()
+
+    source, target_sha = _source_repo(
+        tmp_path,
+        {
+            "contributors/emails/agent@example": "first\n",
+            "contributors/emails/Agent@example": "second\n",
+        },
+    )
+
+    candidate = build_candidate(_selection(target_sha), _cell("ernie"), tmp_path / "platform", source=source)
+
+    assert (candidate.source_path / "contributors/emails/agent@example").read_text() == "first\n"
+    assert (candidate.source_path / "contributors/emails/Agent@example").read_text() == "second\n"
+    verify_tree_read_only(candidate.source_path)
+
+
 def test_running_source_path_is_rejected_without_mutation(tmp_path: Path) -> None:
     source, target_sha = _source_repo(tmp_path)
     sentinel = source / "sentinel"

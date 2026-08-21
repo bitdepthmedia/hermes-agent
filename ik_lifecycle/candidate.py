@@ -150,12 +150,26 @@ def _validate_source_links(source: Path) -> None:
             raise LifecycleBlockedError("source_symlink_escape", f"Source symlink escapes snapshot root: {path}")
 
 
-def _tracked_case_collisions(source: Path) -> tuple[str, ...]:
+def _tracked_case_collision_groups(source: Path) -> tuple[tuple[str, ...], ...]:
     groups: dict[str, list[str]] = {}
     for tracked_path in _git(source, "ls-tree", "-r", "--name-only", "HEAD").splitlines():
         key = unicodedata.normalize("NFC", tracked_path).casefold()
         groups.setdefault(key, []).append(tracked_path)
-    return tuple(sorted(path for paths in groups.values() if len(paths) > 1 for path in paths))
+    return tuple(tuple(sorted(paths)) for paths in groups.values() if len(paths) > 1)
+
+
+def _unrepresentable_case_collisions(source: Path) -> tuple[str, ...]:
+    unsupported: list[str] = []
+    for paths in _tracked_case_collision_groups(source):
+        try:
+            identities = [(source / path).lstat() for path in paths]
+        except OSError:
+            unsupported.extend(paths)
+            continue
+        inode_keys = {(identity.st_dev, identity.st_ino) for identity in identities}
+        if len(inode_keys) != len(paths):
+            unsupported.extend(paths)
+    return tuple(sorted(unsupported))
 
 
 def _tree_digest(root: Path) -> str:
@@ -323,7 +337,7 @@ def build_candidate(
                 "source_head_mismatch",
                 f"Source HEAD {actual_head} does not match canonical target {selection.target.commit_sha}",
             )
-        case_collisions = _tracked_case_collisions(source_path)
+        case_collisions = _unrepresentable_case_collisions(source_path)
         if case_collisions:
             raise LifecycleBlockedError(
                 "source_case_collision",
