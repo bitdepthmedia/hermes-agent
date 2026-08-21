@@ -1,0 +1,89 @@
+{
+  "schema_id": "ik.hermes.customization-replay-manifest.v1",
+  "entries": [
+    {
+      "order": 1,
+      "commit": "9ce39545eaa0f18b6b3f76ce3e1acddcd462ba9a",
+      "disposition": "upstream-superseded",
+      "supported_edge": "none",
+      "summary": "Codex auxiliary null-output recovery"
+    },
+    {
+      "order": 2,
+      "commit": "b030111f053afcb7ce597652bc1293a2ed17aff3",
+      "disposition": "adapt",
+      "supported_edge": "profile-plugin-script",
+      "summary": "Orchestrator profile, scheduled research, and health semantics"
+    },
+    {
+      "order": 3,
+      "commit": "0bfd5b3009a944f94279b14724d72b3147bba2f1",
+      "disposition": "adapt",
+      "supported_edge": "cron-workflow-and-lifecycle-preflight",
+      "summary": "Cron heartbeat and forbidden-version screening"
+    },
+    {
+      "order": 4,
+      "commit": "40a21462f6cb709f020d2388d2f7a2bc3f70973e",
+      "disposition": "reject",
+      "supported_edge": "none",
+      "summary": "In-tree shared_core shadow orchestration system"
+    },
+    {
+      "order": 5,
+      "commit": "08ba06b04067cd4c2b43cdc9e98b65571c38151b",
+      "disposition": "adapt",
+      "supported_edge": "deterministic-workflow-and-plugin",
+      "summary": "Daily-goal, Kanban, cron-ledger, evidence, and fallback semantics"
+    },
+    {
+      "order": 6,
+      "commit": "d7a1229db216317c9af619566309211e5e59a1cd",
+      "disposition": "replay-at-supported-edge",
+      "supported_edge": "delegation-envelope-and-transport",
+      "summary": "Bounded read-only Bert router output"
+    },
+    {
+      "order": 7,
+      "commit": "b184618756a1bd1fec3bc862dfe0e621e157ade7",
+      "disposition": "replay-at-supported-edge",
+      "supported_edge": "health-receipt-and-transport-ack",
+      "summary": "Server-derived Bert status and output digest"
+    },
+    {
+      "order": 8,
+      "commit": "889a350715d4c55c238172d6d3b658651f390503",
+      "disposition": "upstream-superseded",
+      "supported_edge": "none",
+      "summary": "Direct daily-goal cron without a model hop"
+    },
+    {
+      "order": 9,
+      "commit": "8606fae6387e00451b280b381c97edb4fa623dbd",
+      "disposition": "adapt",
+      "supported_edge": "immutable-release-guard",
+      "summary": "Protected live-checkout write and terminal guard"
+    },
+    {
+      "order": 10,
+      "commit": "a92468344955b56cfa3165d04c1ef3d47ebc0954",
+      "disposition": "upstream-superseded",
+      "supported_edge": "none",
+      "summary": "General deterministic direct-script cron support"
+    },
+    {
+      "order": 11,
+      "commit": "18a41579d9a7a8dc8bc133388a1b3ced40927d62",
+      "disposition": "upstream-superseded",
+      "supported_edge": "none",
+      "summary": "Reasoning-only Codex response continuation"
+    },
+    {
+      "order": 12,
+      "commit": "dca28dd07b69bfb1747836e716e6b5cb6d85a340",
+      "disposition": "upstream-superseded",
+      "supported_edge": "none",
+      "summary": "Dashboard bytecode and web-build guard ignores"
+    }
+  ]
+}
