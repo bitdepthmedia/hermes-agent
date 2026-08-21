@@ -88,10 +88,20 @@ def _write_evidence(path: Path, kind: str, status: str, data: dict[str, object])
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _dependency_plan(candidate) -> tuple[Path, dict[str, object]]:
+def _dependency_plan(candidate, *, shared_npm_config: bool = False) -> tuple[Path, dict[str, object]]:
     manifest = json.loads(candidate.manifest_path.read_text())
     audit_source = candidate.path / "dependency-audit" / "source"
     audit_source.mkdir(parents=True)
+    config_root = candidate.path / "dependency-audit" / "config"
+    config_root.mkdir()
+    user_config = config_root / "npm-user.npmrc"
+    global_config = user_config if shared_npm_config else config_root / "npm-global.npmrc"
+    user_config.write_bytes(b"")
+    if global_config != user_config:
+        global_config.write_bytes(b"")
+    user_config.chmod(0o444)
+    global_config.chmod(0o444)
+    empty_sha = hashlib.sha256(b"").hexdigest()
     commands = [
         {
             "workdir": str(audit_source),
@@ -99,6 +109,8 @@ def _dependency_plan(candidate) -> tuple[Path, dict[str, object]]:
                 "/usr/bin/env",
                 "-i",
                 "HOME=/isolated/home",
+                f"NPM_CONFIG_USERCONFIG={user_config}",
+                f"NPM_CONFIG_GLOBALCONFIG={global_config}",
                 "/isolated/bin/npm",
                 "ci",
                 "--ignore-scripts",
@@ -115,6 +127,10 @@ def _dependency_plan(candidate) -> tuple[Path, dict[str, object]]:
         "commands": commands,
         "commands_sha256": hashlib.sha256(_canonical(commands)).hexdigest(),
         "execution_performed": False,
+        "npm_config_files": {
+            "user": {"path": str(user_config), "sha256": empty_sha},
+            "global": {"path": str(global_config), "sha256": empty_sha},
+        },
         "replay_manifest_sha256": manifest["replay"]["sha256"],
         "runtime": {"npm": {"version": "11.17.0", "sha256": "a" * 64}},
         "source_commit_sha": manifest["source"]["commit_sha"],
@@ -479,6 +495,37 @@ def test_sealing_binds_approval_and_install_to_derived_execution_plan(tmp_path: 
 
     assert release.is_dir()
     verify_tree_read_only(release)
+
+
+def test_dependency_execution_plan_rejects_shared_npm_config_path(tmp_path: Path) -> None:
+    source, target_sha = _source_repo(tmp_path)
+    candidate = build_candidate(_selection(target_sha), _cell("ernie"), tmp_path / "platform", source=source)
+    plan_path, plan = _dependency_plan(candidate, shared_npm_config=True)
+    binding = {
+        "candidate_id": candidate.candidate_id,
+        "candidate_tree_sha256": plan["source_tree_sha256"],
+        "execution_plan_sha256": plan["approval_input_sha256"],
+        "commands_sha256": plan["commands_sha256"],
+    }
+    approval_path = tmp_path / "approval.json"
+    approval_sha = _write_evidence(
+        approval_path,
+        "dependency_execution_approval",
+        "APPROVED",
+        binding,
+    )
+    install_path = tmp_path / "install.json"
+    _write_evidence(
+        install_path,
+        "dependency_install_result",
+        "CLEAR",
+        {**binding, "approval_file_sha256": approval_sha},
+    )
+
+    with pytest.raises(LifecycleBlockedError) as error:
+        seal_candidate(candidate, _sealing_gates(candidate, plan_path, approval_path, install_path))
+
+    assert error.value.code == "dependency_execution_plan_invalid"
 
 
 def test_tampered_dependency_execution_plan_fails_closed(tmp_path: Path) -> None:

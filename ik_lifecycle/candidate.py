@@ -417,6 +417,90 @@ def _load_verified_receipt(path: Path, *, kind: str, status: str, missing_code: 
     return body["data"], hashlib.sha256(raw).hexdigest()
 
 
+def _validate_npm_config_bindings(candidate: Candidate, plan: dict[str, Any], commands: list[Any]) -> None:
+    npm_commands = [
+        command
+        for command in commands
+        if isinstance(command, dict)
+        and isinstance(command.get("argv"), list)
+        and any(Path(argument).name == "npm" for argument in command["argv"] if isinstance(argument, str))
+    ]
+    if not npm_commands:
+        return
+    bindings = plan.get("npm_config_files")
+    if not isinstance(bindings, dict) or set(bindings) != {"user", "global"}:
+        raise LifecycleBlockedError(
+            "dependency_execution_plan_invalid",
+            "Derived npm commands require user/global config bindings",
+        )
+    config_root = candidate.path / "dependency-audit" / "config"
+    if not config_root.is_dir() or config_root.is_symlink():
+        raise LifecycleBlockedError(
+            "dependency_execution_plan_invalid",
+            "Derived npm config root is missing or unsafe",
+        )
+    paths: dict[str, Path] = {}
+    empty_digest = hashlib.sha256(b"").hexdigest()
+    for role in ("user", "global"):
+        binding = bindings.get(role)
+        if not isinstance(binding, dict) or set(binding) != {"path", "sha256"}:
+            raise LifecycleBlockedError(
+                "dependency_execution_plan_invalid",
+                f"Derived npm {role} config binding is invalid",
+            )
+        raw_path = binding.get("path")
+        path = Path(raw_path) if isinstance(raw_path, str) else Path()
+        if not path.is_absolute() or not path.is_file() or path.is_symlink():
+            raise LifecycleBlockedError(
+                "dependency_execution_plan_invalid",
+                f"Derived npm {role} config file is missing or unsafe",
+            )
+        try:
+            path.resolve().relative_to(config_root.resolve())
+        except ValueError as exc:
+            raise LifecycleBlockedError(
+                "dependency_execution_plan_invalid",
+                f"Derived npm {role} config escapes the isolated audit root",
+            ) from exc
+        if path.read_bytes() or binding.get("sha256") != empty_digest:
+            raise LifecycleBlockedError(
+                "dependency_execution_plan_invalid",
+                f"Derived npm {role} config must be digest-bound and empty",
+            )
+        if stat.S_IMODE(path.stat().st_mode) & 0o222:
+            raise LifecycleBlockedError(
+                "dependency_execution_plan_invalid",
+                f"Derived npm {role} config must be read-only",
+            )
+        paths[role] = path
+    if paths["user"].resolve() == paths["global"].resolve():
+        raise LifecycleBlockedError(
+            "dependency_execution_plan_invalid",
+            "Derived npm user and global config files must be distinct",
+        )
+    expected = {
+        "NPM_CONFIG_USERCONFIG": str(paths["user"]),
+        "NPM_CONFIG_GLOBALCONFIG": str(paths["global"]),
+    }
+    for command in npm_commands:
+        environment: dict[str, str] = {}
+        for argument in command["argv"]:
+            if isinstance(argument, str) and "=" in argument:
+                key, value = argument.split("=", 1)
+                if key in expected:
+                    if key in environment:
+                        raise LifecycleBlockedError(
+                            "dependency_execution_plan_invalid",
+                            f"Derived npm command repeats {key}",
+                        )
+                    environment[key] = value
+        if environment != expected:
+            raise LifecycleBlockedError(
+                "dependency_execution_plan_invalid",
+                "Derived npm command does not match its isolated config bindings",
+            )
+
+
 def _load_dependency_execution_plan(
     candidate: Candidate,
     manifest: dict[str, Any],
@@ -458,6 +542,7 @@ def _load_dependency_execution_plan(
             "dependency_execution_plan_invalid",
             "Derived dependency command digest is invalid",
         )
+    _validate_npm_config_bindings(candidate, plan, commands)
     audit_source = (candidate.path / "dependency-audit" / "source").resolve()
     for command in commands:
         if not isinstance(command, dict) or not isinstance(command.get("argv"), list) or not command["argv"]:

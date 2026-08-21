@@ -68,6 +68,10 @@ Do not resume at command 2 until the revised paths exist, the candidate/source/
 runtime/artifact bindings are revalidated, the new digests are recorded, and a
 new scoped approval is granted. Commands 3-5 must remain unexecuted until then.
 
+The non-executing correction was subsequently completed in the
+[v2 plan receipt](2026-08-21-hermes-dependency-plan-v2.md). The four npm
+commands remain unexecuted and approval-required.
+
 No model, profile/history, credential, service, automation, live Bert/SSH,
 promotion, deployment, push, or private-data action occurred.
 

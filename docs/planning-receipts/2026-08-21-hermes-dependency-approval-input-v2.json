@@ -1,0 +1,128 @@
+{
+  "approval_input_sha256": "69e1ec0acc4ca55ea51e0055176bf4618eb99b63e2423c83ae54011e47ec9c01",
+  "artifact_map_sha256": "c68181482b2732ec37871ee055f4ba2448434adbcd78e9f0b2dd9f8f8499db96",
+  "audit_mirror_tree_sha256": "d146de1593a89f1fb9b71c1dc98bd77c554c5d589435f97023635b3da0907b83",
+  "candidate_id": "1e79082041b08781ca40",
+  "candidate_manifest_sha256": "07f5308b6bcc48d812067c8aa234923a11d4f207072b16611a2d1e2be1d01e75",
+  "commands": [
+    {
+      "argv": [
+        "/usr/bin/env",
+        "-i",
+        "HOME=/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/home",
+        "PATH=/Volumes/HermesCaseBuilderV1/runtime/node-v24.19.0-npm-v11.17.0/bin:/usr/bin:/bin",
+        "LANG=C.UTF-8",
+        "TZ=UTC",
+        "NPM_CONFIG_CACHE=/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/cache/npm-root",
+        "NPM_CONFIG_USERCONFIG=/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/config/npm-user.npmrc",
+        "NPM_CONFIG_GLOBALCONFIG=/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/config/npm-global.npmrc",
+        "/Volumes/HermesCaseBuilderV1/runtime/node-v24.19.0-npm-v11.17.0/bin/npm",
+        "ci",
+        "--ignore-scripts",
+        "--no-audit",
+        "--no-fund"
+      ],
+      "workdir": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/source"
+    },
+    {
+      "argv": [
+        "/usr/bin/env",
+        "-i",
+        "HOME=/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/home",
+        "PATH=/Volumes/HermesCaseBuilderV1/runtime/node-v24.19.0-npm-v11.17.0/bin:/usr/bin:/bin",
+        "LANG=C.UTF-8",
+        "TZ=UTC",
+        "NPM_CONFIG_CACHE=/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/cache/npm-website",
+        "NPM_CONFIG_USERCONFIG=/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/config/npm-user.npmrc",
+        "NPM_CONFIG_GLOBALCONFIG=/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/config/npm-global.npmrc",
+        "/Volumes/HermesCaseBuilderV1/runtime/node-v24.19.0-npm-v11.17.0/bin/npm",
+        "ci",
+        "--ignore-scripts",
+        "--no-audit",
+        "--no-fund"
+      ],
+      "workdir": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/source/website"
+    },
+    {
+      "argv": [
+        "/usr/bin/env",
+        "-i",
+        "HOME=/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/home",
+        "PATH=/Volumes/HermesCaseBuilderV1/runtime/node-v24.19.0-npm-v11.17.0/bin:/usr/bin:/bin",
+        "LANG=C.UTF-8",
+        "TZ=UTC",
+        "NPM_CONFIG_CACHE=/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/cache/npm-scripts-whatsapp-bridge",
+        "NPM_CONFIG_USERCONFIG=/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/config/npm-user.npmrc",
+        "NPM_CONFIG_GLOBALCONFIG=/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/config/npm-global.npmrc",
+        "/Volumes/HermesCaseBuilderV1/runtime/node-v24.19.0-npm-v11.17.0/bin/npm",
+        "ci",
+        "--ignore-scripts",
+        "--no-audit",
+        "--no-fund"
+      ],
+      "workdir": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/source/scripts/whatsapp-bridge"
+    },
+    {
+      "argv": [
+        "/usr/bin/env",
+        "-i",
+        "HOME=/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/home",
+        "PATH=/Volumes/HermesCaseBuilderV1/runtime/node-v24.19.0-npm-v11.17.0/bin:/usr/bin:/bin",
+        "LANG=C.UTF-8",
+        "TZ=UTC",
+        "NPM_CONFIG_CACHE=/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/cache/npm-plugins-platforms-photon-sidecar",
+        "NPM_CONFIG_USERCONFIG=/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/config/npm-user.npmrc",
+        "NPM_CONFIG_GLOBALCONFIG=/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/config/npm-global.npmrc",
+        "/Volumes/HermesCaseBuilderV1/runtime/node-v24.19.0-npm-v11.17.0/bin/npm",
+        "ci",
+        "--ignore-scripts",
+        "--no-audit",
+        "--no-fund"
+      ],
+      "workdir": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/source/plugins/platforms/photon/sidecar"
+    }
+  ],
+  "commands_sha256": "b2b3c012ff7be1be50acd166668d3109de58e2c35e5093337c723f0074e05823",
+  "execution_performed": false,
+  "npm_config_files": {
+    "global": {
+      "path": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/config/npm-global.npmrc",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "user": {
+      "path": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/config/npm-user.npmrc",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  "plan_revision": 2,
+  "predecessor_execution_plan_sha256": "22e282205ea1a878951d026efc4125357109aa7d710c4baecc1afeeb69f23dca",
+  "prior_execution": {
+    "completed": [
+      "uv_sync"
+    ],
+    "receipt_path": "docs/planning-receipts/2026-08-21-hermes-dependency-audit-attempt.md"
+  },
+  "replay_manifest_sha256": "6353761fc90dba784548b5b6ab7c8e92c4487f356b830f3bf597f5a00140d632",
+  "runtime": {
+    "node": {
+      "sha256": "27db838bb204ef7c21df2931f5656e4c8fb32e6e947f363a402b49714d32b5b1",
+      "version": "24.19.0"
+    },
+    "npm": {
+      "registry_integrity": "sha512-PurxiZexEHDTE4SSaLI3ZrnbAGiZfeyUcQcxcP5D+hfytNAze/D1IzDuInTn9XVLIbAQUnQuSPXJx02LHjLvQw==",
+      "tarball_sha256": "b290bbb35b9e72c3ef84edbe041f28c4479c4d9ee79f555817b8caafe7ce4bba",
+      "version": "11.17.0"
+    },
+    "python": {
+      "sha256": "c220ae7b6c2b9da2a4e498c09cdbc64b03b43db96dbbf9f64d26bfbbd698e2bd",
+      "version": "3.11.3"
+    },
+    "uv": {
+      "sha256": "ff9abd2affc410ed2a51f468d19fb281fa02d9ca1bd5c74633c2ceb71e97f6c2",
+      "version": "0.9.28"
+    }
+  },
+  "source_commit_sha": "e624e9fde561e1add9388384012b295fde669ade",
+  "source_tree_sha256": "d146de1593a89f1fb9b71c1dc98bd77c554c5d589435f97023635b3da0907b83",
+  "status": "APPROVAL_REQUIRED"
+}
