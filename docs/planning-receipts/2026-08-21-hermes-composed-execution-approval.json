@@ -1,0 +1,37 @@
+{
+  "approval_sha256": "1edbfdea932ebb8e39cdeec9e03e48d54cc799b754342b720eb9c434c9f03a35",
+  "approved_at": "2026-08-21T23:36:29.418299+00:00",
+  "authorization_source_thread_id": "01a02498-1468-72e1-b76b-9d8b33d4dc94",
+  "authorization_summary": "User explicitly approved the exact seven-command composed-candidate batch and supplied the plan, command, composition and tree digests.",
+  "candidate_id": "1e79082041b08781ca40",
+  "command_digests": [
+    "83c1509979705e92b7a524f01819466395abcb95dab4f8460346153b9d8ada25",
+    "f39b6216b06c723d26bf080210eeac4db9cc1d0344ab96b0106e882e23c6969f",
+    "437ad728958e1c30cf7c712dd318cbf77bf2fe055ace672798e16807ccdf77ea",
+    "e2af3c023424df160fbd89939ac318e2ba8aa77caa95b84e4fa1e41ffe6048bc",
+    "008fa2a43e1daf604444073b63ace866cbcb8e9729759cabd467f42c632d79fa",
+    "e6090a7079f05f5b0754c12904b346839bc06eafb483e421b90f6514954e6b1e",
+    "f76604414997a17e5203e38ce53161be30d45971cd7c06187f810607cb4b7903"
+  ],
+  "commands_sha256": "8fb06a1ec9ac9975e08507dd729dce2d8929cbf069a26fdf128aff2d96043589",
+  "composition_id": "85500d41b3165a9d2c9a957c",
+  "expires_at": "2026-08-22T05:36:29.418299+00:00",
+  "plan_sha256": "11385283fa7dcd7755a37f77dca56ecd19818aaafd68bc7d6815add0e56fdc43",
+  "prohibitions_preserved": [
+    "dependency_install_or_resolution",
+    "website",
+    "whatsapp_bridge",
+    "photon_sidecar",
+    "desktop",
+    "profile_or_history_migration",
+    "models",
+    "services",
+    "automations",
+    "live_bert",
+    "promotion",
+    "deployment"
+  ],
+  "schema_id": "ik.hermes.execution-approval.v1",
+  "scope": "exact_composed_candidate_batch",
+  "status": "APPROVED"
+}
