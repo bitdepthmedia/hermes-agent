@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import stat
 import tempfile
 import unittest
 
@@ -35,6 +36,25 @@ class ComposedReleaseTests(unittest.TestCase):
             self.assertEqual((first.root / "extensions/extension.py").read_text(), "declared")
             with self.assertRaises(LifecycleBlockedError):
                 compose_source(source, overlay, source / "bad", manifest)
+
+    def test_read_only_official_snapshot_can_be_staged_without_mutating_it(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "official"
+            overlay = root / "overlay"
+            source.mkdir(); overlay.mkdir()
+            upstream = source / "upstream.py"
+            upstream.write_text("official", encoding="utf-8")
+            (overlay / "extension.py").write_text("declared", encoding="utf-8")
+            upstream.chmod(0o444); source.chmod(0o555)
+            manifest = OverlayManifest("v2026.8.18", "e" * 40, (("extension.py", "extensions/extension.py"),))
+            try:
+                composed = compose_source(source, overlay, root / "composed", manifest)
+                self.assertEqual((composed.root / "extensions/extension.py").read_text(), "declared")
+                self.assertEqual(stat.S_IMODE(source.stat().st_mode), 0o555)
+                self.assertEqual(stat.S_IMODE(upstream.stat().st_mode), 0o444)
+            finally:
+                source.chmod(0o755); upstream.chmod(0o644)
 
     def test_release_bundle_binds_composed_runtime_assets_and_split_sealing(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

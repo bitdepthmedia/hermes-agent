@@ -107,6 +107,13 @@ def _make_read_only(root: Path) -> None:
     root.chmod(stat.S_IMODE(root.stat().st_mode) & ~0o222)
 
 
+def _make_staging_writable(root: Path) -> None:
+    root.chmod(stat.S_IMODE(root.stat().st_mode) | 0o700)
+    for path in root.rglob("*"):
+        mode = stat.S_IMODE(path.stat().st_mode)
+        path.chmod(mode | (0o700 if path.is_dir() else 0o600))
+
+
 def compose_source(official_source: Path, overlay_root: Path, destination: Path, manifest: OverlayManifest) -> ComposedSource:
     source = Path(official_source).resolve(); overlay = Path(overlay_root).resolve(); output = Path(destination).resolve()
     if source == output or source in output.parents or output in source.parents:
@@ -126,8 +133,11 @@ def compose_source(official_source: Path, overlay_root: Path, destination: Path,
     staging = output.with_name(f".{output.name}.{os.getpid()}.staging")
     if staging.exists():
         raise LifecycleBlockedError("composed_staging_exists", "staging path already exists")
-    shutil.copytree(source, staging, symlinks=False)
     try:
+        shutil.copytree(source, staging, symlinks=False)
+        # The authoritative source is immutable. Its copied directory modes
+        # must be writable only while the reviewed overlay is assembled.
+        _make_staging_writable(staging)
         for source_name, target_name in manifest.entries:
             target = staging / _relative(target_name)
             if target.exists():
@@ -147,5 +157,6 @@ def compose_source(official_source: Path, overlay_root: Path, destination: Path,
         return ComposedSource(output, digest, manifest.digest(), manifest.target_tag, manifest.target_commit_sha)
     except Exception:
         if staging.exists():
+            _make_staging_writable(staging)
             shutil.rmtree(staging)
         raise
