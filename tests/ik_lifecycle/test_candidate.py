@@ -14,8 +14,10 @@ from ik_lifecycle.candidate import (
     load_replay_manifest,
     seal_candidate,
 )
+from ik_lifecycle.composed_source import OverlayManifest, compose_source
 from ik_lifecycle.filesystem import verify_tree_read_only
 from ik_lifecycle.models import CellSpec, GateSet, LifecycleBlockedError, ReleaseSelection, StableRelease
+from ik_lifecycle.release_bundle import ArtifactBinding, ReleaseBundleInputs, build_release_bundle
 
 
 def _git(repo: Path, *args: str) -> str:
@@ -144,25 +146,43 @@ def _dependency_plan(candidate, *, shared_npm_config: bool = False) -> tuple[Pat
 
 
 def _sealing_gates(candidate, plan: Path, approval: Path, install: Path):
-    rollback_release = candidate.layout.releases / "rollback-release"
-    rollback_profile = candidate.layout.profiles / "rollback-profile"
-    rollback_release.mkdir()
-    rollback_profile.mkdir()
-    release_pointer = candidate.layout.cell_root / "rollback-release"
-    profile_pointer = candidate.layout.cell_root / "rollback-profile"
-    release_pointer.symlink_to(rollback_release, target_is_directory=True)
-    profile_pointer.symlink_to(rollback_profile, target_is_directory=True)
+    manifest = json.loads(candidate.manifest_path.read_text())
+    overlay = candidate.path / "fixture-overlay"
+    overlay.mkdir()
+    (overlay / "extension.txt").write_text("declared fixture overlay\n")
+    composed = compose_source(
+        candidate.source_path,
+        overlay,
+        candidate.path / "fixture-composed",
+        OverlayManifest(
+            manifest["release_selection"]["target"]["tag"],
+            manifest["source"]["commit_sha"],
+            (("extension.txt", "ik_fixture_extension.txt"),),
+        ),
+    )
+    runtime = candidate.path / "fixture-runtime"
+    runtime.mkdir()
+    (runtime / "python").write_text("pinned fixture runtime\n")
+    bundle = build_release_bundle(
+        ReleaseBundleInputs(
+            candidate.candidate_id,
+            manifest["release_selection"]["target"]["tag"],
+            manifest["source"]["commit_sha"],
+            composed.root,
+            (ArtifactBinding("runtime", runtime),),
+        ),
+        candidate.layout.releases,
+    )
     return GateSet(
         static_scan_clear=True,
         source_identity_clear=True,
         tests_clear=True,
         hooks_reviewed=True,
         dependency_install_clear=True,
-        rollback_release_pointer=release_pointer,
-        rollback_profile_pointer=profile_pointer,
         dependency_execution_plan=plan,
         dependency_approval_receipt=approval,
         dependency_install_receipt=install,
+        release_bundle_manifest=bundle.manifest_path,
     )
 
 
@@ -380,7 +400,7 @@ def test_forbidden_candidate_is_retained_as_failed(tmp_path: Path) -> None:
     assert (manifests[0].parent / "source" / "package.json").exists()
 
 
-def test_sealing_requires_rollback_pair_and_all_build_gates(tmp_path: Path) -> None:
+def test_upstream_only_candidate_cannot_be_sealed(tmp_path: Path) -> None:
     source, target_sha = _source_repo(tmp_path)
     candidate = build_candidate(_selection(target_sha), _cell("ernie"), tmp_path / "platform", source=source)
     gates = GateSet(
@@ -394,7 +414,7 @@ def test_sealing_requires_rollback_pair_and_all_build_gates(tmp_path: Path) -> N
     with pytest.raises(LifecycleBlockedError) as error:
         seal_candidate(candidate, gates)
 
-    assert error.value.code == "rollback_prerequisite_missing"
+    assert error.value.code == "composed_release_bundle_required"
     assert not any(candidate.layout.releases.iterdir())
 
 
@@ -402,30 +422,13 @@ def test_build_gate_boolean_cannot_replace_dependency_approval_receipt(tmp_path:
     source, target_sha = _source_repo(tmp_path)
     candidate = build_candidate(_selection(target_sha), _cell("ernie"), tmp_path / "platform", source=source)
     plan_path, _ = _dependency_plan(candidate)
-    rollback_release = candidate.layout.releases / "rollback-release"
-    rollback_profile = candidate.layout.profiles / "rollback-profile"
-    rollback_release.mkdir()
-    rollback_profile.mkdir()
-    release_pointer = candidate.layout.cell_root / "rollback-release"
-    profile_pointer = candidate.layout.cell_root / "rollback-profile"
-    release_pointer.symlink_to(rollback_release, target_is_directory=True)
-    profile_pointer.symlink_to(rollback_profile, target_is_directory=True)
-    gates = GateSet(
-        static_scan_clear=True,
-        source_identity_clear=True,
-        tests_clear=True,
-        hooks_reviewed=True,
-        dependency_install_clear=True,
-        rollback_release_pointer=release_pointer,
-        rollback_profile_pointer=profile_pointer,
-        dependency_execution_plan=plan_path,
-    )
+    gates = _sealing_gates(candidate, plan_path, None, None)
 
     with pytest.raises(LifecycleBlockedError) as error:
         seal_candidate(candidate, gates)
 
     assert error.value.code == "dependency_approval_required"
-    assert not any(path.name != "rollback-release" for path in candidate.layout.releases.iterdir())
+    assert json.loads(candidate.manifest_path.read_text())["status"] == "STATIC_PREPARED"
 
 
 def test_relative_static_plan_digest_cannot_authorize_dependency_sealing(tmp_path: Path) -> None:
@@ -462,7 +465,7 @@ def test_relative_static_plan_digest_cannot_authorize_dependency_sealing(tmp_pat
         seal_candidate(candidate, _sealing_gates(candidate, plan_path, approval_path, install_path))
 
     assert error.value.code == "approval_receipt_mismatch"
-    assert not any(path.name != "rollback-release" for path in candidate.layout.releases.iterdir())
+    assert json.loads(candidate.manifest_path.read_text())["status"] == "STATIC_PREPARED"
 
 
 def test_sealing_binds_approval_and_install_to_derived_execution_plan(tmp_path: Path) -> None:

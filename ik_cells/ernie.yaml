@@ -1,0 +1,1 @@
+{"cell_id":"ernie","trust_zone":"local-private","state_root_key":"ERNIE_STATE_ROOT","profile_root_key":"ERNIE_PROFILE_ROOT","release_root_key":"ERNIE_RELEASE_ROOT","nate_os_write_allowed":false,"transport_role":"private-recipient","approval_requirements":["profile-migration","service","promotion"],"external_approval_gates":["computer_history_path_adaptation"]}

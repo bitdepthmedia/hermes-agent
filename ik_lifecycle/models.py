@@ -61,7 +61,7 @@ class CellSpec:
 
 @dataclass(frozen=True)
 class GateSet:
-    """Evidence gates required before a static candidate can be sealed."""
+    """Evidence gates required before a composed code bundle can be sealed."""
 
     static_scan_clear: bool
     source_identity_clear: bool
@@ -73,3 +73,4 @@ class GateSet:
     dependency_execution_plan: Path | None = None
     dependency_approval_receipt: Path | None = None
     dependency_install_receipt: Path | None = None
+    release_bundle_manifest: Path | None = None

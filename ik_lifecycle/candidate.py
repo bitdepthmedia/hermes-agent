@@ -18,7 +18,6 @@ from .filesystem import (
     CellLayout,
     ensure_outside_protected,
     prepare_cell_layout,
-    validate_rollback_pair,
     verify_tree_read_only,
 )
 from .models import CellSpec, GateSet, LifecycleBlockedError, ReleaseSelection
@@ -288,7 +287,7 @@ def _verify_existing(candidate: Candidate, selection: ReleaseSelection, cell: Ce
         raise LifecycleBlockedError("candidate_identity_mismatch", f"Existing candidate identity does not match: {candidate.path}")
     if document.get("status") == "FAILED":
         raise LifecycleBlockedError("candidate_failed", f"Existing candidate is retained as failed: {candidate.path}")
-    if document.get("status") not in {"STATIC_PREPARED", "SEALED"} or not candidate.source_path.is_dir():
+    if document.get("status") not in {"STATIC_PREPARED", "CODE_SEALED", "SEALED"} or not candidate.source_path.is_dir():
         raise LifecycleBlockedError("candidate_incomplete", f"Existing candidate is incomplete: {candidate.path}")
     expected_tree = document.get("source", {}).get("tree_sha256")
     if not isinstance(expected_tree, str) or _tree_digest(candidate.source_path) != expected_tree:
@@ -627,7 +626,13 @@ def _validate_dependency_receipts(candidate: Candidate, manifest: dict[str, Any]
 
 
 def seal_candidate(candidate: Candidate, gates: GateSet) -> Path:
-    """Seal a proven candidate without changing any live release pointer."""
+    """Accept a prebuilt artifact-bound code bundle without touching profiles.
+
+    Candidate source is upstream-only by design. It must never become the
+    release by itself; composition and artifact binding happen in
+    :mod:`ik_lifecycle.release_bundle` first. Profile pairing, rollback and
+    promotion are intentionally later gates.
+    """
 
     required = {
         "static_scan_clear": gates.static_scan_clear,
@@ -639,45 +644,59 @@ def seal_candidate(candidate: Candidate, gates: GateSet) -> Path:
     missing = [name for name, clear in required.items() if not clear]
     if missing:
         raise LifecycleBlockedError("candidate_gate_incomplete", f"Candidate gates are incomplete: {', '.join(missing)}")
-    if gates.rollback_release_pointer is None or gates.rollback_profile_pointer is None:
-        raise LifecycleBlockedError("rollback_prerequisite_missing", "A rollback release/profile pointer pair is required")
-    rollback = validate_rollback_pair(
-        candidate.layout,
-        gates.rollback_release_pointer,
-        gates.rollback_profile_pointer,
-    )
+    if gates.release_bundle_manifest is None:
+        raise LifecycleBlockedError(
+            "composed_release_bundle_required",
+            "An artifact-bound composed release bundle is required; upstream-only candidates cannot be sealed",
+        )
     manifest = json.loads(candidate.manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("status") == "CODE_SEALED":
+        sealed = manifest.get("sealed_release", {})
+        bundle_manifest_path = Path(gates.release_bundle_manifest)
+        expected_digest = hashlib.sha256(bundle_manifest_path.read_bytes()).hexdigest()
+        if (
+            sealed.get("path") != str(bundle_manifest_path.parent.resolve())
+            or sealed.get("bundle_manifest_sha256") != expected_digest
+        ):
+            raise LifecycleBlockedError("sealed_bundle_mismatch", "Previously sealed bundle no longer matches its candidate receipt")
+        verify_tree_read_only(bundle_manifest_path.parent)
+        return bundle_manifest_path.parent.resolve()
     if manifest.get("status") != "STATIC_PREPARED":
         raise LifecycleBlockedError("candidate_not_prepared", "Only a statically prepared candidate can be sealed")
-    _validate_dependency_receipts(candidate, manifest, gates)
-    release_name = f"{manifest['release_selection']['target']['tag']}-{manifest['source']['commit_sha'][:12]}"
-    release_path = candidate.layout.releases / release_name
-    if release_path.exists():
-        verify_tree_read_only(release_path)
-        return release_path
-    temporary = candidate.layout.releases / f".{release_name}.{os.getpid()}.staging"
+    bundle_manifest_path = Path(gates.release_bundle_manifest)
+    if not bundle_manifest_path.is_file() or bundle_manifest_path.is_symlink():
+        raise LifecycleBlockedError("release_bundle_invalid", "Release bundle manifest is missing or unsafe")
     try:
-        shutil.copytree(candidate.source_path, temporary, symlinks=True)
-        temporary.chmod(stat.S_IMODE(temporary.stat().st_mode) | 0o200)
-        _write_json(
-            temporary / "release-manifest.json",
-            {
-                "schema_id": "ik.hermes.immutable-release.v1",
-                "candidate_id": candidate.candidate_id,
-                "source_tree_sha256": manifest["source"]["tree_sha256"],
-                "rollback_release": str(rollback.release),
-                "rollback_profile": str(rollback.profile),
-                "promotion_performed": False,
-            },
-        )
-        _make_tree_read_only(temporary)
-        os.replace(temporary, release_path)
-        verify_tree_read_only(release_path)
-    except Exception:
-        if temporary.exists():
-            shutil.rmtree(temporary)
-        raise
-    manifest["status"] = "SEALED"
-    manifest["sealed_release"] = {"path": str(release_path), "promotion_performed": False}
+        bundle = json.loads(bundle_manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise LifecycleBlockedError("release_bundle_invalid", "Release bundle manifest cannot be read") from exc
+    identity = bundle.get("identity") if isinstance(bundle, dict) else None
+    bindings = identity.get("bindings") if isinstance(identity, dict) else None
+    expected = {
+        "candidate_id": candidate.candidate_id,
+        "target_tag": manifest["release_selection"]["target"]["tag"],
+        "target_commit_sha": manifest["source"]["commit_sha"],
+    }
+    if (
+        bundle.get("schema_id") != "ik.hermes.release-bundle.v1"
+        or bundle.get("status") != "SEALED_CODE_ONLY"
+        or not isinstance(bindings, dict)
+        or "composed-source" not in bindings
+        or not (set(bindings) - {"composed-source"})
+        or any(identity.get(key) != value for key, value in expected.items())
+    ):
+        raise LifecycleBlockedError("release_bundle_mismatch", "Release bundle is not bound to this composed candidate")
+    verify_tree_read_only(bundle_manifest_path.parent)
+    _validate_dependency_receipts(candidate, manifest, gates)
+    release_path = bundle_manifest_path.parent.resolve()
+    manifest["status"] = "CODE_SEALED"
+    manifest["sealed_release"] = {
+        "path": str(release_path),
+        "bundle_id": bundle["bundle_id"],
+        "bundle_manifest_sha256": hashlib.sha256(bundle_manifest_path.read_bytes()).hexdigest(),
+        "profile_pairing_performed": False,
+        "rollback_pairing_performed": False,
+        "promotion_performed": False,
+    }
     _write_json(candidate.manifest_path, manifest)
     return release_path

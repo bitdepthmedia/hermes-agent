@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ik.hermes.delegation-envelope.v1",
+  "type": "object",
+  "required": ["schema_version", "task_id", "parent_task_id", "owner", "requester_persona", "task_class", "privacy_class", "payload", "local_payload_ref", "provenance", "constraints", "approval", "expected_result", "completion", "idempotency_key", "lineage", "retry", "integrity"],
+  "properties": {
+    "schema_version": {"type": "string", "pattern": "^1\\.[0-9]+$"},
+    "task_id": {"type": "string", "format": "uuid"},
+    "parent_task_id": {"type": ["string", "null"], "format": "uuid"},
+    "owner": {"enum": ["bert", "ernie", "codex"]},
+    "requester_persona": {"enum": ["bert", "ernie", "codex"]},
+    "task_class": {"enum": ["personal", "work", "mixed", "mixed-child"]},
+    "privacy_class": {"enum": ["public", "sanitized-cloud", "local-private", "secret-prohibited"]},
+    "payload": {"type": "object"},
+    "local_payload_ref": {"type": ["string", "null"]},
+    "provenance": {"type": "object"},
+    "constraints": {"type": "object"},
+    "approval": {"type": "object"},
+    "expected_result": {"type": "object"},
+    "completion": {"enum": ["pending", "accepted", "running", "waiting", "completed", "failed", "expired", "cancelled"]},
+    "idempotency_key": {"type": "string", "minLength": 1},
+    "lineage": {"type": "object"},
+    "retry": {"type": "object"},
+    "integrity": {"type": "object"}
+  }
+}

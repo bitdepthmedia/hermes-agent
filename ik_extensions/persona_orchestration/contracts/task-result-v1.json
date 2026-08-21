@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ik.hermes.task-result.v1",
+  "type": "object",
+  "required": ["schema_version", "task_id", "payload_digest", "recipient", "completion", "result", "result_schema"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "task_id": {"type": "string", "format": "uuid"},
+    "payload_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "recipient": {"enum": ["bert", "ernie", "codex"]},
+    "completion": {"enum": ["completed", "failed", "waiting"]},
+    "result": {"type": "object"},
+    "result_schema": {"type": "string"}
+  }
+}
