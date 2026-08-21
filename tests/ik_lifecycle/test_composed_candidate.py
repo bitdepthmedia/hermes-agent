@@ -48,6 +48,9 @@ class ComposedCandidateConstructionTests(unittest.TestCase):
 
     def test_construction_is_idempotent_and_tamper_fails_closed(self) -> None:
         first = construct_composed_candidate(self.inputs)
+        dependencies = first.build_root / "node_modules/safe"
+        dependencies.mkdir(parents=True)
+        (dependencies / "package.json").write_text('{"name":"safe","version":"1.0.0"}')
         second = construct_composed_candidate(self.inputs)
         self.assertEqual(first, second)
 

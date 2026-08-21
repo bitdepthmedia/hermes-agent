@@ -81,10 +81,13 @@ def load_declared_overlay(repo_root: Path, manifest_path: Path) -> OverlayManife
     return OverlayManifest(target["tag"], target["commit_sha"], tuple(entries), source_digest)
 
 
-def tree_digest(root: Path) -> str:
+def tree_digest(root: Path, *, excluded_names: tuple[str, ...] = ()) -> str:
     digest = hashlib.sha256()
     for path in sorted(Path(root).rglob("*"), key=lambda item: item.relative_to(root).as_posix()):
-        relative = path.relative_to(root).as_posix()
+        relative_path = path.relative_to(root)
+        if any(part in excluded_names for part in relative_path.parts):
+            continue
+        relative = relative_path.as_posix()
         if path.is_symlink():
             raise LifecycleBlockedError("composed_symlink", "composed source cannot contain symlinks")
         if path.is_file():

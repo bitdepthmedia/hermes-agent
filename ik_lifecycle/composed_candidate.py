@@ -91,7 +91,7 @@ def _validate_existing(
     ):
         raise LifecycleBlockedError("composed_candidate_tampered", "composed candidate identity changed")
     expected_tree = document.get("composed_tree_sha256")
-    if tree_digest(immutable_source) != expected_tree or tree_digest(build_root) != document.get("build_root_pristine_sha256"):
+    if tree_digest(immutable_source) != expected_tree or tree_digest(build_root, excluded_names=("node_modules",)) != document.get("build_root_pristine_sha256"):
         raise LifecycleBlockedError("composed_candidate_tampered", "composed candidate tree changed")
     return ComposedCandidate(document["composition_id"], immutable_source, build_root, manifest_path, expected_tree)
 

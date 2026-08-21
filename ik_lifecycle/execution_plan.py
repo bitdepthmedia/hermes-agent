@@ -270,7 +270,7 @@ def validate_composed_execution_plan(
         or manifest.get("build_root_pristine_sha256") != composition.get("build_root_pristine_sha256")
     ):
         raise LifecycleBlockedError("composed_execution_plan_binding_invalid", "composition manifest binding changed")
-    if tree_digest(immutable) != expected_tree or tree_digest(build_root) != composition.get("build_root_pristine_sha256"):
+    if tree_digest(immutable) != expected_tree or tree_digest(build_root, excluded_names=("node_modules",)) != composition.get("build_root_pristine_sha256"):
         raise LifecycleBlockedError("composed_execution_plan_tree_drift", "composed or pristine build tree changed")
 
     isolation = plan.get("network_isolation")
