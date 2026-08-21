@@ -61,3 +61,7 @@ adaptation also remains separately approval-gated. No automation was changed.
 Skill-learning closeout: no skill change is eligible. The durable correction is
 the lifecycle validator plus regression coverage, and dependency/supply-chain
 authority is explicitly outside automatic skill-learning scope.
+
+Execution was later attempted under explicit approval and stopped on the
+second command before npm configuration resolution. See the
+[blocked dependency-audit receipt](2026-08-21-hermes-dependency-audit-attempt.md).
