@@ -11,9 +11,10 @@ from typing import Any, Mapping
 class LifecycleBlockedError(RuntimeError):
     """A fail-closed lifecycle decision with a stable machine code."""
 
-    def __init__(self, code: str, message: str) -> None:
+    def __init__(self, code: str, message: str, *, details: Mapping[str, Any] | None = None) -> None:
         super().__init__(message)
         self.code = code
+        self.details = dict(details or {})
 
 
 @dataclass(frozen=True)

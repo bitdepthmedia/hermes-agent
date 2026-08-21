@@ -144,6 +144,41 @@ def test_source_head_must_match_canonical_target_and_failure_is_retained(tmp_pat
     assert json.loads(failed[0].read_text())["status"] == "FAILED"
 
 
+def test_case_colliding_tracked_paths_fail_with_specific_retained_evidence(tmp_path: Path) -> None:
+    source, _ = _source_repo(tmp_path, {"contributors/emails/agent@example": "first\n"})
+    blob = subprocess.run(
+        ["git", "-C", str(source), "hash-object", "-w", "--stdin"],
+        input="second\n",
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    _git(
+        source,
+        "update-index",
+        "--add",
+        "--cacheinfo",
+        "100644",
+        blob,
+        "contributors/emails/Agent@example",
+    )
+    _git(source, "commit", "-m", "add case collision")
+    target_sha = _git(source, "rev-parse", "HEAD")
+
+    with pytest.raises(LifecycleBlockedError) as error:
+        build_candidate(_selection(target_sha), _cell("ernie"), tmp_path / "platform", source=source)
+
+    assert error.value.code == "source_case_collision"
+    failed = list((tmp_path / "platform" / "cells" / "ernie" / "candidates").glob("*/build-manifest.json"))
+    assert len(failed) == 1
+    manifest = json.loads(failed[0].read_text())
+    assert manifest["status"] == "FAILED"
+    assert manifest["failure"]["paths"] == [
+        "contributors/emails/Agent@example",
+        "contributors/emails/agent@example",
+    ]
+
+
 def test_running_source_path_is_rejected_without_mutation(tmp_path: Path) -> None:
     source, target_sha = _source_repo(tmp_path)
     sentinel = source / "sentinel"

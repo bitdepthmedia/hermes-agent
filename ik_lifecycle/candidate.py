@@ -8,6 +8,7 @@ import os
 import shutil
 import stat
 import subprocess
+import unicodedata
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -149,6 +150,14 @@ def _validate_source_links(source: Path) -> None:
             raise LifecycleBlockedError("source_symlink_escape", f"Source symlink escapes snapshot root: {path}")
 
 
+def _tracked_case_collisions(source: Path) -> tuple[str, ...]:
+    groups: dict[str, list[str]] = {}
+    for tracked_path in _git(source, "ls-tree", "-r", "--name-only", "HEAD").splitlines():
+        key = unicodedata.normalize("NFC", tracked_path).casefold()
+        groups.setdefault(key, []).append(tracked_path)
+    return tuple(sorted(path for paths in groups.values() if len(paths) > 1 for path in paths))
+
+
 def _tree_digest(root: Path) -> str:
     digest = hashlib.sha256()
     for path in sorted(root.rglob("*"), key=lambda item: item.relative_to(root).as_posix()):
@@ -229,9 +238,17 @@ def _base_manifest(
     }
 
 
-def _failed(manifest_path: Path, manifest: dict[str, Any], code: str, message: str) -> None:
+def _failed(
+    manifest_path: Path,
+    manifest: dict[str, Any],
+    code: str,
+    message: str,
+    *,
+    details: dict[str, Any] | None = None,
+) -> None:
     manifest["status"] = "FAILED"
     manifest["failure"] = {"code": code, "message": message}
+    manifest["failure"].update(details or {})
     _write_json(manifest_path, manifest)
 
 
@@ -306,6 +323,13 @@ def build_candidate(
                 "source_head_mismatch",
                 f"Source HEAD {actual_head} does not match canonical target {selection.target.commit_sha}",
             )
+        case_collisions = _tracked_case_collisions(source_path)
+        if case_collisions:
+            raise LifecycleBlockedError(
+                "source_case_collision",
+                "Source contains tracked paths that cannot coexist on a case-insensitive filesystem",
+                details={"paths": list(case_collisions)},
+            )
         if _git(source_path, "status", "--porcelain"):
             raise LifecycleBlockedError("source_dirty", "Candidate source checkout is not clean")
         _validate_source_links(source_path)
@@ -346,7 +370,7 @@ def build_candidate(
         )
         return candidate
     except LifecycleBlockedError as exc:
-        _failed(candidate.manifest_path, manifest, exc.code, str(exc))
+        _failed(candidate.manifest_path, manifest, exc.code, str(exc), details=exc.details)
         raise
     except Exception as exc:
         _failed(candidate.manifest_path, manifest, "candidate_build_failed", str(exc))
