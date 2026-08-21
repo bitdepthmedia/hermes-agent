@@ -12,6 +12,7 @@ from ik_lifecycle.composed_source import tree_digest
 from ik_lifecycle.execution_plan import (
     bind_execution_approval,
     bind_execution_plan,
+    run_approved_plan_command,
     validate_composed_execution_plan,
     validate_execution_authorization,
 )
@@ -162,6 +163,16 @@ class ComposedExecutionAuthorityTests(unittest.TestCase):
         self.assertTrue(result["authorized"])
         self.assertEqual(result["plan_sha256"], self.plan["plan_sha256"])
         self.assertEqual(result["command_digests"], self._approval()["command_digests"])
+
+        executed = run_approved_plan_command(
+            self.plan,
+            self._approval(),
+            command_id="fixture",
+            proof_path=self.proof_path,
+            now=self.now,
+        )
+        self.assertEqual(executed.returncode, 0)
+        self.assertEqual(executed.argv[0], "/usr/bin/sandbox-exec")
 
 
 if __name__ == "__main__":

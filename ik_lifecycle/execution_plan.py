@@ -10,7 +10,12 @@ from typing import Any, Mapping
 
 from .composed_source import tree_digest
 from .models import LifecycleBlockedError
-from .network_guard import MACOS_DENY_NETWORK_POLICY, validate_network_proof
+from .network_guard import (
+    MACOS_DENY_NETWORK_POLICY,
+    IsolatedCommandResult,
+    MacOSNetworkIsolation,
+    validate_network_proof,
+)
 
 
 SCHEMA_ID = "ik.hermes.candidate-execution-plan.v1"
@@ -366,3 +371,38 @@ def validate_execution_authorization(
         "command_digests": command_digests,
         "network_proof_sha256": proof["proof_sha256"],
     }
+
+
+def run_approved_plan_command(
+    plan: Mapping[str, Any],
+    approval: Mapping[str, Any] | None,
+    *,
+    command_id: str,
+    proof_path: Path,
+    now: datetime | None = None,
+) -> IsolatedCommandResult:
+    """Run one exact plan command only after approval and proof validation."""
+
+    authorization = validate_execution_authorization(plan, approval, proof_path=proof_path, now=now)
+    selected: Mapping[str, Any] | None = None
+    for batch in plan.get("batches", []):
+        for command in batch.get("commands", []):
+            if command.get("command_id") == command_id:
+                selected = command
+                break
+        if selected is not None:
+            break
+    if selected is None or selected.get("command_sha256") not in authorization["command_digests"]:
+        raise LifecycleBlockedError("execution_command_not_approved", "command is not part of the exact approved plan")
+    if selected.get("network") != "denied" or selected.get("environment_mode") != "replace":
+        raise LifecycleBlockedError("execution_command_contract_invalid", "approved command lacks exact isolation controls")
+    isolation = plan["network_isolation"]
+    adapter = MacOSNetworkIsolation(Path(isolation["runtime"]))
+    return adapter.run(
+        tuple(selected["argv"]),
+        proof_path=proof_path,
+        now=now,
+        cwd=Path(selected["workdir"]),
+        env=selected["env"],
+        timeout_seconds=int(selected["timeout_seconds"]),
+    )
