@@ -1,0 +1,121 @@
+#!/usr/bin/python3
+"""Run the approved local-only Ernie semantic continuity rehearsal."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, os.fspath(REPO_ROOT))
+
+from ik_lifecycle.semantic_rehearsal import (  # noqa: E402
+    SemanticContinuityError,
+    SemanticRehearsalEngine,
+    SemanticRehearsalRequest,
+    receipt_is_redacted,
+)
+
+
+PUBLIC_SNAPSHOT_RECEIPT = REPO_ROOT / "docs" / "planning-receipts" / "2026-08-21-hermes-ernie-opaque-continuity-v1.json"
+ARCHITECTURE_CONTRACT = REPO_ROOT / "docs" / "architecture" / "bert-ernie-hermes-cell-architecture.md"
+CANDIDATE_OUTCOME = REPO_ROOT / "docs" / "planning-receipts" / "2026-08-21-hermes-architecture-complete-execution-outcome-v4.json"
+CANDIDATE_PYTHON = Path("/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/env/python/bin/python")
+
+
+def _git_common_dir() -> Path:
+    try:
+        value = subprocess.run(
+            ["/usr/bin/git", "-C", os.fspath(REPO_ROOT), "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError) as error:
+        raise SemanticContinuityError("repository_metadata_unavailable") from error
+    return Path(value)
+
+
+def _load_public_receipt() -> dict[str, object]:
+    try:
+        payload = json.loads(PUBLIC_SNAPSHOT_RECEIPT.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise SemanticContinuityError("public_snapshot_receipt_invalid") from error
+    required = {
+        "snapshot_id",
+        "rollback_handle",
+        "snapshot_tree_sha256",
+        "archive_sha256",
+        "archive_hmac_sha256",
+        "status",
+    }
+    if not required <= set(payload) or payload.get("status") != "CLEAR":
+        raise SemanticContinuityError("public_snapshot_receipt_invalid")
+    return payload
+
+
+def _request() -> SemanticRehearsalRequest:
+    public = _load_public_receipt()
+    try:
+        candidate_outcome = json.loads(CANDIDATE_OUTCOME.read_text(encoding="utf-8"))
+        release = candidate_outcome["release_bundle"]
+        candidate_root = Path(release["root"])
+        candidate_manifest = candidate_root / "release-manifest.json"
+        candidate_manifest_sha256 = str(release["manifest_sha256"])
+    except (OSError, UnicodeError, KeyError, TypeError, json.JSONDecodeError) as error:
+        raise SemanticContinuityError("candidate_binding_invalid") from error
+    if candidate_outcome.get("status") != "CLEAR" or release.get("status") != "SEALED_CODE_ONLY":
+        raise SemanticContinuityError("candidate_binding_invalid")
+    common = _git_common_dir()
+    canonical_checkout = common.parent
+    stack_root = canonical_checkout.parent.parent
+    storage = Path.home() / "Library" / "Application Support" / "NateOS" / "OpaqueContinuity" / "ernie-private-cell"
+    architecture_digest = hashlib.sha256(ARCHITECTURE_CONTRACT.read_bytes()).hexdigest()
+    snapshot_id = str(public["snapshot_id"])
+    rehearsal_id = hashlib.sha256(
+        f"semantic-v7\0{snapshot_id}\0{architecture_digest}\0{candidate_manifest_sha256}".encode()
+    ).hexdigest()[:24]
+    return SemanticRehearsalRequest(
+        storage_root=storage,
+        snapshot_id=snapshot_id,
+        rollback_handle=str(public["rollback_handle"]),
+        rehearsal_id=rehearsal_id,
+        expected_snapshot_tree_sha256=str(public["snapshot_tree_sha256"]),
+        expected_archive_sha256=str(public["archive_sha256"]),
+        expected_archive_hmac_sha256=str(public["archive_hmac_sha256"]),
+        architecture_contract_sha256=architecture_digest,
+        candidate_source_root=candidate_root / "source",
+        candidate_manifest_path=candidate_manifest,
+        expected_candidate_manifest_sha256=candidate_manifest_sha256,
+        candidate_python=CANDIDATE_PYTHON,
+        expected_candidate_python_sha256=hashlib.sha256(CANDIDATE_PYTHON.read_bytes()).hexdigest(),
+        denied_roots=(
+            REPO_ROOT,
+            canonical_checkout,
+            stack_root / "shared-memory",
+            Path.home() / "Documents" / "_IK_International" / "AI" / "_apps" / "nate-os",
+        ),
+    )
+
+
+def main() -> int:
+    result = SemanticRehearsalEngine().execute(_request())
+    payload = result.receipt.to_dict()
+    if not receipt_is_redacted(payload):
+        raise SemanticContinuityError("receipt_privacy_gate_failed")
+    print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except SemanticContinuityError as error:
+        print(json.dumps({"schema_version": "ik.semantic-continuity-error.v1", "status": "BLOCKED", "code": str(error)}, sort_keys=True))
+        raise SystemExit(2)
