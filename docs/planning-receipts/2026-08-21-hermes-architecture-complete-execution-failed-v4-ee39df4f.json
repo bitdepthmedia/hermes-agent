@@ -1,0 +1,15 @@
+{
+  "approval_sha256": "9b15a7ba75ee877810301af9925d621ee721738858ab52ce83488b89ed6cfa5d",
+  "commands_clear": 11,
+  "commands_sha256": "9b080a8b178b14f5618898132b044ac393551ba1305358ad0c39e76b0baa655a",
+  "composition_id": "ee39df4f2b690d44628a7ada",
+  "correction": "portable 46-test lifecycle selection plus read-only outer proof consumption",
+  "plan_sha256": "15bb9547d1dd864d318581b49e687149387ce99b65a213bc1c992e925e999fcb",
+  "receipt_sha256": "da0b9f503f75b1162dc0a88c5bf033c9dcf88e110325a21776637dc60c3f29a2",
+  "retained_progress_path": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/artifacts/ee39df4f2b690d44628a7ada/v4/receipts/execution-progress-v4.json",
+  "schema_id": "ik.hermes.v4-execution-outcome.v1",
+  "status": "BLOCKED_RETAINED",
+  "stopped_command_id": "run-focused-lifecycle-unittest",
+  "stopped_returncode": 1,
+  "superseded_by_plan_sha256": "88ce4d651c10404a7db382e10eca5c340971a1e5fe245779c6d111608eb4c2bd"
+}

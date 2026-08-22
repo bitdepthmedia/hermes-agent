@@ -3,17 +3,17 @@
     "architecture_spec_sha256": "9df9c21791f2308b26bfaeef7fc54a4e4a11ae46397270e7b1a770706683d567",
     "invariant_count": 12,
     "mapping_sha256": "4474ae9e97bb21e77314eb8524dbacc634204dd3d329e00a080bbe7c7d85a486",
-    "path": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/ee39df4f2b690d44628a7ada/worktree/ik_lifecycle/manifests/architecture-coverage-v1.json",
+    "path": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/bbec48cc09562675a318d201/worktree/ik_lifecycle/manifests/architecture-coverage-v1.json",
     "sha256": "21fd33c8f4202eee46bab6da9e76fa16f774bd49b37f7beee7144733d03f8b23"
   },
   "artifact_layout": {
-    "disposable_caches": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/artifacts/ee39df4f2b690d44628a7ada/v4/caches",
-    "logs": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/artifacts/ee39df4f2b690d44628a7ada/v4/logs",
-    "outputs": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/artifacts/ee39df4f2b690d44628a7ada/v4/outputs",
+    "disposable_caches": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/artifacts/bbec48cc09562675a318d201/v4/caches",
+    "logs": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/artifacts/bbec48cc09562675a318d201/v4/logs",
+    "outputs": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/artifacts/bbec48cc09562675a318d201/v4/outputs",
     "post_build_binding_required": true,
-    "receipts": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/artifacts/ee39df4f2b690d44628a7ada/v4/receipts",
+    "receipts": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/artifacts/bbec48cc09562675a318d201/v4/receipts",
     "retention": "retain_all_on_failure; caches_disposable_only_after_CLEAR_receipt",
-    "root": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/artifacts/ee39df4f2b690d44628a7ada/v4"
+    "root": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/artifacts/bbec48cc09562675a318d201/v4"
   },
   "authorization": {
     "approval_scope": "exact_architecture_complete_composed_candidate_batch_v4",
@@ -39,7 +39,7 @@
             "--no-fund"
           ],
           "command_id": "build-ui-tui",
-          "command_sha256": "b136405fab27824da9c231331b8b9198253c600d365f088c630af9403f6c4c66",
+          "command_sha256": "49d6fda56eded08931a2984917a08864a3d03f5da7dc6e60e890023f5da4629f",
           "env": {
             "CI": "1",
             "HOME": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/home",
@@ -68,7 +68,7 @@
           "network": "denied",
           "status": "PLANNED",
           "timeout_seconds": 900,
-          "workdir": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/ee39df4f2b690d44628a7ada/worktree"
+          "workdir": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/bbec48cc09562675a318d201/worktree"
         },
         {
           "argv": [
@@ -83,7 +83,7 @@
             "--no-fund"
           ],
           "command_id": "build-dashboard-web",
-          "command_sha256": "2fed1c77268ca1fe8d81be8bbad75f8f20d2263a2fc41d05a65ef54147a170ff",
+          "command_sha256": "afb643d8dc9bd5982754c88aa1f183b0bb6d9c2cc61912a6722fc0d7219fded8",
           "env": {
             "CI": "1",
             "HOME": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/home",
@@ -111,7 +111,7 @@
           "network": "denied",
           "status": "PLANNED",
           "timeout_seconds": 1200,
-          "workdir": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/ee39df4f2b690d44628a7ada/worktree"
+          "workdir": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/bbec48cc09562675a318d201/worktree"
         },
         {
           "argv": [
@@ -126,7 +126,7 @@
             "--no-fund"
           ],
           "command_id": "ui-tui-build-ink",
-          "command_sha256": "83fa1bb773e8509c35ec142c58d4b7dce49b32c0918c354dec51e36ca95d03df",
+          "command_sha256": "6cdad56f095f313bc593668925cb4b57d0c7ccb3a771320ac57ce1478efe95c1",
           "env": {
             "CI": "1",
             "HOME": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/home",
@@ -153,7 +153,7 @@
           "network": "denied",
           "status": "PLANNED",
           "timeout_seconds": 900,
-          "workdir": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/ee39df4f2b690d44628a7ada/worktree"
+          "workdir": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/bbec48cc09562675a318d201/worktree"
         },
         {
           "argv": [
@@ -168,7 +168,7 @@
             "--no-fund"
           ],
           "command_id": "ui-tui-typecheck",
-          "command_sha256": "109cb17a35ce643c19961d232ba55b364218dbc09fb499db7e6ff35604e38c30",
+          "command_sha256": "dffb24d5e810e5f407cd993a35841441ab15c3bebcc88a1ed7a794880c3493ce",
           "env": {
             "CI": "1",
             "HOME": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/home",
@@ -191,25 +191,25 @@
           "network": "denied",
           "status": "PLANNED",
           "timeout_seconds": 900,
-          "workdir": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/ee39df4f2b690d44628a7ada/worktree"
+          "workdir": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/bbec48cc09562675a318d201/worktree"
         },
         {
           "argv": [
             "/Volumes/HermesCaseBuilderV1/runtime/node-v24.19.0-npm-v11.17.0/bin/node",
-            "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/ee39df4f2b690d44628a7ada/worktree/node_modules/vitest/vitest.mjs",
+            "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/bbec48cc09562675a318d201/worktree/node_modules/vitest/vitest.mjs",
             "run",
             "--config",
-            "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/ee39df4f2b690d44628a7ada/worktree/ik_lifecycle/vite/ui_tui_vitest.config.ts",
+            "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/bbec48cc09562675a318d201/worktree/ik_lifecycle/vite/ui_tui_vitest.config.ts",
             "--configLoader",
             "runner"
           ],
           "command_id": "ui-tui-test-isolated",
-          "command_sha256": "fbff5b8cb4a3e3e4bf2d3b0e024e71dee0c1d0b2f4d93c8a8dcae9af36137097",
+          "command_sha256": "7f6030d043d0c61331d6672647391f56b84b8afa3749368b91a8fcf061e31327",
           "env": {
             "CI": "1",
             "HOME": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/home",
-            "IK_DISPOSABLE_CACHE_ROOT": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/artifacts/ee39df4f2b690d44628a7ada/v4/caches",
-            "IK_VITE_CACHE_DIR": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/artifacts/ee39df4f2b690d44628a7ada/v4/caches/ui-tui-vite",
+            "IK_DISPOSABLE_CACHE_ROOT": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/artifacts/bbec48cc09562675a318d201/v4/caches",
+            "IK_VITE_CACHE_DIR": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/artifacts/bbec48cc09562675a318d201/v4/caches/ui-tui-vite",
             "LANG": "C.UTF-8",
             "PATH": "/Volumes/HermesCaseBuilderV1/runtime/node-v24.19.0-npm-v11.17.0/bin:/usr/bin:/bin",
             "TZ": "UTC"
@@ -218,12 +218,12 @@
           "expected_artifacts": [],
           "failure_retention": "retain_outputs_logs_and_caches",
           "mutates": [
-            "composed-candidate/artifacts/ee39df4f2b690d44628a7ada/v4/caches/ui-tui-vite"
+            "composed-candidate/artifacts/bbec48cc09562675a318d201/v4/caches/ui-tui-vite"
           ],
           "network": "denied",
           "status": "PLANNED",
           "timeout_seconds": 1800,
-          "workdir": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/ee39df4f2b690d44628a7ada/worktree"
+          "workdir": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/bbec48cc09562675a318d201/worktree"
         },
         {
           "argv": [
@@ -238,7 +238,7 @@
             "--no-fund"
           ],
           "command_id": "ui-tui-lint",
-          "command_sha256": "e2ec545b7a810e5245ce15903c0b78583f76257bccbf7ba5540c53e5bccab115",
+          "command_sha256": "6caea756ed7ce3c1e1ac8c867e9484e8ac697ecdc88d8ab93945e84f48446add",
           "env": {
             "CI": "1",
             "HOME": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/home",
@@ -261,7 +261,7 @@
           "network": "denied",
           "status": "PLANNED",
           "timeout_seconds": 900,
-          "workdir": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/ee39df4f2b690d44628a7ada/worktree"
+          "workdir": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/bbec48cc09562675a318d201/worktree"
         },
         {
           "argv": [
@@ -276,7 +276,7 @@
             "--no-fund"
           ],
           "command_id": "check-dashboard-web",
-          "command_sha256": "e4e3487d369cb15e9cab3299a1d4698df2e83a94d3f086d050a4c5792f434a01",
+          "command_sha256": "5619de5dc13dccf0337765da33b202b4e7dc2f7acdfcb9c866e34241dde0e953",
           "env": {
             "CI": "1",
             "HOME": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/home",
@@ -299,7 +299,7 @@
           "network": "denied",
           "status": "PLANNED",
           "timeout_seconds": 1800,
-          "workdir": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/ee39df4f2b690d44628a7ada/worktree"
+          "workdir": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/bbec48cc09562675a318d201/worktree"
         },
         {
           "argv": [
@@ -314,7 +314,7 @@
             "--no-fund"
           ],
           "command_id": "check-shared-dashboard-source",
-          "command_sha256": "66f1f1ceb42cd96ae21c84c9f10e881117357c4d91730894a7a8c71d1ce62a67",
+          "command_sha256": "6f54c42b075cbf240d96ce4801e3360a3362ddfa64a43105eeb10b6ba099d866",
           "env": {
             "CI": "1",
             "HOME": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/home",
@@ -337,7 +337,7 @@
           "network": "denied",
           "status": "PLANNED",
           "timeout_seconds": 900,
-          "workdir": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/ee39df4f2b690d44628a7ada/worktree"
+          "workdir": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/bbec48cc09562675a318d201/worktree"
         },
         {
           "argv": [
@@ -352,7 +352,7 @@
             "--no-fund"
           ],
           "command_id": "tests-js-typecheck",
-          "command_sha256": "7654ae0b26365c3b0e1c44621a7b83276b0a729db20ce099c1aae8928454edf4",
+          "command_sha256": "8882cd0ab8a8b43bf6ea6e1a7a60f2c1d18ad0f4ee70769973068501073d3d5e",
           "env": {
             "CI": "1",
             "HOME": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/home",
@@ -375,25 +375,25 @@
           "network": "denied",
           "status": "PLANNED",
           "timeout_seconds": 900,
-          "workdir": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/ee39df4f2b690d44628a7ada/worktree"
+          "workdir": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/bbec48cc09562675a318d201/worktree"
         },
         {
           "argv": [
             "/Volumes/HermesCaseBuilderV1/runtime/node-v24.19.0-npm-v11.17.0/bin/node",
-            "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/ee39df4f2b690d44628a7ada/worktree/node_modules/vitest/vitest.mjs",
+            "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/bbec48cc09562675a318d201/worktree/node_modules/vitest/vitest.mjs",
             "run",
             "--config",
-            "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/ee39df4f2b690d44628a7ada/worktree/ik_lifecycle/vite/tests_js_vitest.config.ts",
+            "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/bbec48cc09562675a318d201/worktree/ik_lifecycle/vite/tests_js_vitest.config.ts",
             "--configLoader",
             "runner"
           ],
           "command_id": "tests-js-test-isolated",
-          "command_sha256": "2bfac7ce52d7acb19f093d47f05aa0d111fa30c3f263f5e418188fc3de599206",
+          "command_sha256": "10e95e13f200a5fa53930f524572ab4de7f86a12567486adedc948d909927dac",
           "env": {
             "CI": "1",
             "HOME": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/home",
-            "IK_DISPOSABLE_CACHE_ROOT": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/artifacts/ee39df4f2b690d44628a7ada/v4/caches",
-            "IK_VITE_CACHE_DIR": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/artifacts/ee39df4f2b690d44628a7ada/v4/caches/tests-js-vite",
+            "IK_DISPOSABLE_CACHE_ROOT": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/artifacts/bbec48cc09562675a318d201/v4/caches",
+            "IK_VITE_CACHE_DIR": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/artifacts/bbec48cc09562675a318d201/v4/caches/tests-js-vite",
             "LANG": "C.UTF-8",
             "PATH": "/Volumes/HermesCaseBuilderV1/runtime/node-v24.19.0-npm-v11.17.0/bin:/usr/bin:/bin",
             "TZ": "UTC"
@@ -402,12 +402,12 @@
           "expected_artifacts": [],
           "failure_retention": "retain_outputs_logs_and_caches",
           "mutates": [
-            "composed-candidate/artifacts/ee39df4f2b690d44628a7ada/v4/caches/tests-js-vite"
+            "composed-candidate/artifacts/bbec48cc09562675a318d201/v4/caches/tests-js-vite"
           ],
           "network": "denied",
           "status": "PLANNED",
           "timeout_seconds": 1800,
-          "workdir": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/ee39df4f2b690d44628a7ada/worktree"
+          "workdir": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/bbec48cc09562675a318d201/worktree"
         },
         {
           "argv": [
@@ -422,7 +422,7 @@
             "--no-fund"
           ],
           "command_id": "tests-js-lint",
-          "command_sha256": "09ed74bf07398a3befcbd4ac27e190cd8ea244dbabd6b8afa59ffcd42a3a84fb",
+          "command_sha256": "bcd394ef2bd4b9ce8f65a8193494a3d292c50dfa46cf7cbfb4383626407b9a9f",
           "env": {
             "CI": "1",
             "HOME": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/home",
@@ -445,7 +445,7 @@
           "network": "denied",
           "status": "PLANNED",
           "timeout_seconds": 900,
-          "workdir": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/ee39df4f2b690d44628a7ada/worktree"
+          "workdir": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/bbec48cc09562675a318d201/worktree"
         },
         {
           "argv": [
@@ -460,11 +460,12 @@
             "."
           ],
           "command_id": "run-focused-lifecycle-unittest",
-          "command_sha256": "078cc213b6028cb6edcf7e88e1f7b70c5ad83be1718750a2314eca88b28da6f4",
+          "command_sha256": "a23c8ee25579148c26ec29581e1c7e7cc7c92855b516e139af55ce203dcc1ffc",
           "env": {
             "CI": "1",
             "HERMES_HOME": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/fixtures/hermes-home",
             "HOME": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/home",
+            "IK_NETWORK_PROOF_PATH": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/artifacts/bbec48cc09562675a318d201/v4/receipts/network-proof-12-run-focused-lifecycle-unittest.json",
             "LANG": "C.UTF-8",
             "PATH": "/usr/bin:/bin",
             "PYTHONDONTWRITEBYTECODE": "1",
@@ -478,7 +479,7 @@
           "network": "denied",
           "status": "PLANNED",
           "timeout_seconds": 900,
-          "workdir": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/ee39df4f2b690d44628a7ada/worktree"
+          "workdir": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/bbec48cc09562675a318d201/worktree"
         },
         {
           "argv": [
@@ -493,7 +494,7 @@
             "."
           ],
           "command_id": "run-behavior-architecture-unittest",
-          "command_sha256": "7623ece793dd48030ee6ab916fd61638876d0a1465c5c653366b812fa8fb7ca7",
+          "command_sha256": "31935c0b96078f8f017ae7d2e16e437812ca68ecdda10ed6eef6b3cdcd48dc47",
           "env": {
             "CI": "1",
             "HERMES_HOME": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/fixtures/hermes-home",
@@ -511,7 +512,7 @@
           "network": "denied",
           "status": "PLANNED",
           "timeout_seconds": 900,
-          "workdir": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/ee39df4f2b690d44628a7ada/worktree"
+          "workdir": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/bbec48cc09562675a318d201/worktree"
         }
       ],
       "status": "APPROVAL_REQUIRED"
@@ -520,10 +521,10 @@
   "behavior_test_discovery": {
     "mode": "compile_import_discovery_only",
     "module_count": 11,
-    "path": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/artifacts/ee39df4f2b690d44628a7ada/v4/receipts/behavior-test-discovery.json",
+    "path": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/artifacts/bbec48cc09562675a318d201/v4/receipts/behavior-test-discovery.json",
     "python_version": "3.11.3",
-    "selection_sha256": "9dda946ae99fceff5e81ebdd25aacccdda0db72cbd2f0c0d0780c135cb0a7876",
-    "sha256": "877667f5f7cd351041e6759c282bf5d5efd23e6cd9d6805bb797fe2a553b3105",
+    "selection_sha256": "2f4cc10a833e9d82da5c9f38cc051e2daa0ae98962e3553768b6072713d7c698",
+    "sha256": "161af949a0f47256e67743dc332206fea9f153601c3fed0d5402ec7d79149b3c",
     "test_count": 24
   },
   "bindings": {
@@ -539,76 +540,76 @@
     "candidate_id": "1e79082041b08781ca40",
     "cell_id": "ernie",
     "execution_root": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40",
-    "immutable_source": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/compositions/ee39df4f2b690d44628a7ada/source",
+    "immutable_source": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/compositions/bbec48cc09562675a318d201/source",
     "source_tree_sha256": "d146de1593a89f1fb9b71c1dc98bd77c554c5d589435f97023635b3da0907b83",
     "target_commit_sha": "e624e9fde561e1add9388384012b295fde669ade",
     "target_tag": "v2026.8.18"
   },
   "command_count": 13,
-  "commands_sha256": "9b080a8b178b14f5618898132b044ac393551ba1305358ad0c39e76b0baa655a",
+  "commands_sha256": "f874116cd379d9f95cb6cf9b20ad5b3db7c5843edcb9d4c7849ebcb55d016a45",
   "composition": {
-    "build_root": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/ee39df4f2b690d44628a7ada/worktree",
-    "build_root_pristine_sha256": "b7bdd8f8d45314af86467303ae8df40df1b8ccb4e0e9b097cb64aaafc94cb370",
-    "composed_tree_sha256": "b7bdd8f8d45314af86467303ae8df40df1b8ccb4e0e9b097cb64aaafc94cb370",
-    "composition_id": "ee39df4f2b690d44628a7ada",
-    "immutable_source": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/compositions/ee39df4f2b690d44628a7ada/source",
-    "manifest_path": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/compositions/ee39df4f2b690d44628a7ada/manifest.json",
-    "manifest_sha256": "5fa3701378535c31f989b8dde90179c58c6b3c4232666f3eeb3657e67d782436",
-    "overlay_manifest_sha256": "f7f3083fcf20a79cda65ae7edb895e33f70a5cbb417d49bad5228e48a3ef61fc",
-    "overlay_source_sha256": "d146718db765a4444020e6f1b0766e42e5e4d9378c179ef15ead033233ce5a41",
+    "build_root": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/bbec48cc09562675a318d201/worktree",
+    "build_root_pristine_sha256": "bac408b63d11c9b7b3eec1b0e19bb67a24e6305b343c4a9b0c0e0361e8c51228",
+    "composed_tree_sha256": "bac408b63d11c9b7b3eec1b0e19bb67a24e6305b343c4a9b0c0e0361e8c51228",
+    "composition_id": "bbec48cc09562675a318d201",
+    "immutable_source": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/compositions/bbec48cc09562675a318d201/source",
+    "manifest_path": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/compositions/bbec48cc09562675a318d201/manifest.json",
+    "manifest_sha256": "a82466d5bddd192f39337f9113bb39f8e74482f46691029366d3b3bcf5e75544",
+    "overlay_manifest_sha256": "2ea5cbf9244afabf7db6460804adac5224d9a067118a311a63ef9290aa312dda",
+    "overlay_source_sha256": "a8528b503d5f5a49ebb0989e680851b34220bb9b971f5b8463c6dab467fced3e",
     "replay_manifest_sha256": "6353761fc90dba784548b5b6ab7c8e92c4487f356b830f3bf597f5a00140d632"
   },
   "correction_contract": {
-    "build_root": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/ee39df4f2b690d44628a7ada/worktree",
+    "build_root": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/bbec48cc09562675a318d201/worktree",
     "caches": [
       {
         "cache_id": "ui-tui-vite",
-        "path": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/artifacts/ee39df4f2b690d44628a7ada/v4/caches/ui-tui-vite",
+        "path": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/artifacts/bbec48cc09562675a318d201/v4/caches/ui-tui-vite",
         "pre_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
         "retention": "retain_on_failure_discard_after_clear_receipt"
       },
       {
         "cache_id": "tests-js-vite",
-        "path": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/artifacts/ee39df4f2b690d44628a7ada/v4/caches/tests-js-vite",
+        "path": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/artifacts/bbec48cc09562675a318d201/v4/caches/tests-js-vite",
         "pre_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
         "retention": "retain_on_failure_discard_after_clear_receipt"
       }
     ],
-    "contract_sha256": "e483fd7d2b2c75ab675bd23d9111de82a95edde5f6cdb0a9128e1e0036ec8a4d",
+    "contract_sha256": "79be246a58cc8dba79943ad5fb64a0919af591518f7d325b96e40d8a9dff0051",
     "dependency_surfaces": [
       {
-        "path": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/ee39df4f2b690d44628a7ada/worktree/node_modules",
+        "path": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/bbec48cc09562675a318d201/worktree/node_modules",
         "retention": "immutable_fail_closed",
         "sha256": "f853501204dfa2098226e116967152f2584cc6fe0ec5854b64284a007da50657"
       },
       {
-        "path": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/ee39df4f2b690d44628a7ada/worktree/ui-tui/node_modules",
+        "path": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/bbec48cc09562675a318d201/worktree/ui-tui/node_modules",
         "retention": "immutable_fail_closed",
         "sha256": "db55e8f14b787890ffbe01722b49cc3af95e6757082149fb58652b3eaa375187"
       },
       {
-        "path": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/ee39df4f2b690d44628a7ada/worktree/tests-js/node_modules",
+        "path": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/bbec48cc09562675a318d201/worktree/tests-js/node_modules",
         "retention": "immutable_fail_closed",
         "sha256": "f8f591938dfb309077ecf5c1bda8774ba56fc38a379daf4038b7f8ea3ac52c76"
       }
     ],
-    "disposable_cache_root": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/artifacts/ee39df4f2b690d44628a7ada/v4/caches",
-    "prior_failed_commands_sha256": "8fb06a1ec9ac9975e08507dd729dce2d8929cbf069a26fdf128aff2d96043589",
-    "prior_failed_plan_sha256": "11385283fa7dcd7755a37f77dca56ecd19818aaafd68bc7d6815add0e56fdc43",
-    "prior_failed_result_sha256": "6da3e70ad09d4ad8837515ae8beae762785bc658444a96249371039129b68dc1",
+    "disposable_cache_root": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/artifacts/bbec48cc09562675a318d201/v4/caches",
+    "prior_failed_commands_sha256": "9b080a8b178b14f5618898132b044ac393551ba1305358ad0c39e76b0baa655a",
+    "prior_failed_plan_sha256": "15bb9547d1dd864d318581b49e687149387ce99b65a213bc1c992e925e999fcb",
+    "prior_failed_result_sha256": "219bc3a62631ef8482b2315ffbe8b32a0f8ba1a59e8f44237581b722a15239fd",
     "rerun_decision": "rerun_all_commands_in_new_composition",
     "schema_id": "ik.hermes.composed-execution-correction.v1",
     "vite_configs": [
       {
         "cache_id": "ui-tui-vite",
         "config_id": "ui-tui",
-        "path": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/ee39df4f2b690d44628a7ada/worktree/ik_lifecycle/vite/ui_tui_vitest.config.ts",
+        "path": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/bbec48cc09562675a318d201/worktree/ik_lifecycle/vite/ui_tui_vitest.config.ts",
         "sha256": "3a646c334b43d6f06951e28850638c09294ccbc015858e445d9b90800723131e"
       },
       {
         "cache_id": "tests-js-vite",
         "config_id": "tests-js",
-        "path": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/ee39df4f2b690d44628a7ada/worktree/ik_lifecycle/vite/tests_js_vitest.config.ts",
+        "path": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/bbec48cc09562675a318d201/worktree/ik_lifecycle/vite/tests_js_vitest.config.ts",
         "sha256": "4ea9e00e5c8431e6f7effbd4033a05037766cc3582f6c080cf836636d4e70454"
       }
     ]
@@ -629,15 +630,35 @@
     "push",
     "external_state"
   ],
+  "failed_attempts": [
+    {
+      "approval_sha256": "9b15a7ba75ee877810301af9925d621ee721738858ab52ce83488b89ed6cfa5d",
+      "commands_sha256": "9b080a8b178b14f5618898132b044ac393551ba1305358ad0c39e76b0baa655a",
+      "completed_command_count": 11,
+      "composition_id": "ee39df4f2b690d44628a7ada",
+      "plan_sha256": "15bb9547d1dd864d318581b49e687149387ce99b65a213bc1c992e925e999fcb",
+      "reason": "candidate lifecycle suite was not portable inside outer deny-network boundary",
+      "status": "BLOCKED",
+      "stopped_command_id": "run-focused-lifecycle-unittest"
+    }
+  ],
   "focused_test_discovery": {
+    "excluded_test_ids": [
+      "tests/ik_lifecycle/test_composed_execution_authority.py::ComposedExecutionAuthorityTests.test_old_upstream_only_plan_cannot_authorize_composed_execution",
+      "tests/ik_lifecycle/test_composed_release.py::ComposedReleaseTests.test_declared_overlay_is_bound_to_target_and_reviewed_replay",
+      "tests/ik_lifecycle/test_execution_plan.py::ExecutionPlanTests.test_committed_candidate_execution_plan_is_valid_and_non_executable",
+      "tests/ik_lifecycle/test_execution_plan.py::ExecutionPlanTests.test_committed_composed_plan_and_decision_input_are_digest_bound_and_non_executable",
+      "tests/ik_lifecycle/test_execution_plan.py::ExecutionPlanTests.test_committed_next_approval_input_self_digest_is_valid",
+      "tests/ik_lifecycle/test_v4_architecture_execution.py::V4ArchitectureExecutionTests.test_mapping_rejects_unknown_test_and_v3_plan_is_ineligible"
+    ],
     "mode": "compile_import_discovery_only",
-    "path": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/artifacts/ee39df4f2b690d44628a7ada/v4/receipts/lifecycle-test-discovery.json",
+    "path": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/artifacts/bbec48cc09562675a318d201/v4/receipts/lifecycle-test-discovery.json",
     "python_version": "3.11.3",
-    "selection_sha256": "28850b7b40e3bd893b173372120fc85073fd5334d66ffb0774549c1dc3611ab3",
-    "sha256": "62afe4669b87ac44a7e08d37656ed37184d8b545d07f40ac8de85cdd909cd1c3",
-    "test_count": 52
+    "selection_sha256": "c509d739a6c86f1759da6dd9e3c99de75a061324b34a2455b1c8ce00173690c6",
+    "sha256": "ace791919b42d682c40f74256111ca1b89694a7666c203b54417bde10f6b2f9c",
+    "test_count": 46
   },
-  "implementation_commit": "1525cb1d53052fba36fcfb73fa1d9ea0fd1e7fac",
+  "implementation_commit": "fc8af2f678d4cf0c1b84738abb92bf24dee6da8c",
   "network_isolation": {
     "adapter_id": "macos-sandbox-exec-deny-network-v1",
     "adapter_sha256": "6fdf49544e2c57d69f7a7f4a892e062265aa292cc31f2ee43a42a0e1673e5a4f",
@@ -650,7 +671,7 @@
     "sandbox_exec_sha256": "8290e4be7387a0df83cd1559e86afd880464f269450573d012795761fe298f16"
   },
   "phase": "ernie_first_candidate_only",
-  "plan_sha256": "15bb9547d1dd864d318581b49e687149387ce99b65a213bc1c992e925e999fcb",
+  "plan_sha256": "88ce4d651c10404a7db382e10eca5c340971a1e5fe245779c6d111608eb4c2bd",
   "promotion_blockers": [
     "active_legacy_bert_health_automation_must_be_approval_paused",
     "computer_history_heartbeat_path_adaptation_requires_separate_approval",
