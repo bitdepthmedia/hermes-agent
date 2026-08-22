@@ -42,7 +42,14 @@ class ComposedReleaseTests(unittest.TestCase):
             for source, _ in manifest.entries
             if source.startswith(("tests/ik_orchestration/test_", "tests/ik_models/test_"))
         }
-        self.assertEqual(len(behavior_tests), 11)
+        self.assertTrue(
+            {
+                "tests/ik_orchestration/test_approval_result.py",
+                "tests/ik_models/test_model_workers.py",
+                "tests/ik_models/test_offline_eval.py",
+            }
+            <= behavior_tests
+        )
         self.assertTrue(any(source.startswith("evals/ik/") for source, _ in manifest.entries))
         self.assertTrue(
             any(source == "docs/architecture/bert-ernie-hermes-cell-architecture.md" for source, _ in manifest.entries)

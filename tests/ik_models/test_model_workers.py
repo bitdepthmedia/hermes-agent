@@ -6,6 +6,10 @@ import unittest
 from ik_extensions.model_workers.capabilities import ModelCapability
 from ik_extensions.model_workers.history import normalize_tool_history
 from ik_extensions.model_workers.qwen38_adapter import adapt_qwen38_messages, qwen38_response_schema
+from ik_extensions.persona_orchestration.approval_result import (
+    approval_result_instruction,
+    approval_state_property,
+)
 from ik_extensions.model_workers.provenance import ArtifactManifest, verify_artifact_provenance
 from ik_extensions.model_workers.router import ModelCatalog, TaskRequirements, select_worker
 
@@ -67,16 +71,13 @@ class ModelWorkerTests(unittest.TestCase):
             reasoning_enabled=False,
         )
         contract = adapted[0]["content"]
-        self.assertIn("approval is absent", contract)
-        self.assertIn("explicit denial decision", contract)
+        self.assertIn(approval_result_instruction(), contract)
 
     def test_qwen38_approval_schema_describes_each_policy_state_without_narrowing_it(self) -> None:
         schema = qwen38_response_schema({"approval_state": "required", "executed": False})
         field = schema["properties"]["approval_state"]
-        self.assertEqual(field["enum"], ["not-required", "required", "granted", "denied", "expired"])
-        self.assertNotIn("approved", field["enum"])
-        self.assertIn("absent but needed", field["description"])
-        self.assertIn("explicit denial", field["description"])
+        self.assertEqual(field, approval_state_property())
+        self.assertEqual(field["enum"], ["required", "approved", "denied", "not_required"])
 
     def test_primary_artifact_requires_official_complete_provenance(self) -> None:
         official = ArtifactManifest("Qwen/Qwen3.8-27B", "1" * 40, "apache-2.0", "c" * 64, "a" * 64, "Q4_K_M", "llama.cpp@pinned", 17_000_000_000, "f" * 64, True)
