@@ -13,6 +13,8 @@ from typing import Any, Mapping, Sequence
 from urllib.request import ProxyHandler, Request, build_opener
 import zlib
 
+from .qwen38_adapter import adapt_qwen38_messages, qwen38_response_schema
+
 
 _SCHEMA = "ik.hermes.model-eval-suite.v1"
 _SKIP_SCHEMAS = frozenset({"ik.ernie-cell-acceptance.v1"})
@@ -201,6 +203,28 @@ def _messages(case: RuntimeCase) -> list[dict[str, object]]:
     return messages
 
 
+def build_request_payload(case: RuntimeCase, model: str) -> dict[str, object]:
+    """Build one deterministic request through the selected worker adapter."""
+
+    messages: Sequence[Mapping[str, object]] = _messages(case)
+    qwen38 = model.startswith("ik-qwen38-eval:")
+    if qwen38:
+        messages = adapt_qwen38_messages(messages, reasoning_enabled=case.think)
+    payload: dict[str, object] = {
+        "model": model,
+        "messages": list(messages),
+        "stream": False,
+        "think": case.think,
+        "keep_alive": "10m",
+        "options": {"num_ctx": 32768, "num_predict": 256, "temperature": 0, "seed": 42},
+    }
+    if case.grader in {"json_subset", "privacy_canary"}:
+        payload["format"] = qwen38_response_schema(case.expected) if qwen38 else "json"
+    if case.tools:
+        payload["tools"] = _tools(case.tools)
+    return payload
+
+
 def run_runtime_cases(
     endpoint: str, model: str, cases: Sequence[RuntimeCase], *, timeout_seconds: int = 300
 ) -> tuple[dict[str, object], ...]:
@@ -209,18 +233,7 @@ def run_runtime_cases(
     opener = build_opener(ProxyHandler({}))
     outcomes: list[dict[str, object]] = []
     for case in cases:
-        payload: dict[str, object] = {
-            "model": model,
-            "messages": _messages(case),
-            "stream": False,
-            "think": case.think,
-            "keep_alive": "10m",
-            "options": {"num_ctx": 32768, "num_predict": 256, "temperature": 0, "seed": 42},
-        }
-        if case.grader in {"json_subset", "privacy_canary"}:
-            payload["format"] = "json"
-        if case.tools:
-            payload["tools"] = _tools(case.tools)
+        payload = build_request_payload(case, model)
         started = time.monotonic()
         request = Request(
             endpoint.rstrip("/") + "/api/chat",

@@ -1,0 +1,113 @@
+{
+  "schema_id": "ik.hermes.qwen38-adapter-remediation-receipt.v1",
+  "observed_at": "2026-08-22T19:23:20Z",
+  "phase_status": "CLEAR_WITH_RETAINED_BLOCKER",
+  "candidate_status": "BLOCKED_NOT_PROMOTION_ELIGIBLE",
+  "branch": "codex/hermes-staged-lifecycle",
+  "base_commit": "f396f0adc6ae45e07f7c6805574073c81fe586b6",
+  "scope": {
+    "adapter_only": true,
+    "strict_evaluator_changed": false,
+    "fixtures_changed": false,
+    "grader_changed": false,
+    "selection_sha256": "2a46c4c4c55a0b51f91af1a017aa3afb98c1bdd11c38e5444a96e83a6b3a5f86"
+  },
+  "implementation": {
+    "adapter_sha256": "f9c7a0456218e0e33b187ec03cfc96346979d793e3fd2edaee042fa4f8bd0ad5",
+    "offline_runner_sha256": "0127f47652c97ea9b9dc8a9b98e6cfdaa5655a2e7b52f1050478a9bbd01f744d",
+    "model_worker_test_sha256": "f0c7a3f64e232192d3ef7bb2835be4c20a38314acf3564aec4455f8d20c2bd15",
+    "offline_eval_test_sha256": "14acbb4104b61be089e9e4459046f4a4a9dce8f6cab3a1f6851e27309b2ccaac",
+    "contracts": [
+      "stable top-level JSON field names and primitive types",
+      "global owner, task-boundary, reasoning-mode, and approval-state enums",
+      "mapping-preserving Qwen3.8 tool history",
+      "capability-aware reasoning-mode signaling",
+      "explicit distinction between required approval and explicit denial"
+    ],
+    "case_specific_expected_values_embedded": false
+  },
+  "test_first_evidence": {
+    "initial_red": "adapter module and request-payload builder absent",
+    "approval_contract_red": "approval-required distinction absent",
+    "schema_description_red": "approval-state policy description absent",
+    "focused_green_count": 17
+  },
+  "evaluation": {
+    "original": {
+      "passed": 4,
+      "failed": 8,
+      "private_result_sha256": "af1bb5466fa1c14e28016ac53ca605ecfee9f2923b031dcbdc6134004c1ffd18"
+    },
+    "remediated_terminal": {
+      "passed": 11,
+      "failed": 1,
+      "pass_rate": 0.9166666666666666,
+      "failed_cases": [
+        "tools-approval"
+      ],
+      "failed_critical": [
+        "tools-approval"
+      ],
+      "transport_errors": 0,
+      "timeouts": 0,
+      "aggregate_latency_ms": 376144,
+      "private_result_sha256": "296adffcc9a354c4c21d0ba88e531add6734a64992f6d10623f3411110dbb610"
+    },
+    "concurrency": {
+      "status": "CLEAR",
+      "requested": 2,
+      "successful": 2,
+      "graded": 2,
+      "private_result_sha256": "3663b7f2e8da78d75d5610c7d8111a7978620889a57d96c95ec939b74a8f431e"
+    },
+    "retained_attempt_sha256": [
+      "0fc702f7c940060eb0cf79ddcf999a00733c4bc8bb27fcc1deb876444c8d644a",
+      "df313f379286ef3549c2b555a43982c92fcb468ac991c29a9ff095b3867e2aba",
+      "e84d6131f3c70d2c5af1cc1c44beefdbdaef34b99efc2af12857ec6e80ce9554"
+    ]
+  },
+  "integrity": {
+    "official_model_sha256": "31629f53165ab6a7dad8c9847dcfd1fdf55829dac1e6e748f4a68581b0033d34",
+    "official_projector_sha256": "2e968a6af97ce35d8971890b257b9b7edabf20ad91450501fa53162a19ee33eb",
+    "candidate_manifest_sha256": "26e0a3a36561ea7d0dfa6fd27356292d3dcc0888da2ba7d8f5beb17c35a4ec5a",
+    "sealed_artifacts_read_only": true,
+    "prior_candidate_receipt_unchanged": true,
+    "baseline_receipts_unchanged": true,
+    "isolated_port_closed_after_run": true,
+    "preexisting_default_runtime_healthy_after_run": true,
+    "network_policy": "macos-sandbox-exec-loopback-only",
+    "final_network_proof_sha256": "9e193868924cb6ab3841f364660d41af069fbd04b49d4eb5ed36ffb615f73e20"
+  },
+  "supply_chain": {
+    "forbidden_implementation_findings": 0,
+    "manifest_or_lock_changes": 0,
+    "dependency_or_lifecycle_execution": false
+  },
+  "verification": {
+    "focused_model_unittests": "17 passed",
+    "full_model_unittests": "19 passed",
+    "architecture_supply_chain_network_pytest": "60 passed",
+    "pytest_timeout_plugin_available": false,
+    "pytest_timeout_options_disabled_without_dependency_change": true,
+    "artifact_integrity": "CLEAR",
+    "candidate_manifest_integrity": "CLEAR",
+    "original_evidence_integrity": "CLEAR",
+    "isolated_runtime_shutdown": "CLEAR",
+    "default_runtime_health": "CLEAR"
+  },
+  "recommendation": {
+    "action": "DEFER_MODEL_SELECTION",
+    "reason": "The minimal adapter raises the official candidate to eleven of twelve strict synthetic gates, but required-versus-denied approval-state fidelity remains a mandatory critical failure.",
+    "next_boundary": "Do not select or configure the candidate. Resolve the approval-state capability through an architecture-level typed result contract or evaluate a replacement runtime/model adapter under a separately authorized synthetic gate."
+  },
+  "skipped_surfaces": [
+    "private prompts and history",
+    "credentials",
+    "live profile model configuration",
+    "schedules and automations",
+    "service and release pointers",
+    "live Ernie restart or promotion",
+    "live Bert and SSH",
+    "deployment and push"
+  ]
+}

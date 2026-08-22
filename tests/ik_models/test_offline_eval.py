@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 from ik_extensions.model_workers.offline_eval import (
     OfflineEvalError,
+    build_request_payload,
     grade_case,
     load_runtime_cases,
     run_concurrency_probe,
@@ -97,6 +98,28 @@ class OfflineEvalTests(unittest.TestCase):
             receipt = run_concurrency_probe("http://127.0.0.1:11588", "fixture", timeout_seconds=5)
         self.assertEqual(receipt["status"], "BLOCKED")
         self.assertEqual(receipt["successful_requests"], 1)
+
+    def test_qwen38_payload_uses_schema_and_adapter_without_changing_case(self) -> None:
+        case = next(
+            case
+            for case in load_runtime_cases(Path(__file__).resolve().parents[2] / "evals/ik")
+            if case.case_id == "tools-history-replay"
+        )
+        payload = build_request_payload(case, "ik-qwen38-eval:31629f53165a")
+        self.assertIsInstance(payload["format"], dict)
+        self.assertEqual(payload["format"]["required"], ["paired_results", "result"])
+        assistant = next(message for message in payload["messages"] if message.get("role") == "assistant")
+        self.assertIsInstance(assistant["tool_calls"][0]["function"]["arguments"], dict)
+        self.assertEqual(case.system, "Read the synthetic tool history and return JSON only.")
+
+    def test_non_qwen_payload_retains_generic_json_contract(self) -> None:
+        case = next(
+            case
+            for case in load_runtime_cases(Path(__file__).resolve().parents[2] / "evals/ik")
+            if case.case_id == "tools-approval"
+        )
+        payload = build_request_payload(case, "gemma4:26b")
+        self.assertEqual(payload["format"], "json")
 
 
 if __name__ == "__main__":

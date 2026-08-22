@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
 import unittest
 
 from ik_extensions.model_workers.capabilities import ModelCapability
 from ik_extensions.model_workers.history import normalize_tool_history
+from ik_extensions.model_workers.qwen38_adapter import adapt_qwen38_messages, qwen38_response_schema
 from ik_extensions.model_workers.provenance import ArtifactManifest, verify_artifact_provenance
 from ik_extensions.model_workers.router import ModelCatalog, TaskRequirements, select_worker
 
@@ -38,6 +40,43 @@ class ModelWorkerTests(unittest.TestCase):
         ]}, {"role": "tool", "tool_call_id": "a", "content": "ok"})
         normalized = normalize_tool_history(messages, dialect="qwen3.8")
         self.assertEqual(normalized[0]["tool_calls"][0]["function"]["arguments"], {"x": 1})
+
+    def test_qwen38_adapter_applies_machine_contract_without_embedding_answers(self) -> None:
+        messages = (
+            {"role": "system", "content": "Apply the routing policy."},
+            {"role": "user", "content": "Return owner and duplicate_execution."},
+        )
+        adapted = adapt_qwen38_messages(messages, reasoning_enabled=False)
+        self.assertIn("requested field names", adapted[0]["content"])
+        self.assertIn("lowercase", adapted[0]["content"])
+        self.assertNotIn('"codex"', adapted[0]["content"])
+        self.assertEqual(adapted[1], messages[1])
+
+    def test_qwen38_result_schema_binds_types_and_global_enums_not_expected_values(self) -> None:
+        schema = qwen38_response_schema({"owner": "codex", "result": 323, "executed": False})
+        self.assertEqual(schema["required"], ["executed", "owner", "result"])
+        self.assertEqual(schema["properties"]["result"], {"type": "integer"})
+        self.assertEqual(schema["properties"]["owner"]["enum"], ["bert", "ernie", "codex"])
+        serialized = json.dumps(schema, sort_keys=True)
+        self.assertNotIn('"const"', serialized)
+        self.assertNotIn("323", serialized)
+
+    def test_qwen38_adapter_distinguishes_missing_approval_from_explicit_denial(self) -> None:
+        adapted = adapt_qwen38_messages(
+            ({"role": "user", "content": "Perform an approval-gated action."},),
+            reasoning_enabled=False,
+        )
+        contract = adapted[0]["content"]
+        self.assertIn("approval is absent", contract)
+        self.assertIn("explicit denial decision", contract)
+
+    def test_qwen38_approval_schema_describes_each_policy_state_without_narrowing_it(self) -> None:
+        schema = qwen38_response_schema({"approval_state": "required", "executed": False})
+        field = schema["properties"]["approval_state"]
+        self.assertEqual(field["enum"], ["not-required", "required", "granted", "denied", "expired"])
+        self.assertNotIn("approved", field["enum"])
+        self.assertIn("absent but needed", field["description"])
+        self.assertIn("explicit denial", field["description"])
 
     def test_primary_artifact_requires_official_complete_provenance(self) -> None:
         official = ArtifactManifest("Qwen/Qwen3.8-27B", "1" * 40, "apache-2.0", "c" * 64, "a" * 64, "Q4_K_M", "llama.cpp@pinned", 17_000_000_000, "f" * 64, True)
