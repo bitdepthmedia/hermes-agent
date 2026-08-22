@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from ik_lifecycle.audited_dependencies import materialize_audited_dependencies
 from ik_lifecycle.models import LifecycleBlockedError
@@ -52,6 +53,21 @@ class AuditedDependencyCopyTests(unittest.TestCase):
         with self.assertRaises(LifecycleBlockedError) as error:
             materialize_audited_dependencies(forbidden, self.root / "forbidden-build", ("node_modules",))
         self.assertEqual(error.exception.code, "audited_dependency_forbidden_version")
+
+    def test_interrupted_copy_staging_cannot_dirty_the_composed_build_root(self) -> None:
+        observed: list[Path] = []
+
+        def interrupted(_source: Path, destination: Path, **_kwargs) -> None:
+            observed.append(Path(destination))
+            raise KeyboardInterrupt("simulated abrupt stop")
+
+        with patch("ik_lifecycle.audited_dependencies.shutil.copytree", side_effect=interrupted):
+            with self.assertRaises(KeyboardInterrupt):
+                materialize_audited_dependencies(self.audit, self.build, ("node_modules",))
+
+        self.assertEqual(len(observed), 1)
+        self.assertNotEqual(observed[0].parent.resolve(), self.build.resolve())
+        self.assertFalse(any(path.name.endswith(".staging") for path in self.build.iterdir()))
 
 
 if __name__ == "__main__":

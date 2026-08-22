@@ -97,15 +97,22 @@ def materialize_audited_dependencies(
                 raise LifecycleBlockedError("audited_dependency_copy_tampered", f"materialized dependency surface changed: {raw}")
             results.append((relative.as_posix(), source_digest))
             continue
-        staging = destination.with_name(f".{destination.name}.{os.getpid()}.staging")
+        staging_parent = build.parent / ".dependency-staging"
+        staging = staging_parent / f"{relative.as_posix().replace('/', '__')}.{os.getpid()}.staging"
         if staging.exists():
             raise LifecycleBlockedError("audited_dependency_staging_exists", "dependency staging path already exists")
         destination.parent.mkdir(parents=True, exist_ok=True)
+        staging_parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(source, staging, symlinks=True)
-        _validate_symlinks(staging, build)
+        _validate_symlinks(staging, staging)
         if dependency_tree_digest(staging) != source_digest:
             raise LifecycleBlockedError("audited_dependency_copy_mismatch", "copied dependency surface differs from audit evidence")
         os.replace(staging, destination)
+        _validate_symlinks(destination, build)
+        try:
+            staging_parent.rmdir()
+        except OSError:
+            pass
         results.append((relative.as_posix(), source_digest))
     payload = json.dumps(results, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return AuditedDependencyCopy("CLEAR", tuple(results), hashlib.sha256(payload).hexdigest())
