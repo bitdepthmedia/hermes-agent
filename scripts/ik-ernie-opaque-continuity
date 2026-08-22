@@ -1,0 +1,116 @@
+#!/usr/bin/python3
+"""Metadata-only Ernie opaque continuity backup entry point."""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, os.fspath(REPO_ROOT))
+
+from ik_lifecycle.opaque_backup import (  # noqa: E402
+    MacOSStorageAttestor,
+    OpaqueBackupEngine,
+    OpaqueBackupError,
+    OpaqueBackupRequest,
+    derive_ernie_profile_root,
+)
+
+
+def _git_common_dir() -> Path:
+    try:
+        value = subprocess.run(
+            ["/usr/bin/git", "-C", os.fspath(REPO_ROOT), "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError) as error:
+        raise OpaqueBackupError("repository_metadata_unavailable") from error
+    return Path(value)
+
+
+def _fixed_paths() -> tuple[Path, Path, tuple[Path, ...]]:
+    common = _git_common_dir()
+    source = derive_ernie_profile_root(common)
+    canonical_checkout = common.parent
+    stack_root = canonical_checkout.parent.parent
+    storage = Path.home() / "Library" / "Application Support" / "NateOS" / "OpaqueContinuity" / "ernie-private-cell"
+    denied = (
+        REPO_ROOT,
+        canonical_checkout,
+        stack_root / "shared-memory",
+        Path.home() / "Documents" / "_IK_International" / "AI" / "_apps" / "nate-os",
+    )
+    return source, storage, denied
+
+
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Create a redacted, encrypted Ernie continuity snapshot.")
+    subcommands = parser.add_subparsers(dest="command", required=True)
+    subcommands.add_parser("attest", help="Run metadata-only source and storage gates.")
+    execute = subcommands.add_parser("execute", help="Create or verify one idempotent opaque snapshot.")
+    execute.add_argument("--idempotency-key", required=True)
+    return parser
+
+
+def main() -> int:
+    args = _parser().parse_args()
+    source, storage, denied = _fixed_paths()
+    if not source.exists() or not source.is_dir() or source.is_symlink():
+        raise OpaqueBackupError("ernie_profile_metadata_ambiguous")
+    source_id = hashlib.sha256(os.fsencode(os.fspath(source.absolute()))).hexdigest()[:16]
+    attestor = MacOSStorageAttestor()
+    attestation = attestor.attest(storage, denied_roots=denied)
+    if args.command == "attest":
+        print(
+            json.dumps(
+                {
+                    "schema_version": "ik.opaque-continuity-attestation.v1",
+                    "source_opaque_id": source_id,
+                    "source_exists": True,
+                    "source_current_user_owned": source.stat().st_uid == os.getuid(),
+                    "storage_encrypted_at_rest": attestation.encrypted_at_rest,
+                    "storage_local": attestation.local,
+                    "storage_non_synced": attestation.non_synced,
+                    "storage_current_user_owned": attestation.current_user_owned,
+                    "storage_symlink_safe": attestation.symlink_safe,
+                    "storage_outside_git": attestation.outside_git,
+                    "storage_outside_shared_memory": attestation.outside_shared_memory,
+                    "attestation_digest": attestation.verifier_digest,
+                    "status": "CLEAR" if attestation.clear else "BLOCKED",
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        )
+        return 0 if attestation.clear else 2
+
+    result = OpaqueBackupEngine(attestor=attestor).execute(
+        OpaqueBackupRequest(
+            source_root=source,
+            storage_root=storage,
+            source_alias="ernie-private-cell",
+            storage_alias="local-encrypted-continuity",
+            idempotency_key=args.idempotency_key,
+            denied_roots=denied,
+        )
+    )
+    print(json.dumps(result.receipt.to_dict(), sort_keys=True, separators=(",", ":")))
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except OpaqueBackupError as error:
+        print(json.dumps({"schema_version": "ik.opaque-continuity-error.v1", "status": "BLOCKED", "code": str(error)}))
+        raise SystemExit(2)
