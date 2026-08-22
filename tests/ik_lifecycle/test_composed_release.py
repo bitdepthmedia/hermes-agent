@@ -18,13 +18,30 @@ class ComposedReleaseTests(unittest.TestCase):
         manifest = load_declared_overlay(root, root / "ik_lifecycle/manifests/bert-ernie-overlay-v1.json")
         self.assertEqual((manifest.target_tag, manifest.target_commit_sha), ("v2026.8.18", "e624e9fde561e1add9388384012b295fde669ade"))
         self.assertTrue(any(source.endswith("persona_orchestration/envelope.py") for source, _ in manifest.entries))
+        allowed_roots = (
+            "ik_extensions/",
+            "ik_cells/",
+            "ik_lifecycle/",
+            "tests/ik_lifecycle/",
+            "tests/ik_orchestration/",
+            "tests/ik_models/",
+            "evals/ik/",
+            "docs/architecture/",
+        )
         self.assertTrue(
-            all(
-                source.startswith(("ik_extensions/", "ik_cells/", "ik_lifecycle/", "tests/ik_lifecycle/"))
-                for source, _ in manifest.entries
-            )
+            all(source.startswith(allowed_roots) for source, _ in manifest.entries)
         )
         self.assertTrue(any(source == "tests/ik_lifecycle/test_focused_test_selection.py" for source, _ in manifest.entries))
+        behavior_tests = {
+            source
+            for source, _ in manifest.entries
+            if source.startswith(("tests/ik_orchestration/test_", "tests/ik_models/test_"))
+        }
+        self.assertEqual(len(behavior_tests), 11)
+        self.assertTrue(any(source.startswith("evals/ik/") for source, _ in manifest.entries))
+        self.assertTrue(
+            any(source == "docs/architecture/bert-ernie-hermes-cell-architecture.md" for source, _ in manifest.entries)
+        )
 
     def test_composition_is_deterministic_overlay_bound_and_does_not_mutate_source(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

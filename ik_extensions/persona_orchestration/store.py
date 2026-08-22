@@ -47,18 +47,18 @@ class HandoffStore:
         db.row_factory = sqlite3.Row
         return db
 
-    def enqueue_once(self, envelope: DelegationEnvelope) -> StoredHandoff:
+    def enqueue_once(self, envelope: DelegationEnvelope, *, now: datetime | None = None) -> StoredHandoff:
         digest = canonical_digest(envelope)
         encoded = json.dumps(envelope.to_dict(), sort_keys=True, separators=(",", ":"))
-        now = datetime.now(timezone.utc).isoformat()
+        enqueued_at = (now or datetime.now(timezone.utc)).isoformat()
         with self._connect() as db:
             existing = db.execute("SELECT * FROM handoff WHERE idempotency_key=?", (envelope.idempotency_key,)).fetchone()
             if existing:
                 if existing["digest"] != digest:
                     raise ValueError("idempotency conflict")
                 return self._stored(existing)
-            cursor = db.execute("INSERT INTO handoff(task_id,idempotency_key,digest,envelope,next_attempt_at) VALUES(?,?,?,?,?)", (envelope.task_id, envelope.idempotency_key, digest, encoded, now))
-            db.execute("INSERT INTO handoff_event(task_id,event,at) VALUES(?,?,?)", (envelope.task_id, "enqueued", now))
+            cursor = db.execute("INSERT INTO handoff(task_id,idempotency_key,digest,envelope,next_attempt_at) VALUES(?,?,?,?,?)", (envelope.task_id, envelope.idempotency_key, digest, encoded, enqueued_at))
+            db.execute("INSERT INTO handoff_event(task_id,event,at) VALUES(?,?,?)", (envelope.task_id, "enqueued", enqueued_at))
             row = db.execute("SELECT * FROM handoff WHERE id=?", (cursor.lastrowid,)).fetchone()
             return self._stored(row)
 

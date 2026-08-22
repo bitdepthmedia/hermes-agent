@@ -1,0 +1,101 @@
+{
+  "architecture_spec": {
+    "path": "docs/architecture/bert-ernie-hermes-cell-architecture.md",
+    "sha256": "9df9c21791f2308b26bfaeef7fc54a4e4a11ae46397270e7b1a770706683d567"
+  },
+  "invariants": {
+    "bert_ernie_peer_chief_personas": {
+      "test_ids": [
+        "tests/ik_orchestration/test_routing.py::RoutingTests.test_personal_stays_with_persona_and_mixed_decomposes",
+        "tests/ik_orchestration/test_execution_ladder.py::ExecutionLadderTests.test_recurring_is_durable_and_background_handle_keeps_persona_available"
+      ]
+    },
+    "codex_exactly_once_work_ownership": {
+      "test_ids": [
+        "tests/ik_orchestration/test_routing.py::RoutingTests.test_work_routes_once_to_codex_and_private_source_gets_projection",
+        "tests/ik_orchestration/test_store_transport_availability.py::StoreTransportAvailabilityTests.test_enqueue_is_idempotent_conflicts_block_and_ack_is_monotonic"
+      ]
+    },
+    "deterministic_execution_ladder": {
+      "test_ids": [
+        "tests/ik_orchestration/test_execution_ladder.py::ExecutionLadderTests.test_cheapest_safe_capability_wins_without_authority_expansion",
+        "tests/ik_orchestration/test_execution_ladder.py::ExecutionLadderTests.test_recurring_is_durable_and_background_handle_keeps_persona_available"
+      ]
+    },
+    "ernie_private_sanitized_bert_reintegration": {
+      "test_ids": [
+        "tests/ik_orchestration/test_privacy.py::PrivacyTests.test_allowlist_sanitizer_keeps_private_canary_out_of_payload_and_receipt",
+        "tests/ik_orchestration/test_reintegration.py::ReintegrationTests.test_result_must_bind_sanitized_task_and_cannot_request_mapping",
+        "tests/ik_orchestration/test_envelope.py::EnvelopeContractTests.test_local_private_payload_cannot_target_bert"
+      ]
+    },
+    "evidence_gated_self_improvement": {
+      "test_ids": [
+        "tests/ik_orchestration/test_learning.py::LearningTests.test_three_independent_successes_trigger_but_retries_do_not",
+        "tests/ik_orchestration/test_learning.py::LearningTests.test_only_validated_read_only_local_candidate_auto_enables"
+      ]
+    },
+    "independent_ernie_bert_cells": {
+      "test_ids": [
+        "tests/ik_lifecycle/test_cells_health_rollback.py::CellHealthRollbackTests.test_cell_specs_are_independent_and_bert_is_sanitized_read_only"
+      ]
+    },
+    "nate_os_visibility_and_write_boundaries": {
+      "test_ids": [
+        "tests/ik_orchestration/test_nate_os_boundaries.py::NateOSBoundaryTests.test_bert_is_all_agents_read_only_and_ernie_can_only_propose"
+      ]
+    },
+    "offline_ernie_25_minute_idempotent_retry": {
+      "test_ids": [
+        "tests/ik_orchestration/test_store_transport_availability.py::StoreTransportAvailabilityTests.test_offline_ernie_is_one_pending_quiet_retry_then_exactly_once_ack"
+      ]
+    },
+    "personal_and_mixed_routing": {
+      "test_ids": [
+        "tests/ik_orchestration/test_routing.py::RoutingTests.test_personal_stays_with_persona_and_mixed_decomposes",
+        "tests/ik_orchestration/test_routing.py::RoutingTests.test_ambiguous_request_requires_clarification"
+      ]
+    },
+    "rollback_and_sealing_boundaries": {
+      "test_ids": [
+        "tests/ik_lifecycle/test_cells_health_rollback.py::CellHealthRollbackTests.test_pair_promotion_is_atomic_and_post_write_rollback_requires_reconciliation",
+        "tests/ik_lifecycle/test_cells_health_rollback.py::CellHealthRollbackTests.test_injected_crash_between_pointer_writes_recovers_previous_pair",
+        "tests/ik_lifecycle/test_sealing_split.py::SealingSplitTests.test_code_sealing_accepts_bound_bundle_without_profile_or_rollback_pair"
+      ]
+    },
+    "semantic_continuity_boundaries": {
+      "test_ids": [
+        "tests/ik_lifecycle/test_continuity_migration.py::ContinuityMigrationTests.test_inventory_is_non_secret_and_migration_is_to_a_clone",
+        "tests/ik_lifecycle/test_continuity_migration.py::ContinuityMigrationTests.test_online_backup_and_semantic_validation_prove_integrity"
+      ]
+    },
+    "task_boundary_model_workers_no_keyword_swap": {
+      "test_ids": [
+        "tests/ik_models/test_model_workers.py::ModelWorkerTests.test_conversation_model_is_stable_and_tools_do_not_force_gemma",
+        "tests/ik_models/test_model_workers.py::ModelWorkerTests.test_qwen_tool_history_mapping_and_parallel_calls_are_normalized"
+      ]
+    }
+  },
+  "schema_id": "ik.hermes.architecture-coverage.v1",
+  "suites": {
+    "ik-models": {
+      "required_paths": [
+        "tests/ik_models/test_eval_harness.py",
+        "tests/ik_models/test_model_workers.py"
+      ]
+    },
+    "ik-orchestration": {
+      "required_paths": [
+        "tests/ik_orchestration/test_envelope.py",
+        "tests/ik_orchestration/test_execution_ladder.py",
+        "tests/ik_orchestration/test_learning.py",
+        "tests/ik_orchestration/test_nate_os_boundaries.py",
+        "tests/ik_orchestration/test_plugin_registration.py",
+        "tests/ik_orchestration/test_privacy.py",
+        "tests/ik_orchestration/test_reintegration.py",
+        "tests/ik_orchestration/test_routing.py",
+        "tests/ik_orchestration/test_store_transport_availability.py"
+      ]
+    }
+  }
+}

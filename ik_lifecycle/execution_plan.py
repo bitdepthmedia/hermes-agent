@@ -21,6 +21,7 @@ from .network_guard import (
 SCHEMA_ID = "ik.hermes.candidate-execution-plan.v1"
 COMPOSED_SCHEMA_ID = "ik.hermes.composed-execution-plan.v2"
 CORRECTED_SCHEMA_ID = "ik.hermes.corrected-composed-execution-plan.v3"
+V4_SCHEMA_ID = "ik.hermes.architecture-complete-composed-execution-plan.v4"
 APPROVAL_SCHEMA_ID = "ik.hermes.execution-approval.v1"
 FORBIDDEN_COMMAND_TOKENS = (
     "axios@1.14.1",
@@ -360,6 +361,88 @@ def validate_corrected_execution_plan(plan: Mapping[str, Any]) -> dict[str, Any]
     }
 
 
+def _bound_json(path: Path, expected_sha256: object, code: str) -> Mapping[str, Any]:
+    try:
+        raw = path.read_bytes()
+        document = json.loads(raw)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise LifecycleBlockedError(code, "bound JSON evidence is unavailable") from exc
+    if hashlib.sha256(raw).hexdigest() != expected_sha256:
+        raise LifecycleBlockedError(code, "bound JSON evidence digest changed")
+    return document
+
+
+def validate_v4_execution_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
+    """Validate architecture-complete Ernie-first execution authority."""
+
+    if plan.get("schema_id") != V4_SCHEMA_ID:
+        raise LifecycleBlockedError("v4_execution_plan_schema_invalid", "only architecture-complete v4 plans are eligible")
+    if plan.get("plan_sha256") != _digest(_unsigned(plan, "plan_sha256")):
+        raise LifecycleBlockedError("execution_plan_digest_invalid", "v4 execution-plan digest is invalid")
+    common = json.loads(json.dumps(plan))
+    common["schema_id"] = CORRECTED_SCHEMA_ID
+    common = bind_execution_plan(common)
+    validate_corrected_execution_plan(common)
+    behavior_binding = plan.get("behavior_test_discovery")
+    coverage_binding = plan.get("architecture_coverage")
+    lifecycle_binding = plan.get("focused_test_discovery")
+    if not all(isinstance(item, Mapping) for item in (behavior_binding, coverage_binding, lifecycle_binding)):
+        raise LifecycleBlockedError("v4_architecture_binding_missing", "v4 behavior or architecture binding is missing")
+    behavior = _bound_json(Path(str(behavior_binding.get("path", ""))), behavior_binding.get("sha256"), "behavior_test_discovery_invalid")
+    lifecycle = _bound_json(Path(str(lifecycle_binding.get("path", ""))), lifecycle_binding.get("sha256"), "focused_test_discovery_invalid")
+    mapping = _bound_json(Path(str(coverage_binding.get("path", ""))), coverage_binding.get("sha256"), "architecture_mapping_invalid")
+    from .architecture_coverage import validate_architecture_coverage
+
+    coverage = validate_architecture_coverage(
+        mapping,
+        behavior,
+        lifecycle,
+        evidence_root=Path(str(plan["composition"]["build_root"])),
+    )
+    if (
+        behavior_binding.get("selection_sha256") != behavior.get("selection_sha256")
+        or behavior_binding.get("test_count") != behavior.get("test_count")
+        or coverage_binding.get("mapping_sha256") != coverage.get("mapping_sha256")
+    ):
+        raise LifecycleBlockedError("v4_architecture_binding_drift", "v4 behavior or coverage binding changed")
+    required_exclusions = {
+        "profiles_or_history", "private_data", "models_or_weights", "model_selection", "credentials",
+        "services", "schedules_or_automations", "live_bert_or_ssh", "promotion", "deployment_or_restart", "push", "external_state",
+    }
+    if plan.get("phase") != "ernie_first_candidate_only" or not required_exclusions.issubset(set(plan.get("excluded_surfaces", ()))):
+        raise LifecycleBlockedError("v4_phase_boundary_invalid", "v4 Ernie-first exclusion boundary is incomplete")
+    behavior_commands = [
+        command for batch in plan.get("batches", []) for command in batch.get("commands", [])
+        if command.get("command_id") == "run-behavior-architecture-unittest"
+    ]
+    if len(behavior_commands) != 1:
+        raise LifecycleBlockedError("v4_behavior_command_missing", "exactly one behavior command is required")
+    command = behavior_commands[0]
+    argv = command.get("argv", [])
+    if (
+        "ik_lifecycle.focused_test_selection" not in argv
+        or "--suite" not in argv
+        or argv[argv.index("--suite") + 1] != "behavior"
+        or "--execute" not in argv
+        or command.get("network") != "denied"
+        or command.get("env", {}).get("PYTHONDONTWRITEBYTECODE") != "1"
+        or not command.get("env", {}).get("HERMES_HOME")
+        or not command.get("env", {}).get("HOME")
+    ):
+        raise LifecycleBlockedError("v4_behavior_command_invalid", "behavior command isolation or exact selection is invalid")
+    if plan.get("supersedes", {}).get("plan_sha256") != "5d5529fb36600ea67b91376be242076fa7374d61d6be1294cdd1ad4eec58a3d3":
+        raise LifecycleBlockedError("v4_supersession_invalid", "v4 does not explicitly supersede the historical v3 plan")
+    return {
+        "plan_sha256": plan["plan_sha256"],
+        "commands_sha256": plan["commands_sha256"],
+        "command_count": plan["command_count"],
+        "composition_id": plan["composition"]["composition_id"],
+        "behavior_test_count": behavior["test_count"],
+        "architecture_invariant_count": coverage["invariant_count"],
+        "executable": False,
+    }
+
+
 def _approval_time(value: object, code: str) -> datetime:
     if not isinstance(value, str):
         raise LifecycleBlockedError(code, "execution approval timestamp is invalid")
@@ -390,11 +473,10 @@ def validate_execution_approval_binding(
     if current < _approval_time(approval.get("approved_at"), "execution_approval_invalid") or current > _approval_time(approval.get("expires_at"), "execution_approval_stale"):
         raise LifecycleBlockedError("execution_approval_stale", "execution approval is outside its validity window")
     command_digests = [command["command_sha256"] for batch in plan.get("batches", []) for command in batch.get("commands", [])]
-    required_scope = (
-        "exact_corrected_composed_candidate_batch_v3"
-        if plan.get("schema_id") == CORRECTED_SCHEMA_ID
-        else "exact_composed_candidate_batch"
-    )
+    required_scope = {
+        V4_SCHEMA_ID: "exact_architecture_complete_composed_candidate_batch_v4",
+        CORRECTED_SCHEMA_ID: "exact_corrected_composed_candidate_batch_v3",
+    }.get(plan.get("schema_id"), "exact_composed_candidate_batch")
     if (
         approval.get("plan_sha256") != plan.get("plan_sha256")
         or approval.get("commands_sha256") != plan.get("commands_sha256")
@@ -414,7 +496,9 @@ def validate_execution_authorization(
 ) -> dict[str, Any]:
     """Return an exact non-executing authorization record after every gate."""
 
-    if plan.get("schema_id") == CORRECTED_SCHEMA_ID:
+    if plan.get("schema_id") == V4_SCHEMA_ID:
+        validate_v4_execution_plan(plan)
+    elif plan.get("schema_id") == CORRECTED_SCHEMA_ID:
         validate_corrected_execution_plan(plan)
     else:
         validate_composed_execution_plan(plan)

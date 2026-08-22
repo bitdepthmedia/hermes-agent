@@ -25,6 +25,21 @@ DEFAULT_FOCUSED_TEST_PATHS = (
     "tests/ik_lifecycle/test_focused_test_selection.py",
     "tests/ik_lifecycle/test_macos_network_guard.py",
     "tests/ik_lifecycle/test_sealing_split.py",
+    "tests/ik_lifecycle/test_v4_architecture_execution.py",
+)
+
+BEHAVIOR_TEST_PATHS = (
+    "tests/ik_orchestration/test_envelope.py",
+    "tests/ik_orchestration/test_execution_ladder.py",
+    "tests/ik_orchestration/test_learning.py",
+    "tests/ik_orchestration/test_nate_os_boundaries.py",
+    "tests/ik_orchestration/test_plugin_registration.py",
+    "tests/ik_orchestration/test_privacy.py",
+    "tests/ik_orchestration/test_reintegration.py",
+    "tests/ik_orchestration/test_routing.py",
+    "tests/ik_orchestration/test_store_transport_availability.py",
+    "tests/ik_models/test_eval_harness.py",
+    "tests/ik_models/test_model_workers.py",
 )
 
 
@@ -56,25 +71,41 @@ def _load(root: Path, relative: str, index: int):
         raise LifecycleBlockedError("focused_test_import_failed", f"focused test import failed: {relative}") from exc
 
 
-def _discover(root: Path, selected_paths: tuple[str, ...]) -> tuple[unittest.TestSuite, dict]:
+def _test_ids(suite: unittest.TestSuite, relative: str) -> list[str]:
+    result: list[str] = []
+    for test in suite:
+        if isinstance(test, unittest.TestSuite):
+            result.extend(_test_ids(test, relative))
+        else:
+            method = getattr(test, "_testMethodName", None)
+            if not isinstance(method, str):
+                raise LifecycleBlockedError("focused_test_id_invalid", "focused test id cannot be normalized")
+            result.append(f"{relative}::{test.__class__.__name__}.{method}")
+    return result
+
+
+def _discover(root: Path, selected_paths: tuple[str, ...], suite_id: str) -> tuple[unittest.TestSuite, dict]:
     base = Path(root).resolve()
     if not base.is_dir() or not selected_paths or len(set(selected_paths)) != len(selected_paths):
         raise LifecycleBlockedError("focused_test_path_drift", "focused test root or selection is invalid")
     loader = unittest.TestLoader()
     suite = unittest.TestSuite()
     files: list[dict[str, str]] = []
+    test_ids: list[str] = []
     for index, relative in enumerate(selected_paths):
         module, digest = _load(base, relative, index)
         discovered = loader.loadTestsFromModule(module)
         if loader.errors:
             raise LifecycleBlockedError("focused_test_import_failed", f"unittest discovery failed: {relative}")
         suite.addTests(discovered)
+        test_ids.extend(_test_ids(discovered, relative))
         files.append({"path": relative, "sha256": digest})
     test_count = suite.countTestCases()
-    if test_count < 1:
+    if test_count < 1 or len(test_ids) != test_count or len(set(test_ids)) != test_count:
         raise LifecycleBlockedError("focused_test_selection_empty", "focused lifecycle selection discovered zero tests")
     binding = {
-        "schema_id": "ik.hermes.focused-lifecycle-discovery.v1",
+        "schema_id": "ik.hermes.focused-test-discovery.v2",
+        "suite_id": suite_id,
         "status": "CLEAR",
         "python": sys.executable,
         "python_version": ".".join(str(item) for item in sys.version_info[:3]),
@@ -82,6 +113,7 @@ def _discover(root: Path, selected_paths: tuple[str, ...]) -> tuple[unittest.Tes
         "files": files,
         "module_count": len(files),
         "test_count": test_count,
+        "test_ids": test_ids,
         "mode": "compile_import_discovery_only",
     }
     binding["selection_sha256"] = hashlib.sha256(
@@ -90,31 +122,43 @@ def _discover(root: Path, selected_paths: tuple[str, ...]) -> tuple[unittest.Tes
     return suite, binding
 
 
-def discover_focused_tests(root: Path, selected_paths: tuple[str, ...] = DEFAULT_FOCUSED_TEST_PATHS) -> dict:
+def discover_focused_tests(
+    root: Path,
+    selected_paths: tuple[str, ...] = DEFAULT_FOCUSED_TEST_PATHS,
+    *,
+    suite_id: str = "lifecycle",
+) -> dict:
     """Compile, import and count the exact suite without running test bodies."""
 
-    _, binding = _discover(root, selected_paths)
+    _, binding = _discover(root, selected_paths, suite_id)
     return binding
 
 
-def execute_focused_tests(root: Path, selected_paths: tuple[str, ...] = DEFAULT_FOCUSED_TEST_PATHS) -> unittest.result.TestResult:
+def execute_focused_tests(
+    root: Path,
+    selected_paths: tuple[str, ...] = DEFAULT_FOCUSED_TEST_PATHS,
+    *,
+    suite_id: str = "lifecycle",
+) -> unittest.result.TestResult:
     """Execute exactly the suite previously supported by discovery."""
 
-    suite, _ = _discover(root, selected_paths)
+    suite, _ = _discover(root, selected_paths, suite_id)
     return unittest.TextTestRunner(verbosity=2).run(suite)
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", type=Path, required=True)
+    parser.add_argument("--suite", choices=("lifecycle", "behavior"), default="lifecycle")
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--discover-only", action="store_true")
     mode.add_argument("--execute", action="store_true")
     args = parser.parse_args(argv)
+    selected = BEHAVIOR_TEST_PATHS if args.suite == "behavior" else DEFAULT_FOCUSED_TEST_PATHS
     if args.discover_only:
-        print(json.dumps(discover_focused_tests(args.root), sort_keys=True))
+        print(json.dumps(discover_focused_tests(args.root, selected, suite_id=args.suite), sort_keys=True))
         return 0
-    return 0 if execute_focused_tests(args.root).wasSuccessful() else 1
+    return 0 if execute_focused_tests(args.root, selected, suite_id=args.suite).wasSuccessful() else 1
 
 
 if __name__ == "__main__":
