@@ -1,0 +1,117 @@
+{
+  "approval_sha256": "4e21a90ec6e66e12d9b846778d721aa2f2cd4d73a502908c9816e44eaf7dad96",
+  "architecture_alignment": "CLEAR",
+  "architecture_invariant_count": 12,
+  "architecture_mapping_sha256": "4474ae9e97bb21e77314eb8524dbacc634204dd3d329e00a080bbe7c7d85a486",
+  "artifact_binding_sha256": "86e6ce3c854749c052aed602b9eccffb718921151004dbc30a39e57136d3aa12",
+  "command_results": {
+    "clear": 13,
+    "failed": 0,
+    "planned": 13
+  },
+  "commands_sha256": "f874116cd379d9f95cb6cf9b20ad5b3db7c5843edcb9d4c7849ebcb55d016a45",
+  "composed_tree_sha256": "bac408b63d11c9b7b3eec1b0e19bb67a24e6305b343c4a9b0c0e0361e8c51228",
+  "composition_id": "bbec48cc09562675a318d201",
+  "executed_at": "2026-08-22T01:20:49.999442+00:00",
+  "integrity": {
+    "copied_dependencies": "CLEAR",
+    "immutable_source": "CLEAR",
+    "network_denied_per_command": "CLEAR",
+    "undeclared_build_delta_count": 0,
+    "vite_cache_confinement": "CLEAR"
+  },
+  "network": {
+    "adapter": "macos-sandbox-exec-deny-network-v1",
+    "outbound_access": "DENIED_BY_OS_PER_PROCESS_SANDBOX",
+    "policy_sha256": "5c358b8d847211333e7ba22df82d84f796b5f30a41a2682209a949d783adbd08",
+    "proof_count": 13,
+    "status": "CLEAR"
+  },
+  "next_gate": "profile/session clone and semantic migration rehearsal; not authorized or executed",
+  "non_blocking_upstream_observations": {
+    "dashboard_lint_warnings": 26,
+    "lint_errors": 0,
+    "ui_tui_lint_warnings": 2,
+    "ui_tui_tests_skipped": 4
+  },
+  "overlay_source_sha256": "a8528b503d5f5a49ebb0989e680851b34220bb9b971f5b8463c6dab467fced3e",
+  "plan_sha256": "88ce4d651c10404a7db382e10eca5c340971a1e5fe245779c6d111608eb4c2bd",
+  "promotion_blockers": [
+    "active_legacy_bert_health_automation_must_be_approval_paused",
+    "computer_history_heartbeat_path_adaptation_requires_separate_approval",
+    "rollback_pair_and_profile_migration_not_yet_rehearsed"
+  ],
+  "receipt_sha256": "674ae8c6835f88555765fe8fa21be65fe9e12c5b924bee151790f058e0b249e2",
+  "release_bundle": {
+    "bundle_id": "e3c251dfa692c3be7583",
+    "manifest_sha256": "1e83449b631a238cb4afa3132ae5ea0dced349702d604cc9504f725ef3d457f2",
+    "profile_bound": false,
+    "root": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/releases/e3c251dfa692c3be7583",
+    "status": "SEALED_CODE_ONLY"
+  },
+  "retained_failed_attempt": {
+    "approval_sha256": "9b15a7ba75ee877810301af9925d621ee721738858ab52ce83488b89ed6cfa5d",
+    "commands_sha256": "9b080a8b178b14f5618898132b044ac393551ba1305358ad0c39e76b0baa655a",
+    "completed_command_count": 11,
+    "composition_id": "ee39df4f2b690d44628a7ada",
+    "plan_sha256": "15bb9547d1dd864d318581b49e687149387ce99b65a213bc1c992e925e999fcb",
+    "reason": "candidate lifecycle suite was not portable inside outer deny-network boundary",
+    "status": "BLOCKED",
+    "stopped_command_id": "run-focused-lifecycle-unittest"
+  },
+  "schema_id": "ik.hermes.v4-execution-outcome.v1",
+  "security_sensitive_user_decision_required": false,
+  "skipped_surfaces": [
+    "dependency_resolution_or_install",
+    "lock_refresh",
+    "profiles_or_history",
+    "private_data",
+    "models_or_weights",
+    "model_selection",
+    "credentials",
+    "services",
+    "schedules_or_automations",
+    "live_bert_or_ssh",
+    "promotion",
+    "deployment_or_restart",
+    "push",
+    "external_state"
+  ],
+  "status": "CLEAR",
+  "supply_chain": {
+    "dependency_copy_sha256": "6238ba0bb3d5ad9eafc16e525833f8088203b8e0ad368ac907c83f2ff6415a6b",
+    "dependency_resolution_or_install": false,
+    "forbidden_cache_log_hits": 0,
+    "forbidden_installed_metadata_hits": 0,
+    "forbidden_manifest_lock_hits": 0,
+    "lock_refresh": false,
+    "status": "CLEAR"
+  },
+  "target": {
+    "latest_commit_sha": "fcbd1076a93841fa88855acce810e342a5b78101",
+    "latest_tag": "v2026.8.19",
+    "policy": "exactly_one_published_stable_release_behind",
+    "selected_commit_sha": "e624e9fde561e1add9388384012b295fde669ade",
+    "selected_tag": "v2026.8.18"
+  },
+  "tests": {
+    "behavior": {
+      "passed": 24,
+      "selection_sha256": "2f4cc10a833e9d82da5c9f38cc051e2daa0ae98962e3553768b6072713d7c698"
+    },
+    "dashboard_web": {
+      "passed": 275
+    },
+    "lifecycle": {
+      "passed": 46,
+      "selection_sha256": "c509d739a6c86f1759da6dd9e3c99de75a061324b34a2455b1c8ce00173690c6"
+    },
+    "tests_js": {
+      "passed": 24
+    },
+    "ui_tui": {
+      "passed": 1654,
+      "skipped": 4
+    }
+  }
+}
