@@ -10,7 +10,7 @@ import os
 from pathlib import Path
 import re
 import stat
-from typing import Mapping, Sequence
+from typing import Any, Mapping, Sequence
 
 import yaml
 
@@ -72,6 +72,104 @@ class ClosedRuntimeError(RuntimeError):
     def __init__(self, code: str) -> None:
         self.code = code
         super().__init__(code)
+
+
+def _file_sha256(path: Path, code: str) -> str:
+    try:
+        digest = hashlib.sha256()
+        with Path(path).open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+    except OSError as error:
+        raise ClosedRuntimeError(code) from error
+
+
+@dataclass(frozen=True)
+class BoundExecutableProof:
+    proof_sha256: str
+    target_sha256: str
+    parent_proof_sha256: str
+    proof_path: Path
+
+
+class BoundExecutableLoopbackSandbox:
+    """Bind a non-Python executable to a fresh proven loopback sandbox policy."""
+
+    def __init__(self, probe_sandbox: Any, executable: Path, *, sandbox_exec: Path) -> None:
+        self.probe_sandbox = probe_sandbox
+        self.executable = Path(executable).resolve()
+        self.sandbox_exec = Path(sandbox_exec).resolve()
+
+    @staticmethod
+    def _parent_path(proof_path: Path) -> Path:
+        return proof_path.with_name(f".{proof_path.stem}.python-probe.json")
+
+    def _bindings(self, parent: Any) -> dict[str, str]:
+        return {
+            "adapter_sha256": _file_sha256(Path(__file__), "closed_runtime_network_adapter_unavailable"),
+            "parent_proof_sha256": str(parent.proof_sha256),
+            "policy_sha256": str(parent.policy_sha256),
+            "sandbox_exec_sha256": _file_sha256(self.sandbox_exec, "closed_runtime_network_sandbox_unavailable"),
+            "target_sha256": _file_sha256(self.executable, "closed_runtime_network_target_unavailable"),
+        }
+
+    def create_proof(self, proof_path: Path, *, ttl_seconds: int = 300) -> BoundExecutableProof:
+        if not self.executable.is_file() or not os.access(self.executable, os.X_OK):
+            raise ClosedRuntimeError("closed_runtime_network_target_unavailable")
+        output = Path(proof_path)
+        output.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        os.chmod(output.parent, 0o700)
+        parent_path = self._parent_path(output)
+        parent = self.probe_sandbox.create_proof(parent_path, ttl_seconds=ttl_seconds)
+        body = {
+            "schema_id": "ik.hermes.bound-executable-loopback-proof.v1",
+            "status": "CLEAR",
+            "bindings": self._bindings(parent),
+        }
+        document = {**body, "proof_sha256": hashlib.sha256(_canonical(body)).hexdigest()}
+        temporary = output.with_name(f".{output.name}.{os.getpid()}.tmp")
+        with temporary.open("x", encoding="utf-8") as stream:
+            json.dump(document, stream, sort_keys=True, separators=(",", ":"))
+            stream.write("\n")
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.chmod(temporary, 0o400)
+        os.replace(temporary, output)
+        return self.validate(output)
+
+    def validate(self, proof_path: Path) -> BoundExecutableProof:
+        path = Path(proof_path)
+        try:
+            document = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            raise ClosedRuntimeError("closed_runtime_network_proof_invalid") from error
+        proof_sha = document.get("proof_sha256")
+        body = {key: value for key, value in document.items() if key != "proof_sha256"}
+        if (
+            document.get("schema_id") != "ik.hermes.bound-executable-loopback-proof.v1"
+            or document.get("status") != "CLEAR"
+            or proof_sha != hashlib.sha256(_canonical(body)).hexdigest()
+        ):
+            raise ClosedRuntimeError("closed_runtime_network_proof_invalid")
+        parent = self.probe_sandbox.validate(self._parent_path(path))
+        expected = self._bindings(parent)
+        bindings = document.get("bindings")
+        if not isinstance(bindings, Mapping):
+            raise ClosedRuntimeError("closed_runtime_network_proof_invalid")
+        if bindings.get("target_sha256") != expected["target_sha256"]:
+            raise ClosedRuntimeError("closed_runtime_network_target_drift")
+        if dict(bindings) != expected:
+            raise ClosedRuntimeError("closed_runtime_network_proof_drift")
+        return BoundExecutableProof(str(proof_sha), expected["target_sha256"], str(parent.proof_sha256), path)
+
+    def wrap(self, argv: tuple[str, ...], proof: BoundExecutableProof) -> tuple[str, ...]:
+        validated = self.validate(proof.proof_path)
+        if validated.proof_sha256 != proof.proof_sha256:
+            raise ClosedRuntimeError("closed_runtime_network_proof_drift")
+        if not argv or Path(argv[0]).resolve() != self.executable:
+            raise ClosedRuntimeError("closed_runtime_network_target_drift")
+        return (os.fspath(self.sandbox_exec), "-p", "(version 1)\n(allow default)\n(deny network*)\n(allow network-bind (local ip))\n(allow network-inbound (local ip))\n(allow network-outbound (remote ip \"localhost:*\"))\n", *argv)
 
 
 def _canonical(value: object) -> bytes:

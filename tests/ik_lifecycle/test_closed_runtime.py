@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+from datetime import datetime, timedelta, timezone
 import json
 import os
 from pathlib import Path
@@ -10,12 +11,14 @@ import sys
 import pytest
 
 from ik_lifecycle.closed_runtime import (
+    BoundExecutableLoopbackSandbox,
     ClosedRuntimeError,
     build_execution_approval,
     resolve_opaque_handles,
     validate_execution_approval,
     validate_execution_receipt,
 )
+from ik_lifecycle.ernie_canary import LoopbackProof
 
 
 PLAN_SHA = "1" * 64
@@ -204,3 +207,26 @@ def test_closed_runtime_entrypoint_resolves_repo_imports_outside_repo_workdir(tm
     )
     assert completed.returncode == 0, completed.stderr
     assert "--execute" in completed.stdout
+
+
+def test_non_python_executable_is_bound_to_a_fresh_python_network_proof(tmp_path: Path) -> None:
+    executable = tmp_path / "worker"
+    executable.write_bytes(b"worker-v1")
+    executable.chmod(0o700)
+    now = datetime.now(timezone.utc)
+
+    class FakeProbe:
+        def create_proof(self, proof_path: Path, *, ttl_seconds: int) -> LoopbackProof:
+            proof_path.write_text("fixture", encoding="utf-8")
+            return LoopbackProof("a" * 64, "b" * 64, "c" * 64, "d" * 64, "e" * 64, now, now + timedelta(seconds=ttl_seconds), proof_path)
+
+        def validate(self, proof_path: Path) -> LoopbackProof:
+            return LoopbackProof("a" * 64, "b" * 64, "c" * 64, "d" * 64, "e" * 64, now, now + timedelta(seconds=300), proof_path)
+
+    sandbox = BoundExecutableLoopbackSandbox(FakeProbe(), executable, sandbox_exec=Path("/usr/bin/sandbox-exec"))
+    proof = sandbox.create_proof(tmp_path / "bound-proof.json", ttl_seconds=300)
+    assert sandbox.wrap((str(executable), "serve"), proof)[-2:] == (str(executable), "serve")
+
+    executable.write_bytes(b"worker-v2")
+    with pytest.raises(ClosedRuntimeError, match="closed_runtime_network_target_drift"):
+        sandbox.wrap((str(executable), "serve"), proof)

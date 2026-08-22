@@ -30,6 +30,7 @@ from ik_extensions.model_workers.offline_eval import (  # noqa: E402
     summarize_results,
 )
 from ik_lifecycle.closed_runtime import (  # noqa: E402
+    BoundExecutableLoopbackSandbox,
     ClosedRuntimeError,
     resolve_opaque_handles,
     validate_execution_approval,
@@ -50,9 +51,9 @@ from ik_lifecycle.promotion import PairedPointers, PromotionReceipt  # noqa: E40
 from ik_lifecycle.rollback import RollbackMode, rollback_pair  # noqa: E402
 
 
-SELECTION = REPO_ROOT / "docs/planning-receipts/2026-08-22-hermes-qwen38-ernie-candidate-selection-v2.json"
-PLAN = REPO_ROOT / "docs/planning-receipts/2026-08-22-hermes-credential-bound-closed-runtime-plan-v2.json"
-APPROVAL = REPO_ROOT / "docs/planning-receipts/2026-08-22-hermes-credential-bound-closed-runtime-approval-v1.json"
+SELECTION = REPO_ROOT / "docs/planning-receipts/2026-08-22-hermes-qwen38-ernie-candidate-selection-v3.json"
+PLAN = REPO_ROOT / "docs/planning-receipts/2026-08-22-hermes-credential-bound-closed-runtime-plan-v3.json"
+APPROVAL = REPO_ROOT / "docs/planning-receipts/2026-08-22-hermes-credential-bound-closed-runtime-approval-v2.json"
 OVERLAY = REPO_ROOT / "ik_lifecycle/manifests/bert-ernie-overlay-v1.json"
 MODULE = REPO_ROOT / "ik_lifecycle/closed_runtime.py"
 MODEL_ROOT = Path("/Users/react/.codex/state/hermes-platform/model-evals/qwen38-27b-31629f53165a")
@@ -400,7 +401,9 @@ def execute() -> dict[str, object]:
     try:
         model_port = _free_port()
         ports.append(model_port)
-        model_sandbox = LoopbackOnlyMacOSSandbox(OLLAMA)
+        model_sandbox = BoundExecutableLoopbackSandbox(
+            LoopbackOnlyMacOSSandbox(CANDIDATE_PYTHON), OLLAMA, sandbox_exec=Path("/usr/bin/sandbox-exec")
+        )
         model_proof = model_sandbox.create_proof(run / "model-network-proof.json", ttl_seconds=300)
         model_home = run / "model-home"
         model_home.mkdir(mode=0o700)
@@ -504,7 +507,7 @@ def main() -> int:
     try:
         result = execute()
     except (ClosedRuntimeError, CanaryError, OSError, ValueError, KeyError) as error:
-        code = getattr(error, "code", type(error).__name__)
+        code = getattr(error, "code", str(error) or type(error).__name__)
         print(json.dumps({"status": "BLOCKED_RETAINED", "code": code}, sort_keys=True), file=sys.stderr)
         return 2
     print(json.dumps(result, sort_keys=True))
