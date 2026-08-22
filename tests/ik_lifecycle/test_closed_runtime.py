@@ -121,15 +121,27 @@ def test_handle_resolution_fails_closed_on_unsafe_or_ambiguous_sources(tmp_path:
 
 
 def test_secret_log_scan_detects_values_without_returning_them(tmp_path: Path) -> None:
-    profile, secret, _ = _profile(tmp_path)
+    profile, secret, identity = _profile(tmp_path)
     handles = resolve_opaque_handles(profile, hmac_key=b"k" * 32)
     clear = tmp_path / "clear.log"
     clear.write_text("runtime healthy\n", encoding="utf-8")
     leaked = tmp_path / "leaked.log"
     leaked.write_text(f"bad output {secret}\n", encoding="utf-8")
+    public_collision = tmp_path / "public-collision.log"
+    public_collision.write_text(f"public fixture mentions {identity}\n", encoding="utf-8")
 
     assert handles.secret_leak_count((clear,)) == 0
     assert handles.secret_leak_count((leaked,)) == 1
+    assert handles.secret_leak_count((public_collision,)) == 0
+    assert handles.identity_leak_count((public_collision,)) == 1
+
+
+def test_short_sensitive_credential_is_rejected_instead_of_becoming_a_weak_leak_sentinel(tmp_path: Path) -> None:
+    profile, _, _ = _profile(tmp_path)
+    (profile / ".env").write_text("OPENAI_API_KEY=short\n", encoding="utf-8")
+
+    with pytest.raises(ClosedRuntimeError, match="opaque_secret_bundle_invalid"):
+        resolve_opaque_handles(profile, hmac_key=b"k" * 32)
 
 
 def test_execution_approval_is_exact_digest_bound_and_excludes_live_private_surfaces() -> None:
@@ -175,6 +187,7 @@ def test_execution_receipt_rejects_private_fields_paths_and_nonclear_gates() -> 
         "status": "CLEAR_CLOSED_RUNTIME_ONLY",
         "bindings": {"plan_sha256": PLAN_SHA, "selection_sha256": SELECTION_SHA},
         "credential_handles": {"resolved": 2, "leak_count": 0},
+        "process_separation": {"model_credential_keys": 0, "model_identity": False},
         "network": {"model_worker": "CLEAR", "ernie_cell": "CLEAR", "external_access": False},
         "model_evaluation": {"passed": 12, "total": 12, "concurrency_passed": 2, "concurrency_total": 2},
         "ernie_cell": {"startups": 2, "restarts": 1, "health_checks": 6},

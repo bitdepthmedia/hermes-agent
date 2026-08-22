@@ -18,6 +18,7 @@ import yaml
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
 _HEX40 = re.compile(r"^[0-9a-f]{40}$")
 _ENV_KEY = re.compile(r"^[A-Z][A-Z0-9_]{1,127}$")
+_SENSITIVE_ENV_KEY = re.compile(r"(?:^|_)(?:API_KEY|ACCESS_TOKEN|AUTH_TOKEN|BOT_TOKEN|SECRET|PASSWORD|CREDENTIAL)$")
 _HANDLE_CLASSES = ("ernie_profile_secret_bundle", "nate_os_local_agent_identity")
 _OPERATIONS = (
     "rebind-immutable-inputs",
@@ -224,6 +225,8 @@ def _parse_secret_environment(path: Path) -> tuple[dict[str, str], bytes, os.sta
             value = value[1:-1]
         if not value or "\x00" in value:
             raise ClosedRuntimeError("opaque_secret_bundle_invalid")
+        if _SENSITIVE_ENV_KEY.search(key) and len(value.encode("utf-8")) < 12:
+            raise ClosedRuntimeError("opaque_secret_bundle_invalid")
         if key in values:
             if not hmac.compare_digest(values[key], value):
                 raise ClosedRuntimeError("opaque_secret_bundle_invalid")
@@ -331,7 +334,11 @@ class ResolvedOpaqueHandles:
         return environment
 
     def secret_leak_count(self, log_paths: Sequence[Path]) -> int:
-        needles = tuple(value.encode("utf-8") for value in (*self._secret_environment.values(), self._identity) if value)
+        needles = tuple(
+            value.encode("utf-8")
+            for key, value in self._secret_environment.items()
+            if _SENSITIVE_ENV_KEY.search(key)
+        )
         leaked = 0
         for path in log_paths:
             try:
@@ -339,6 +346,18 @@ class ResolvedOpaqueHandles:
             except OSError as error:
                 raise ClosedRuntimeError("closed_runtime_log_unavailable") from error
             if any(needle in payload for needle in needles):
+                leaked += 1
+        return leaked
+
+    def identity_leak_count(self, log_paths: Sequence[Path]) -> int:
+        leaked = 0
+        needle = self._identity.encode("utf-8")
+        for path in log_paths:
+            try:
+                payload = Path(path).read_bytes()
+            except OSError as error:
+                raise ClosedRuntimeError("closed_runtime_log_unavailable") from error
+            if needle in payload:
                 leaked += 1
         return leaked
 
@@ -465,6 +484,7 @@ def validate_execution_receipt(receipt: Mapping[str, object]) -> bool:
     bindings = receipt.get("bindings")
     credentials = receipt.get("credential_handles")
     network = receipt.get("network")
+    separation = receipt.get("process_separation")
     evaluation = receipt.get("model_evaluation")
     cell = receipt.get("ernie_cell")
     rollback = receipt.get("rollback")
@@ -473,6 +493,7 @@ def validate_execution_receipt(receipt: Mapping[str, object]) -> bool:
         or not all(_is_hex(bindings.get(name)) for name in ("plan_sha256", "selection_sha256"))
         or credentials != {"resolved": 2, "leak_count": 0}
         or network != {"model_worker": "CLEAR", "ernie_cell": "CLEAR", "external_access": False}
+        or separation != {"model_credential_keys": 0, "model_identity": False}
         or evaluation != {"passed": 12, "total": 12, "concurrency_passed": 2, "concurrency_total": 2}
         or cell != {"startups": 2, "restarts": 1, "health_checks": 6}
         or rollback != {"rp2": "CLEAR", "rp3_crash_recovery": "CLEAR", "rp3_pretraffic": "CLEAR"}

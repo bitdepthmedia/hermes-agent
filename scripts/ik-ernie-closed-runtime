@@ -51,9 +51,9 @@ from ik_lifecycle.promotion import PairedPointers, PromotionReceipt  # noqa: E40
 from ik_lifecycle.rollback import RollbackMode, rollback_pair  # noqa: E402
 
 
-SELECTION = REPO_ROOT / "docs/planning-receipts/2026-08-22-hermes-qwen38-ernie-candidate-selection-v3.json"
-PLAN = REPO_ROOT / "docs/planning-receipts/2026-08-22-hermes-credential-bound-closed-runtime-plan-v3.json"
-APPROVAL = REPO_ROOT / "docs/planning-receipts/2026-08-22-hermes-credential-bound-closed-runtime-approval-v2.json"
+SELECTION = REPO_ROOT / "docs/planning-receipts/2026-08-22-hermes-qwen38-ernie-candidate-selection-v4.json"
+PLAN = REPO_ROOT / "docs/planning-receipts/2026-08-22-hermes-credential-bound-closed-runtime-plan-v4.json"
+APPROVAL = REPO_ROOT / "docs/planning-receipts/2026-08-22-hermes-credential-bound-closed-runtime-approval-v3.json"
 OVERLAY = REPO_ROOT / "ik_lifecycle/manifests/bert-ernie-overlay-v1.json"
 MODULE = REPO_ROOT / "ik_lifecycle/closed_runtime.py"
 MODEL_ROOT = Path("/Users/react/.codex/state/hermes-platform/model-evals/qwen38-27b-31629f53165a")
@@ -392,7 +392,8 @@ def execute() -> dict[str, object]:
 
     model_process: subprocess.Popen[bytes] | None = None
     cell_process: subprocess.Popen[bytes] | None = None
-    logs: list[Path] = []
+    model_logs: list[Path] = []
+    cell_logs: list[Path] = []
     ports: list[int] = []
     max_rss = 0
     source_before = tree_digest(source)
@@ -410,7 +411,7 @@ def execute() -> dict[str, object]:
         model_stdout_path, model_stderr_path = run / "model.stdout.log", run / "model.stderr.log"
         model_stdout, model_stderr = model_stdout_path.open("xb", buffering=0), model_stderr_path.open("xb", buffering=0)
         os.chmod(model_stdout_path, 0o600); os.chmod(model_stderr_path, 0o600)
-        logs.extend((model_stdout_path, model_stderr_path))
+        model_logs.extend((model_stdout_path, model_stderr_path))
         model_env = {
             "HOME": os.fspath(model_home), "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8",
             "NO_PROXY": "127.0.0.1,localhost", "OLLAMA_HOST": f"127.0.0.1:{model_port}",
@@ -430,12 +431,12 @@ def execute() -> dict[str, object]:
             cell_run = run / f"cell-run-{start_index + 1}"
             cell_run.mkdir(mode=0o700)
             proof = cell_sandbox.create_proof(cell_run / "cell-network-proof.json", ttl_seconds=300)
-            cell_process, cell_port, cell_logs = _start_cell(
+            cell_process, cell_port, current_cell_logs = _start_cell(
                 source=source, run=cell_run, handles=handles, model_endpoint=endpoint,
                 sandbox=cell_sandbox, proof=proof,
             )
             ports.append(cell_port)
-            logs.extend(cell_logs)
+            cell_logs.extend(current_cell_logs)
             for _ in range(3):
                 _wait_json(f"http://127.0.0.1:{cell_port}/api/health", cell_process, timeout=10, field="ok")
                 health_checks += 1
@@ -465,7 +466,7 @@ def execute() -> dict[str, object]:
     if any(not _port_closed(port) for port in ports):
         raise ClosedRuntimeError("closed_runtime_port_open")
     handles.validate_unchanged()
-    leak_count = handles.secret_leak_count(logs)
+    leak_count = handles.secret_leak_count((*model_logs, *cell_logs)) + handles.identity_leak_count(cell_logs)
     if leak_count:
         raise ClosedRuntimeError("closed_runtime_secret_leak")
     if (
@@ -480,6 +481,7 @@ def execute() -> dict[str, object]:
         "status": "CLEAR_CLOSED_RUNTIME_ONLY",
         "bindings": {"plan_sha256": plan_sha, "selection_sha256": selection_sha},
         "credential_handles": {"resolved": 2, "leak_count": 0},
+        "process_separation": {"model_credential_keys": 0, "model_identity": False},
         "network": {"model_worker": "CLEAR", "ernie_cell": "CLEAR", "external_access": False},
         "model_evaluation": {"passed": 12, "total": 12, "concurrency_passed": 2, "concurrency_total": 2},
         "ernie_cell": {"startups": 2, "restarts": 1, "health_checks": health_checks},
