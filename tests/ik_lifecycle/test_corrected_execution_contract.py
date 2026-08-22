@@ -12,7 +12,12 @@ from ik_lifecycle.correction_contract import (
     bind_correction_contract,
     validate_correction_contract,
 )
-from ik_lifecycle.execution_plan import bind_execution_plan, validate_corrected_execution_plan
+from ik_lifecycle.execution_plan import (
+    bind_execution_approval,
+    bind_execution_plan,
+    validate_corrected_execution_plan,
+    validate_execution_approval_binding,
+)
 from ik_lifecycle.models import LifecycleBlockedError
 
 
@@ -108,6 +113,32 @@ class CorrectedExecutionContractTests(unittest.TestCase):
         with self.assertRaises(LifecycleBlockedError) as error:
             validate_corrected_execution_plan(old_plan)
         self.assertEqual(error.exception.code, "corrected_execution_plan_schema_invalid")
+
+        corrected = {
+            "schema_id": "ik.hermes.corrected-composed-execution-plan.v3",
+            "plan_sha256": "3" * 64,
+            "commands_sha256": "4" * 64,
+            "batches": [{"commands": [{"command_sha256": "5" * 64}]}],
+        }
+        old_approval = bind_execution_approval({
+            "schema_id": "ik.hermes.execution-approval.v1",
+            "status": "APPROVED",
+            "approved_at": "2026-08-21T17:00:00+00:00",
+            "expires_at": "2026-08-21T17:10:00+00:00",
+            "plan_sha256": "1" * 64,
+            "commands_sha256": "2" * 64,
+            "command_digests": ["6" * 64],
+            "scope": "exact_composed_candidate_batch",
+        })
+        from datetime import datetime, timezone
+
+        with self.assertRaises(LifecycleBlockedError) as approval:
+            validate_execution_approval_binding(
+                corrected,
+                old_approval,
+                now=datetime(2026, 8, 21, 17, 5, tzinfo=timezone.utc),
+            )
+        self.assertEqual(approval.exception.code, "execution_approval_mismatch")
 
 
 if __name__ == "__main__":

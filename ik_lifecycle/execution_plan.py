@@ -372,6 +372,39 @@ def _approval_time(value: object, code: str) -> datetime:
     return parsed.astimezone(timezone.utc)
 
 
+def validate_execution_approval_binding(
+    plan: Mapping[str, Any],
+    approval: Mapping[str, Any] | None,
+    *,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    """Validate only the approval's schema, time, scope and exact digest bindings."""
+
+    if approval is None:
+        raise LifecycleBlockedError("execution_approval_missing", "separate exact execution approval is required")
+    if approval.get("schema_id") != APPROVAL_SCHEMA_ID or approval.get("status") != "APPROVED":
+        raise LifecycleBlockedError("execution_approval_invalid", "execution approval is not APPROVED")
+    if approval.get("approval_sha256") != _digest(_unsigned(approval, "approval_sha256")):
+        raise LifecycleBlockedError("execution_approval_digest_invalid", "execution approval digest is invalid")
+    current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    if current < _approval_time(approval.get("approved_at"), "execution_approval_invalid") or current > _approval_time(approval.get("expires_at"), "execution_approval_stale"):
+        raise LifecycleBlockedError("execution_approval_stale", "execution approval is outside its validity window")
+    command_digests = [command["command_sha256"] for batch in plan.get("batches", []) for command in batch.get("commands", [])]
+    required_scope = (
+        "exact_corrected_composed_candidate_batch_v3"
+        if plan.get("schema_id") == CORRECTED_SCHEMA_ID
+        else "exact_composed_candidate_batch"
+    )
+    if (
+        approval.get("plan_sha256") != plan.get("plan_sha256")
+        or approval.get("commands_sha256") != plan.get("commands_sha256")
+        or approval.get("command_digests") != command_digests
+        or approval.get("scope") != required_scope
+    ):
+        raise LifecycleBlockedError("execution_approval_mismatch", "execution approval does not bind the exact plan")
+    return {"current": current, "command_digests": command_digests}
+
+
 def validate_execution_authorization(
     plan: Mapping[str, Any],
     approval: Mapping[str, Any] | None,
@@ -383,31 +416,11 @@ def validate_execution_authorization(
 
     if plan.get("schema_id") == CORRECTED_SCHEMA_ID:
         validate_corrected_execution_plan(plan)
-        required_scope = "exact_corrected_composed_candidate_batch_v3"
     else:
         validate_composed_execution_plan(plan)
-        required_scope = "exact_composed_candidate_batch"
-    if approval is None:
-        raise LifecycleBlockedError("execution_approval_missing", "separate exact execution approval is required")
-    if approval.get("schema_id") != APPROVAL_SCHEMA_ID or approval.get("status") != "APPROVED":
-        raise LifecycleBlockedError("execution_approval_invalid", "execution approval is not APPROVED")
-    if approval.get("approval_sha256") != _digest(_unsigned(approval, "approval_sha256")):
-        raise LifecycleBlockedError("execution_approval_digest_invalid", "execution approval digest is invalid")
-    current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
-    if current < _approval_time(approval.get("approved_at"), "execution_approval_invalid") or current > _approval_time(approval.get("expires_at"), "execution_approval_stale"):
-        raise LifecycleBlockedError("execution_approval_stale", "execution approval is outside its validity window")
-    command_digests = [
-        command["command_sha256"]
-        for batch in plan.get("batches", [])
-        for command in batch.get("commands", [])
-    ]
-    if (
-        approval.get("plan_sha256") != plan.get("plan_sha256")
-        or approval.get("commands_sha256") != plan.get("commands_sha256")
-        or approval.get("command_digests") != command_digests
-        or approval.get("scope") != required_scope
-    ):
-        raise LifecycleBlockedError("execution_approval_mismatch", "execution approval does not bind the exact plan")
+    binding = validate_execution_approval_binding(plan, approval, now=now)
+    current = binding["current"]
+    command_digests = binding["command_digests"]
     isolation = plan["network_isolation"]
     proof = validate_network_proof(
         proof_path,
