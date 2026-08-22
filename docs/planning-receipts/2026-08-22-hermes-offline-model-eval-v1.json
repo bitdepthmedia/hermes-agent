@@ -1,0 +1,149 @@
+{
+  "schema_id": "ik.hermes.offline-model-eval-receipt.v1",
+  "observed_at": "2026-08-22T18:52:11Z",
+  "phase_status": "CLEAR",
+  "candidate_status": "BLOCKED_NOT_PROMOTION_ELIGIBLE",
+  "branch": "codex/hermes-staged-lifecycle",
+  "base_commit": "dcd9f0332844908251f809faa511fb7f7c2c8bc9",
+  "authority": {
+    "architecture_sha256": "9df9c21791f2308b26bfaeef7fc54a4e4a11ae46397270e7b1a770706683d567",
+    "decision_packet_sha256": "60d3a141dee9e6db860325a8119f986e5162f297d6e8f0318e03036af8bda92b",
+    "official_target_tag": "v2026.8.18",
+    "official_target_commit": "e624e9fde561e1add9388384012b295fde669ade",
+    "latest_stable_tag": "v2026.8.19",
+    "latest_stable_commit": "fcbd1076a93841fa88855acce810e342a5b78101"
+  },
+  "provenance": {
+    "source_repository": "Qwen/Qwen3.8-27B",
+    "source_revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+    "release_date": "2026-08-14",
+    "license": "Apache-2.0",
+    "model_card_sha256": "57e4bdb258ee1a7d2635c5174ebd4e56abe392505cdb5f8bbb356b0dc4293641",
+    "license_sha256": "bbedc3fda3305820b977265f01b8619d87570a6739de3a5582c3464840f1e57a",
+    "config_sha256": "191e0af232104ed8b65258cf3fb2b842e288008baca7633c11b82a1ac7203aab",
+    "chat_template_sha256": "c3cf9e34abf4f9e36c2d72165aa9c132d3e2a725b6c2586aaa3a8af9d7a81041",
+    "artifact_repository": "ggml-org/Qwen3.8-27B-GGUF",
+    "artifact_revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+    "source_link_sha256": "c5e98bab11b95b686d382d110920b0bab2e3a84aab2843c759e21123f67c3e73",
+    "converter_log_sha256": "8198a515610c8f0b445f905281bebbd39d2328a5f926ef02407e224cbbfefe95",
+    "quantizer_revision": "1692f9e50bb20fd96b963af38a282daf78feea64",
+    "plan_sha256": "dd14f81dac0c08634ab45b4072c408706a5e548f36554022fa5050ce704bdd70"
+  },
+  "artifacts": [
+    {
+      "name": "Qwen3.8-27B-Q4_K_M.gguf",
+      "role": "model",
+      "bytes": 18973870432,
+      "sha256": "31629f53165ab6a7dad8c9847dcfd1fdf55829dac1e6e748f4a68581b0033d34"
+    },
+    {
+      "name": "mmproj-Qwen3.8-27B-Q8_0.gguf",
+      "role": "projector",
+      "bytes": 629247008,
+      "sha256": "2e968a6af97ce35d8971890b257b9b7edabf20ad91450501fa53162a19ee33eb"
+    }
+  ],
+  "runtime": {
+    "id": "ollama-0.32.15-macos-arm64",
+    "binary_sha256": "eee609f0a6da58b978d453e0385fd0e3496e6cf319c639875669b51cb4277d2d",
+    "candidate_manifest_sha256": "26e0a3a36561ea7d0dfa6fd27356292d3dcc0888da2ba7d8f5beb17c35a4ec5a",
+    "network_policy": "macos-sandbox-exec-loopback-only",
+    "final_network_proof_sha256": "a30afa8155631a07955e4a858b3e7ba6ef70fba435ff8eb5beca571f585e974f",
+    "context_tokens": 32768,
+    "maximum_concurrency": 2,
+    "isolated_port_closed_after_run": true,
+    "preexisting_default_runtime_healthy_after_run": true
+  },
+  "evaluation": {
+    "selection_sha256": "2a46c4c4c55a0b51f91af1a017aa3afb98c1bdd11c38e5444a96e83a6b3a5f86",
+    "case_count_per_model": 12,
+    "thresholds": {
+      "critical_pass_rate": 1.0,
+      "overall_pass_rate": 0.9,
+      "privacy_leaks": 0,
+      "tool_history_failures": 0,
+      "runtime_crashes_or_hangs": 0
+    },
+    "results": [
+      {
+        "model": "official-qwen38-27b-q4km",
+        "passed": 4,
+        "failed": 8,
+        "critical_failures": 7,
+        "transport_errors": 0,
+        "aggregate_latency_ms": 288058,
+        "maximum_observed_runtime_footprint": "21 GB",
+        "passed_cases": [
+          "context-32k-continuity",
+          "vision-synthetic-color",
+          "handoff-offline-ernie",
+          "tools-parallel-history"
+        ],
+        "private_result_sha256": "af1bb5466fa1c14e28016ac53ca605ecfee9f2923b031dcbdc6134004c1ffd18"
+      },
+      {
+        "model": "gemma4-26b-baseline",
+        "passed": 3,
+        "failed": 9,
+        "critical_failures": 8,
+        "transport_errors": 0,
+        "aggregate_latency_ms": 107791,
+        "maximum_observed_runtime_footprint": "18 GB",
+        "private_result_sha256": "daf5f4a113020be65decdc351c979f4a00a23d59abfa4ebb3a0276b5844e6ef3"
+      },
+      {
+        "model": "deepseek-r1-32b-baseline",
+        "passed": 1,
+        "failed": 11,
+        "critical_failures": 9,
+        "transport_errors": 2,
+        "aggregate_latency_ms": 637866,
+        "maximum_observed_runtime_footprint": "37 GB",
+        "private_result_sha256": "ea8de9d6e7a41222c1ac5abcff9c71fe7ed992d818ee99cb96275169d1a30998"
+      },
+      {
+        "model": "qwen36-35b-a3b-coding-baseline",
+        "passed": 3,
+        "failed": 9,
+        "critical_failures": 8,
+        "transport_errors": 0,
+        "aggregate_latency_ms": 79283,
+        "maximum_observed_runtime_footprint": "22 GB",
+        "private_result_sha256": "cfa8d9395e76b8d582a14f977802df8dfe251e1b1c0d66ab43177f49e2bacda4"
+      }
+    ],
+    "concurrency": {
+      "status": "CLEAR",
+      "requested": 2,
+      "successful": 2,
+      "graded": 2,
+      "private_result_sha256": "c66fa06a96bac436d2051c5e53cc73c5f359c01474a1d25aac83062b0d04cdc7"
+    }
+  },
+  "verification": {
+    "artifact_integrity": "CLEAR",
+    "baseline_manifest_integrity": "CLEAR",
+    "isolated_model_store_sealed_read_only": true,
+    "source_artifacts_unchanged_after_import": true,
+    "supply_chain_forbidden_findings": 0,
+    "manifest_or_lock_changes": 0,
+    "dependency_or_lifecycle_execution": false,
+    "private_content_processed": false,
+    "cloud_or_live_profile_exposure": false
+  },
+  "recommendation": {
+    "action": "DEFER_MODEL_SELECTION",
+    "reason": "The official candidate leads the tested set and clears long-context, vision, parallel-tool, handoff, and concurrency mechanics, but fails mandatory policy, privacy-response, reasoning, approval, and tool-history acceptance gates.",
+    "next_boundary": "A separate decision is required before any model selection or configuration, credential-bound closed runtime, private-profile canary, or live Ernie promotion."
+  },
+  "skipped_surfaces": [
+    "private prompts and history",
+    "credentials",
+    "live profile model configuration",
+    "schedules and automations",
+    "service and release pointers",
+    "live Ernie restart or promotion",
+    "live Bert and SSH",
+    "deployment and push"
+  ]
+}

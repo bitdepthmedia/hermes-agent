@@ -32,6 +32,13 @@ class ModelWorkerTests(unittest.TestCase):
         self.assertEqual(normalized[0]["tool_calls"][1]["function"]["arguments"], "{\"y\":2}")
         self.assertEqual(normalized[0]["reasoning"], "kept")
 
+    def test_qwen38_history_preserves_mapping_required_by_official_template(self) -> None:
+        messages = ({"role": "assistant", "tool_calls": [
+            {"id": "a", "type": "function", "function": {"name": "one", "arguments": "{\"x\":1}"}},
+        ]}, {"role": "tool", "tool_call_id": "a", "content": "ok"})
+        normalized = normalize_tool_history(messages, dialect="qwen3.8")
+        self.assertEqual(normalized[0]["tool_calls"][0]["function"]["arguments"], {"x": 1})
+
     def test_primary_artifact_requires_official_complete_provenance(self) -> None:
         official = ArtifactManifest("Qwen/Qwen3.8-27B", "1" * 40, "apache-2.0", "c" * 64, "a" * 64, "Q4_K_M", "llama.cpp@pinned", 17_000_000_000, "f" * 64, True)
         self.assertEqual(verify_artifact_provenance(official).status, "CLEAR")

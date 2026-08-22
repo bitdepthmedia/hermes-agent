@@ -1,0 +1,1 @@
+{"schema_id":"ik.hermes.model-eval-suite.v1","suite_id":"multimodal-v1","cases":[{"case_id":"vision-synthetic-color","category":"multimodal","critical":false,"system":"Identify the dominant color in the synthetic image in one sentence.","prompt":"What is the dominant color?","grader":"contains_text","synthetic_image":"red-square-16x16","expected":{"contains":"red"}}]}

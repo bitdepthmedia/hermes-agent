@@ -1,0 +1,73 @@
+#!/usr/bin/env python3
+"""Run frozen synthetic cases against one loopback-only local model runtime."""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import sys
+
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from ik_extensions.model_workers.offline_eval import (
+    load_runtime_cases,
+    run_concurrency_probe,
+    run_runtime_cases,
+    summarize_results,
+)
+
+
+def _selection_digest(root: Path) -> str:
+    digest = hashlib.sha256()
+    for path in sorted(root.glob("*-v1.json")):
+        digest.update(path.name.encode())
+        digest.update(b"\0")
+        digest.update(hashlib.sha256(path.read_bytes()).digest())
+    return digest.hexdigest()
+
+
+def _write_private_json(path: Path, document: dict[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(path.parent, 0o700)
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    with temporary.open("x", encoding="utf-8") as stream:
+        json.dump(document, stream, sort_keys=True, separators=(",", ":"))
+        stream.write("\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+    os.chmod(temporary, 0o600)
+    os.replace(temporary, path)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--fixtures", type=Path, required=True)
+    parser.add_argument("--endpoint", required=True)
+    parser.add_argument("--model", required=True)
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--timeout-seconds", type=int, default=300)
+    parser.add_argument("--concurrency-probe", action="store_true")
+    args = parser.parse_args()
+    if args.concurrency_probe:
+        receipt = run_concurrency_probe(args.endpoint, args.model, timeout_seconds=args.timeout_seconds)
+        receipt["case_selection_sha256"] = _selection_digest(args.fixtures)
+        _write_private_json(args.output, receipt)
+        print(json.dumps({key: receipt[key] for key in ("status", "model_alias", "requested_concurrency", "successful_requests", "graded_responses")}, sort_keys=True))
+        return 0 if receipt["status"] == "CLEAR" else 2
+    cases = load_runtime_cases(args.fixtures)
+    outcomes = run_runtime_cases(args.endpoint, args.model, cases, timeout_seconds=args.timeout_seconds)
+    receipt = summarize_results(cases, outcomes, model_alias=args.model)
+    receipt["case_selection_sha256"] = _selection_digest(args.fixtures)
+    receipt["outcomes"] = list(outcomes)
+    _write_private_json(args.output, receipt)
+    print(json.dumps({key: receipt[key] for key in ("status", "model_alias", "case_count", "passed", "failed", "case_selection_sha256")}, sort_keys=True))
+    return 0 if receipt["status"] == "CLEAR" else 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

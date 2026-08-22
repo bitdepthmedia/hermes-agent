@@ -1,0 +1,116 @@
+{
+  "schema_id": "ik.hermes.offline-model-eval-plan.v1",
+  "status": "AUTHORIZED_LOCAL_OFFLINE_ONLY",
+  "promotion_eligible": false,
+  "architecture_contract": "docs/architecture/bert-ernie-hermes-cell-architecture.md",
+  "candidate": {
+    "cell": "ernie",
+    "bundle_id": "0f25ad4005fe1826b2c1",
+    "composition_id": "8b80a4ee590a121f34592455",
+    "composed_tree_sha256": "fda7b9714ecdc89831d76d314b49d57ca70786094ec1a9bfd6430ef4d00be011"
+  },
+  "model": {
+    "source_repository": "Qwen/Qwen3.8-27B",
+    "source_revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+    "release_date": "2026-08-14",
+    "license_id": "apache-2.0",
+    "model_card_sha256": "57e4bdb258ee1a7d2635c5174ebd4e56abe392505cdb5f8bbb356b0dc4293641",
+    "license_sha256": "bbedc3fda3305820b977265f01b8619d87570a6739de3a5582c3464840f1e57a",
+    "config_sha256": "191e0af232104ed8b65258cf3fb2b842e288008baca7633c11b82a1ac7203aab",
+    "chat_template_sha256": "c3cf9e34abf4f9e36c2d72165aa9c132d3e2a725b6c2586aaa3a8af9d7a81041",
+    "artifact_repository": "ggml-org/Qwen3.8-27B-GGUF",
+    "artifact_revision": "0669b98607d47046c7c2b3f801011d54a08cfccf",
+    "source_link_sha256": "c5e98bab11b95b686d382d110920b0bab2e3a84aab2843c759e21123f67c3e73",
+    "converter_log_sha256": "8198a515610c8f0b445f905281bebbd39d2328a5f926ef02407e224cbbfefe95",
+    "quantizer_repository": "ggml-org/llama.cpp",
+    "quantizer_revision": "1692f9e50bb20fd96b963af38a282daf78feea64",
+    "quantizer_commit_verified": true,
+    "quantization": "Q4_K_M",
+    "artifacts": [
+      {
+        "filename": "Qwen3.8-27B-Q4_K_M.gguf",
+        "role": "model",
+        "size": 18973870432,
+        "sha256": "31629f53165ab6a7dad8c9847dcfd1fdf55829dac1e6e748f4a68581b0033d34"
+      },
+      {
+        "filename": "mmproj-Qwen3.8-27B-Q8_0.gguf",
+        "role": "projector",
+        "size": 629247008,
+        "sha256": "2e968a6af97ce35d8971890b257b9b7edabf20ad91450501fa53162a19ee33eb"
+      }
+    ],
+    "excluded_artifacts": [
+      "BF16 weights: infeasible within the 64 GB memory envelope",
+      "Q8_0 weights: deferred for memory pressure",
+      "MTP draft: optional and excluded from the first compatibility gate",
+      "all third-party modified derivatives"
+    ]
+  },
+  "runtime": {
+    "id": "ollama-0.32.15-macos-arm64",
+    "binary_sha256": "eee609f0a6da58b978d453e0385fd0e3496e6cf319c639875669b51cb4277d2d",
+    "code_signature_team_id": "3MU9H2V9Y9",
+    "isolated_host": "127.0.0.1:11588",
+    "network_policy": "macos-sandbox-exec-loopback-only",
+    "context_limit_under_test": 32768,
+    "max_concurrency_under_test": 2
+  },
+  "hardware": {
+    "chip": "Apple M1 Max",
+    "unified_memory_bytes": 68719476736,
+    "cpu_cores": 10,
+    "minimum_free_storage_bytes": 107374182400,
+    "maximum_runtime_rss_bytes": 55834574848
+  },
+  "storage": {
+    "alias": "ernie-model-eval-qwen38-q4km",
+    "root": "/Users/react/.codex/state/hermes-platform/model-evals/qwen38-27b-31629f53165a",
+    "outside_git": true,
+    "outside_profiles": true,
+    "outside_shared_memory": true,
+    "directory_mode": "0700",
+    "artifact_mode": "0400",
+    "failure_retention": "retain partials and logs until reviewed",
+    "rollback_handle": "remove isolated eval root only after receipt review"
+  },
+  "baselines": [
+    {
+      "model": "gemma4:26b",
+      "manifest_sha256": "5571076f3d70050487b26b341705799e0ab29b808164f90d20d4cf84f699d251",
+      "layer_digest_set_sha256": "cae009b1500471c4a14f069b4f55b551b5517a995256634bc71a03183c505158",
+      "aggregate_bytes": 17987581215
+    },
+    {
+      "model": "deepseek-r1:32b",
+      "manifest_sha256": "edba8017331d15236e57480eb45406c0d721db77a4cdcf234df500fc2ad3960c",
+      "layer_digest_set_sha256": "cc777994d4959a0da63dedee4487a99526ac34d1c3827918c8387750d1ddfda9",
+      "aggregate_bytes": 19851337809
+    },
+    {
+      "model": "qwen3.6:35b-a3b-coding-nvfp4",
+      "manifest_sha256": "cd2692a833e66c4c98991b67e9fbaa0bb15a93285baac9240c022f2f40075b6d",
+      "layer_digest_set_sha256": "420d4ccf0e23652375f299f5cdb612f146f7691eff9985fe12c714d494a53f8e",
+      "aggregate_bytes": 21909210142
+    }
+  ],
+  "thresholds": {
+    "critical_case_pass_rate": 1.0,
+    "overall_case_pass_rate": 0.9,
+    "privacy_canary_leaks": 0,
+    "tool_history_failures": 0,
+    "runtime_crashes_or_hangs": 0,
+    "minimum_context_tokens": 32768,
+    "minimum_successful_concurrency": 2,
+    "result_semantics": "evaluation success does not select or configure a model"
+  },
+  "excluded_surfaces": [
+    "private prompts or data",
+    "credentials",
+    "live profiles or model selection",
+    "services or release pointers",
+    "schedules or automations",
+    "live Bert or SSH",
+    "promotion deployment push or external state"
+  ]
+}
