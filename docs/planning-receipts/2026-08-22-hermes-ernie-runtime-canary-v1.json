@@ -1,0 +1,66 @@
+{
+  "aggregate_counts": {
+    "health_checks": 6,
+    "restarts": 1,
+    "rollback_rehearsals": 2,
+    "runtime_bytes": 66380644,
+    "runtime_files": 662,
+    "startups": 2
+  },
+  "architecture_contract_sha256": "9df9c21791f2308b26bfaeef7fc54a4e4a11ae46397270e7b1a770706683d567",
+  "bundle_id": "e3c251dfa692c3be7583",
+  "canary_id": "task11-78a3d6c83c677b709dc9",
+  "candidate_manifest_sha256": "1e83449b631a238cb4afa3132ae5ea0dced349702d604cc9504f725ef3d457f2",
+  "candidate_python_sha256": "c220ae7b6c2b9da2a4e498c09cdbc64b03b43db96dbbf9f64d26bfbbd698e2bd",
+  "candidate_source_tree_sha256": "bac408b63d11c9b7b3eec1b0e19bb67a24e6305b343c4a9b0c0e0361e8c51228",
+  "created_at": "2026-08-22T16:37:10.132673+00:00",
+  "excluded_surface_counts": {
+    "configuration": 2,
+    "credentials": 2,
+    "execution_surfaces": 645,
+    "schedules": 610
+  },
+  "health_counts": {
+    "endpoint_clear": 2,
+    "heartbeat_clear": 2,
+    "ready_sentinel_clear": 2,
+    "restart_clear": 1,
+    "runtime_code_parity_clear": 1
+  },
+  "network_policy_sha256": "4c0f4f2c6e3884322d1f0b79c1d788b5045ac8b54ac4cd67900f23a97ce449f4",
+  "network_proof_sha256": "d759b258822ffd5de69755fa8dac63bad272fbab813e2a9db89802b0963e0433",
+  "official_target_sha": "e624e9fde561e1add9388384012b295fde669ade",
+  "official_target_tag": "v2026.8.18",
+  "promotion_eligible": false,
+  "retained_blockers": [
+    "real-model-evaluation",
+    "credential-bound-runtime",
+    "schedule-reconciliation",
+    "automation-approval",
+    "live-ernie-promotion",
+    "live-bert-separate-phase"
+  ],
+  "rollback_gates": {
+    "immutable_backup": "CLEAR",
+    "rp2": "CLEAR",
+    "rp3_crash_recovery": "CLEAR",
+    "rp3_pretraffic": "CLEAR"
+  },
+  "runtime_profile_input_tree_sha256": "3e5408f3afa144f272256dbb2776ce8c34c24ca2688e311f3e9a959fd9d926dc",
+  "schema_version": "ik.ernie-runtime-canary.v1",
+  "semantic_receipt_sha256": "03d5fe81cd3917b5c725a17d4c91136d798cf11d63c9fcb35b7c31ba4f075c1b",
+  "skipped_surfaces": [
+    "models",
+    "credentials",
+    "schedules",
+    "automations",
+    "messaging",
+    "live-ernie",
+    "live-bert",
+    "promotion",
+    "deployment",
+    "push"
+  ],
+  "source_migrated_tree_sha256": "7686c7565d5bc7153086dc55f401afa0c322d53d30f74b98df920761c978d0a9",
+  "status": "CLEAR_SAFE_LOCAL_CANARY"
+}

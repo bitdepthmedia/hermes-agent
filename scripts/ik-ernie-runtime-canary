@@ -1,0 +1,164 @@
+#!/usr/bin/env python3
+"""Run the approved Ernie-first isolated runtime canary and RP2/RP3 rehearsal."""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, os.fspath(REPO_ROOT))
+
+from ik_lifecycle.ernie_canary import (  # noqa: E402
+    CanaryError,
+    CanaryRequest,
+    ErnieCanaryEngine,
+    receipt_is_redacted,
+)
+from ik_lifecycle.semantic_rehearsal import (  # noqa: E402
+    SemanticContinuityError,
+    SemanticRehearsalEngine,
+    SemanticRehearsalRequest,
+)
+
+
+PUBLIC_SNAPSHOT_RECEIPT = REPO_ROOT / "docs/planning-receipts/2026-08-21-hermes-ernie-opaque-continuity-v1.json"
+PUBLIC_SEMANTIC_RECEIPT = REPO_ROOT / "docs/planning-receipts/2026-08-22-hermes-ernie-semantic-continuity-v6.json"
+ARCHITECTURE_CONTRACT = REPO_ROOT / "docs/architecture/bert-ernie-hermes-cell-architecture.md"
+CANDIDATE_OUTCOME = REPO_ROOT / "docs/planning-receipts/2026-08-21-hermes-architecture-complete-execution-outcome-v4.json"
+CANDIDATE_PYTHON = Path("/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/env/python/bin/python")
+
+
+def _git_common_dir() -> Path:
+    try:
+        output = subprocess.run(
+            ["/usr/bin/git", "-C", os.fspath(REPO_ROOT), "rev-parse", "--path-format=absolute", "--git-common-dir"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        ).stdout.strip()
+    except (OSError, subprocess.SubprocessError) as error:
+        raise CanaryError("repository_metadata_unavailable") from error
+    return Path(output)
+
+
+def _load(path: Path, code: str) -> dict[str, object]:
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise CanaryError(code) from error
+    if not isinstance(document, dict) or document.get("status") != "CLEAR":
+        raise CanaryError(code)
+    return document
+
+
+def _bindings() -> tuple[SemanticRehearsalRequest, dict[str, object], dict[str, object]]:
+    snapshot = _load(PUBLIC_SNAPSHOT_RECEIPT, "public_snapshot_receipt_invalid")
+    semantic = _load(PUBLIC_SEMANTIC_RECEIPT, "public_semantic_receipt_invalid")
+    outcome = _load(CANDIDATE_OUTCOME, "candidate_outcome_invalid")
+    try:
+        release = outcome["release_bundle"]
+        release_root = Path(release["root"])
+        manifest = release_root / "release-manifest.json"
+        manifest_sha256 = str(release["manifest_sha256"])
+    except (KeyError, TypeError) as error:
+        raise CanaryError("candidate_outcome_invalid") from error
+    if not isinstance(release, dict) or release.get("status") != "SEALED_CODE_ONLY":
+        raise CanaryError("candidate_outcome_invalid")
+    common = _git_common_dir()
+    canonical_checkout = common.parent
+    stack_root = canonical_checkout.parent.parent
+    storage = Path.home() / "Library/Application Support/NateOS/OpaqueContinuity/ernie-private-cell"
+    architecture_sha256 = hashlib.sha256(ARCHITECTURE_CONTRACT.read_bytes()).hexdigest()
+    rehearsal_id = str(semantic.get("rehearsal_id", ""))
+    semantic_request = SemanticRehearsalRequest(
+        storage_root=storage,
+        snapshot_id=str(snapshot["snapshot_id"]),
+        rollback_handle=str(snapshot["rollback_handle"]),
+        rehearsal_id=rehearsal_id,
+        expected_snapshot_tree_sha256=str(snapshot["snapshot_tree_sha256"]),
+        expected_archive_sha256=str(snapshot["archive_sha256"]),
+        expected_archive_hmac_sha256=str(snapshot["archive_hmac_sha256"]),
+        architecture_contract_sha256=architecture_sha256,
+        candidate_source_root=release_root / "source",
+        candidate_manifest_path=manifest,
+        expected_candidate_manifest_sha256=manifest_sha256,
+        candidate_python=CANDIDATE_PYTHON,
+        expected_candidate_python_sha256=hashlib.sha256(CANDIDATE_PYTHON.resolve().read_bytes()).hexdigest(),
+        denied_roots=(
+            REPO_ROOT,
+            canonical_checkout,
+            stack_root / "shared-memory",
+            Path.home() / "Documents/_IK_International/AI/_apps/nate-os",
+        ),
+    )
+    return semantic_request, snapshot, outcome
+
+
+def _request() -> CanaryRequest:
+    semantic_request, snapshot, outcome = _bindings()
+    try:
+        rehearsal = SemanticRehearsalEngine().execute(semantic_request)
+    except SemanticContinuityError as error:
+        raise CanaryError("semantic_rehearsal_binding_invalid") from error
+    public_semantic_sha256 = hashlib.sha256(PUBLIC_SEMANTIC_RECEIPT.read_bytes()).hexdigest()
+    release = outcome["release_bundle"]
+    release_root = Path(release["root"])
+    manifest = release_root / "release-manifest.json"
+    manifest_document = json.loads(manifest.read_text(encoding="utf-8"))
+    identity = manifest_document["identity"]
+    seed = "\0".join(
+        (
+            "task11-v5",
+            str(release["bundle_id"]),
+            str(rehearsal.receipt.migrated_tree_sha256),
+            public_semantic_sha256,
+        )
+    )
+    canary_id = "task11-" + hashlib.sha256(seed.encode()).hexdigest()[:20]
+    return CanaryRequest(
+        storage_root=semantic_request.storage_root,
+        migrated_profile_root=rehearsal.migrated_root,
+        expected_migrated_tree_sha256=rehearsal.receipt.migrated_tree_sha256,
+        semantic_receipt_sha256=public_semantic_sha256,
+        architecture_contract_sha256=semantic_request.architecture_contract_sha256,
+        candidate_release_root=release_root,
+        candidate_source_root=release_root / "source",
+        candidate_manifest_path=manifest,
+        expected_candidate_manifest_sha256=str(release["manifest_sha256"]),
+        candidate_python=CANDIDATE_PYTHON,
+        expected_candidate_python_sha256=semantic_request.expected_candidate_python_sha256,
+        bundle_id=str(release["bundle_id"]),
+        official_target_tag=str(identity["target_tag"]),
+        official_target_sha=str(identity["target_commit_sha"]),
+        canary_id=canary_id,
+        denied_roots=semantic_request.denied_roots,
+        rollback_artifact_path=(semantic_request.storage_root / "backups" / semantic_request.snapshot_id / "snapshot.enc"),
+        expected_rollback_artifact_sha256=str(snapshot["archive_sha256"]),
+    )
+
+
+def main() -> int:
+    result = ErnieCanaryEngine().execute(_request())
+    payload = result.receipt.to_dict()
+    if not receipt_is_redacted(payload):
+        raise CanaryError("receipt_privacy_gate_failed")
+    print(json.dumps(payload, sort_keys=True, separators=(",", ":")))
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except CanaryError as error:
+        print(json.dumps({"schema_version": "ik.ernie-runtime-canary-error.v1", "status": "BLOCKED", "code": str(error)}, sort_keys=True))
+        raise SystemExit(2)
+    except Exception:
+        print(json.dumps({"schema_version": "ik.ernie-runtime-canary-error.v1", "status": "BLOCKED", "code": "unexpected_local_execution_failure"}, sort_keys=True))
+        raise SystemExit(2)

@@ -1,0 +1,35 @@
+{
+  "schema_id": "ik.ernie-cell-acceptance.v1",
+  "suite_id": "ernie-cell-task-11-safe-local-canary",
+  "phase": "ernie-first-isolated-canary",
+  "required_gates": [
+    "candidate_identity",
+    "semantic_clone_binding",
+    "profile_isolation",
+    "loopback_only",
+    "network_denial",
+    "startup",
+    "health",
+    "heartbeat",
+    "restart",
+    "runtime_code_parity",
+    "rp2",
+    "rp3",
+    "backup_immutability",
+    "redacted_receipt"
+  ],
+  "excluded_surfaces": [
+    "model",
+    "credentials",
+    "schedules",
+    "automations",
+    "messaging",
+    "live_ernie",
+    "live_bert",
+    "promotion",
+    "deployment",
+    "push"
+  ],
+  "promotion_eligible": false,
+  "authority": "docs/architecture/bert-ernie-hermes-cell-architecture.md"
+}

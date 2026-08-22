@@ -8,6 +8,10 @@ from pathlib import Path
 from typing import Mapping
 
 
+_MODEL_EVAL_SCHEMA = "ik.hermes.model-eval-suite.v1"
+_EXPLICIT_NON_MODEL_SCHEMAS = frozenset({"ik.ernie-cell-acceptance.v1"})
+
+
 @dataclass(frozen=True)
 class EvalCase:
     case_id: str
@@ -27,7 +31,10 @@ def load_cases(root: Path) -> tuple[EvalCase, ...]:
     cases: list[EvalCase] = []
     for path in sorted(Path(root).glob("*-v1.json")):
         document = json.loads(path.read_text(encoding="utf-8"))
-        if document.get("schema_id") != "ik.hermes.model-eval-suite.v1":
+        schema = document.get("schema_id")
+        if schema in _EXPLICIT_NON_MODEL_SCHEMAS:
+            continue
+        if schema != _MODEL_EVAL_SCHEMA:
             raise ValueError(f"eval suite schema mismatch: {path.name}")
         for raw in document.get("cases", []):
             cases.append(EvalCase(raw["case_id"], raw["category"], bool(raw["critical"]), raw["expected"]))
