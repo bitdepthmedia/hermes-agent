@@ -1,0 +1,56 @@
+{
+  "bindings": {
+    "approval_api_sha256": "39c64e1d09afc42b1b49cc27826009808b9aaf6709c6e066f3e80795b61c6965",
+    "approval_schema_sha256": "2f50d00f2266ace102e0b35b721e8fded0da4331f9e538210447adb0151f9e64",
+    "bundle_id": "80cc9faa36c7af0bcb67",
+    "bundle_manifest_sha256": "632524c35625adf2897eda6d4c54b081a8ac23f2bd51453a7367959ebb6e6fc1",
+    "closed_runtime_plan_sha256": "f99fa0c53d6b67fa54dfca9d52e62fa81b02a27848c86b9380d27a5167aed67f",
+    "composed_tree_sha256": "d8ab4463ca7e660633ccc275df7d72ea508fa4ff9978da430c1757611a1230e3",
+    "composition_id": "ec0e65e1268801509f11edba",
+    "composition_manifest_sha256": "08051b012a989cacf9ffeb3a477d7d6a913d18bc4f90fc01327bbe832a72b929",
+    "concurrency_receipt_sha256": "fdd7a383c9947451d560531ec78356607ae48c9c4c4a5823bd14a5d3ef43b07e",
+    "evaluation_receipt_sha256": "607d5d9bf5a44bb45a13476e25991feae3320b128e551b17c5cc9e450a17e664",
+    "implementation_commit": "2b9141b7b26e856e87d270dbaa4cf5a3ed2be871",
+    "import_manifest_sha256": "26e0a3a36561ea7d0dfa6fd27356292d3dcc0888da2ba7d8f5beb17c35a4ec5a",
+    "model_sha256": "31629f53165ab6a7dad8c9847dcfd1fdf55829dac1e6e748f4a68581b0033d34",
+    "projector_sha256": "2e968a6af97ce35d8971890b257b9b7edabf20ad91450501fa53162a19ee33eb",
+    "selection_sha256": "33a8949235785c86a7530f540af2ee8be883825855d0a97a6b6f26db8386300d"
+  },
+  "candidate": {
+    "cell": "ernie",
+    "live_deployment": false,
+    "role": "primary_agentic_generalist_candidate",
+    "status": "SELECTED_CANDIDATE_NOT_DEPLOYED"
+  },
+  "credential_boundary": {
+    "accessed": false,
+    "opaque_handle_classes": [
+      "ernie_profile_secret_bundle",
+      "nate_os_local_agent_identity"
+    ],
+    "resolved": false
+  },
+  "gates": {
+    "automation": "FINAL_PROMOTION_BLOCKER_UNTIL_APPROVAL_PAUSED",
+    "bert": "SEPARATE_LATER_APPROVAL",
+    "closed_runtime": "PREPARED_NOT_EXECUTABLE",
+    "final_delta": "REQUIRED_BEFORE_LIVE_PROMOTION",
+    "fresh_final_backup": "REQUIRED_BEFORE_LIVE_PROMOTION",
+    "private_content": "EXCLUDED",
+    "production_service_or_pointer": "NOT_AUTHORIZED"
+  },
+  "observed_at": "2026-08-22T20:28:15Z",
+  "schema_id": "ik.hermes.model-selection-preparation-receipt.v1",
+  "status": "CLEAR_SELECTION_PREPARED_NOT_DEPLOYED",
+  "verification": {
+    "forbidden_implementation_findings": 0,
+    "full_relevant_tests": {
+      "passed": 228,
+      "skipped": 1
+    },
+    "repository_supply_chain": "CLEAR",
+    "resealed_release_read_only": true,
+    "resealed_release_supply_chain": "CLEAR",
+    "selection_and_plan_validators": "CLEAR"
+  }
+}
