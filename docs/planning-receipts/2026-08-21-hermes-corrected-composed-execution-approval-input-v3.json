@@ -1,0 +1,226 @@
+{
+  "approval_scope": "exact_corrected_composed_candidate_batch_v3",
+  "authority": "does_not_approve_or_execute",
+  "command_count": 12,
+  "command_digests": [
+    "7dac338810a67d2551079317d68c3497a8129f86ee6d43a34a49b71634846c33",
+    "7920045eee5fdabc9d98aa6688da46517e254a6a5e18c7325895aac4e359fb79",
+    "b1d6c45dccea6b458ef921c6bc847c7da0e69380c1141466faab4a202be3cc3e",
+    "0549868fb12f79ee4d09f14525973bebee5cbed5fcf9b0cfacc0fcdd3f37cc70",
+    "54d401cc7472bb3317dfa2e26e956ce66c118867e51b4418b5ab2b9acf61ffcc",
+    "cf55c61027119ea785e0a5f9829c05690853bc1e4b7a71435c332f66cf78144f",
+    "c35311717727ed52ef6e3700b051ecdf17240c7ed6eb354fd527f64dd3429654",
+    "7696fb15ac14f3bef668acdf2a6ea9991abef4659ea833244965acb909859280",
+    "e082a3f4d3e38bffdb29888753d3301738ff49512b9295e5529262b117c0f399",
+    "3ed454b78eea4ce48ebca0634cffd0cbeea46dc9399cb0e2113cbfd3df5b85dd",
+    "16f2a5516fbe80d88460e38c6c383e903a6ad8b6e1f3ae78e8f3662c145a2edd",
+    "0327e6e046580c1db2867c4008670448b6a4fef45737df5fc0f828556c3c7629"
+  ],
+  "commands": [
+    {
+      "argv": [
+        "/Volumes/HermesCaseBuilderV1/runtime/node-v24.19.0-npm-v11.17.0/bin/npm",
+        "run",
+        "build",
+        "--workspace",
+        "ui-tui",
+        "--ignore-scripts",
+        "--offline",
+        "--no-audit",
+        "--no-fund"
+      ],
+      "command_id": "build-ui-tui",
+      "timeout_seconds": 900,
+      "workdir": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/192844cf7a7b498fd3abeeee/worktree"
+    },
+    {
+      "argv": [
+        "/Volumes/HermesCaseBuilderV1/runtime/node-v24.19.0-npm-v11.17.0/bin/npm",
+        "run",
+        "build",
+        "--workspace",
+        "web",
+        "--ignore-scripts",
+        "--offline",
+        "--no-audit",
+        "--no-fund"
+      ],
+      "command_id": "build-dashboard-web",
+      "timeout_seconds": 1200,
+      "workdir": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/192844cf7a7b498fd3abeeee/worktree"
+    },
+    {
+      "argv": [
+        "/Volumes/HermesCaseBuilderV1/runtime/node-v24.19.0-npm-v11.17.0/bin/npm",
+        "run",
+        "build:ink",
+        "--workspace",
+        "ui-tui",
+        "--ignore-scripts",
+        "--offline",
+        "--no-audit",
+        "--no-fund"
+      ],
+      "command_id": "ui-tui-build-ink",
+      "timeout_seconds": 900,
+      "workdir": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/192844cf7a7b498fd3abeeee/worktree"
+    },
+    {
+      "argv": [
+        "/Volumes/HermesCaseBuilderV1/runtime/node-v24.19.0-npm-v11.17.0/bin/npm",
+        "run",
+        "typecheck",
+        "--workspace",
+        "ui-tui",
+        "--ignore-scripts",
+        "--offline",
+        "--no-audit",
+        "--no-fund"
+      ],
+      "command_id": "ui-tui-typecheck",
+      "timeout_seconds": 900,
+      "workdir": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/192844cf7a7b498fd3abeeee/worktree"
+    },
+    {
+      "argv": [
+        "/Volumes/HermesCaseBuilderV1/runtime/node-v24.19.0-npm-v11.17.0/bin/node",
+        "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/192844cf7a7b498fd3abeeee/worktree/node_modules/vitest/vitest.mjs",
+        "run",
+        "--config",
+        "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/192844cf7a7b498fd3abeeee/worktree/ik_lifecycle/vite/ui_tui_vitest.config.ts",
+        "--configLoader",
+        "runner"
+      ],
+      "command_id": "ui-tui-test-isolated",
+      "timeout_seconds": 1800,
+      "workdir": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/192844cf7a7b498fd3abeeee/worktree"
+    },
+    {
+      "argv": [
+        "/Volumes/HermesCaseBuilderV1/runtime/node-v24.19.0-npm-v11.17.0/bin/npm",
+        "run",
+        "lint",
+        "--workspace",
+        "ui-tui",
+        "--ignore-scripts",
+        "--offline",
+        "--no-audit",
+        "--no-fund"
+      ],
+      "command_id": "ui-tui-lint",
+      "timeout_seconds": 900,
+      "workdir": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/192844cf7a7b498fd3abeeee/worktree"
+    },
+    {
+      "argv": [
+        "/Volumes/HermesCaseBuilderV1/runtime/node-v24.19.0-npm-v11.17.0/bin/npm",
+        "run",
+        "check",
+        "--workspace",
+        "web",
+        "--ignore-scripts",
+        "--offline",
+        "--no-audit",
+        "--no-fund"
+      ],
+      "command_id": "check-dashboard-web",
+      "timeout_seconds": 1800,
+      "workdir": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/192844cf7a7b498fd3abeeee/worktree"
+    },
+    {
+      "argv": [
+        "/Volumes/HermesCaseBuilderV1/runtime/node-v24.19.0-npm-v11.17.0/bin/npm",
+        "run",
+        "check",
+        "--workspace",
+        "@hermes/shared",
+        "--ignore-scripts",
+        "--offline",
+        "--no-audit",
+        "--no-fund"
+      ],
+      "command_id": "check-shared-dashboard-source",
+      "timeout_seconds": 900,
+      "workdir": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/192844cf7a7b498fd3abeeee/worktree"
+    },
+    {
+      "argv": [
+        "/Volumes/HermesCaseBuilderV1/runtime/node-v24.19.0-npm-v11.17.0/bin/npm",
+        "run",
+        "typecheck",
+        "--workspace",
+        "@hermes/root-tests",
+        "--ignore-scripts",
+        "--offline",
+        "--no-audit",
+        "--no-fund"
+      ],
+      "command_id": "tests-js-typecheck",
+      "timeout_seconds": 900,
+      "workdir": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/192844cf7a7b498fd3abeeee/worktree"
+    },
+    {
+      "argv": [
+        "/Volumes/HermesCaseBuilderV1/runtime/node-v24.19.0-npm-v11.17.0/bin/node",
+        "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/192844cf7a7b498fd3abeeee/worktree/node_modules/vitest/vitest.mjs",
+        "run",
+        "--config",
+        "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/192844cf7a7b498fd3abeeee/worktree/ik_lifecycle/vite/tests_js_vitest.config.ts",
+        "--configLoader",
+        "runner"
+      ],
+      "command_id": "tests-js-test-isolated",
+      "timeout_seconds": 1800,
+      "workdir": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/192844cf7a7b498fd3abeeee/worktree"
+    },
+    {
+      "argv": [
+        "/Volumes/HermesCaseBuilderV1/runtime/node-v24.19.0-npm-v11.17.0/bin/npm",
+        "run",
+        "lint",
+        "--workspace",
+        "@hermes/root-tests",
+        "--ignore-scripts",
+        "--offline",
+        "--no-audit",
+        "--no-fund"
+      ],
+      "command_id": "tests-js-lint",
+      "timeout_seconds": 900,
+      "workdir": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/192844cf7a7b498fd3abeeee/worktree"
+    },
+    {
+      "argv": [
+        "/Library/Frameworks/Python.framework/Versions/3.11/bin/python3",
+        "-B",
+        "-m",
+        "ik_lifecycle.focused_test_selection",
+        "--execute",
+        "--root",
+        "."
+      ],
+      "command_id": "run-focused-lifecycle-unittest",
+      "timeout_seconds": 900,
+      "workdir": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/192844cf7a7b498fd3abeeee/worktree"
+    }
+  ],
+  "commands_sha256": "f9c8ec9f4999e45bfcb0326d44d4db1f01e74f94d010d687e89dae4ca9c6d02e",
+  "composed_tree_sha256": "43ecf198cea220737e6da0f8e1b8d72b6b7637ae1b050410d931e621579bec0c",
+  "composition_id": "192844cf7a7b498fd3abeeee",
+  "correction_contract_sha256": "1a85a8721ff0986019f41db9b5dc24077a4ea85bbbbbd01bb320054383287201",
+  "focused_selection_sha256": "96b8f95ed5bb3e9a338c6b3053aa1455a3933da2c89b3890867c3e8ea72ff476",
+  "focused_test_count": 48,
+  "implementation_commit": "c3696086bad9a4ed4db607fac7c5ec3d5e381f35",
+  "plan_path": "docs/planning-receipts/2026-08-21-hermes-corrected-composed-execution-plan-v3.json",
+  "plan_sha256": "5d5529fb36600ea67b91376be242076fa7374d61d6be1294cdd1ad4eec58a3d3",
+  "required_preflight": [
+    "refresh upstream tags and exact target",
+    "revalidate composition and copied dependency digests",
+    "recheck forbidden implementation evidence",
+    "prove empty declared caches",
+    "create and validate fresh <=300-second OS-backed network proof",
+    "create separate APPROVED receipt bound to every listed digest"
+  ],
+  "schema_id": "ik.hermes.corrected-execution-approval-input.v3",
+  "status": "USER_DECISION_REQUIRED"
+}
