@@ -1,0 +1,86 @@
+{
+  "architecture": {
+    "contract_sha256": "9df9c21791f2308b26bfaeef7fc54a4e4a11ae46397270e7b1a770706683d567",
+    "mapping_sha256": "21fd33c8f4202eee46bab6da9e76fa16f774bd49b37f7beee7144733d03f8b23",
+    "status": "CLEAR"
+  },
+  "canary": {
+    "aggregate_only_clone_binding": true,
+    "bundle_id": "0f25ad4005fe1826b2c1",
+    "canary_id": "task11-ed1fdaa6c8c54d5adfb5",
+    "health_checks": 6,
+    "network_proof_sha256": "b83373290214578c84a8ebc99a299717f4125ef3992fe331dd41b5027a04c774",
+    "private_semantic_reprocessing_performed": false,
+    "restarts": 1,
+    "rollback_rehearsals": 2,
+    "rp2": "CLEAR",
+    "rp3_crash_recovery": "CLEAR",
+    "rp3_pretraffic": "CLEAR",
+    "startups": 2,
+    "status": "CLEAR_SAFE_LOCAL_CANARY"
+  },
+  "candidate": {
+    "bundle_id": "0f25ad4005fe1826b2c1",
+    "composition_id": "8b80a4ee590a121f34592455",
+    "composed_tree_sha256": "fda7b9714ecdc89831d76d314b49d57ca70786094ec1a9bfd6430ef4d00be011",
+    "implementation_commit": "de56424e3b323ef6dc3cce37ce291b01374e0b11",
+    "manifest_sha256": "dbe7bb4976760a0fc5e047b64bf6699ec5bcda49e7d1b17617d396dadb478ae5",
+    "overlay_manifest_file_sha256": "ff56ee19f68f32d1ab1eaee1c492ee285795c4c5c7a306f5a8a981b680bfcd29",
+    "overlay_manifest_sha256": "1b4bfe144eb32f86e74d4840be5af571a85dbe2cb2a71427bd98c3f90246e0f4",
+    "prior_bundles_preserved": 2,
+    "status": "SEALED_CODE_ONLY"
+  },
+  "monitor": {
+    "approval_inbox_exception_only": true,
+    "default_interval_minutes": 25,
+    "legacy_health_automation_changed": false,
+    "legacy_health_automation_final_promotion_blocker": true,
+    "promotion_capability": false,
+    "schedule_activation_performed": false,
+    "status": "IMPLEMENTED_DISABLED_BY_DEFAULT"
+  },
+  "retained_evidence": {
+    "failed_or_superseded_validation_attempts": 2,
+    "superseded_interim_bundle_id": "c2a83cc28603501993d9",
+    "task11_receipt_sha256": "6437b55d5b0521d8f28cf42940abc0c9efdd1d82701ab4aa2119fd7441f84547"
+  },
+  "schema_id": "ik.hermes.post-task11-local-prerequisites.v1",
+  "skipped_surfaces": [
+    "model_artifact_download",
+    "model_selection_or_configuration",
+    "credential_access",
+    "new_private_semantic_processing",
+    "schedule_or_automation_activation",
+    "live_ernie_pointer_or_service_change",
+    "live_bert_or_ssh",
+    "promotion_or_deployment",
+    "push"
+  ],
+  "status": "CLEAR_SAFE_LOCAL_PREREQUISITES",
+  "supply_chain": {
+    "dependency_execution_performed": false,
+    "forbidden_implementation_findings": 0,
+    "lock_or_manifest_changes": 0,
+    "receipt_sha256": "e5a515ec66056d94decaaa7e5c1d48c415989bfbfbbcd6eb30270f3c99ea551c",
+    "status": "CLEAR"
+  },
+  "target": {
+    "latest_commit_sha": "fcbd1076a93841fa88855acce810e342a5b78101",
+    "latest_tag": "v2026.8.19",
+    "policy": "exactly_one_published_stable_release_behind",
+    "selected_commit_sha": "e624e9fde561e1add9388384012b295fde669ade",
+    "selected_tag": "v2026.8.18"
+  },
+  "verification": {
+    "candidate_behavior_tests": 25,
+    "candidate_lifecycle_tests": 46,
+    "candidate_post_task11_tests": 41,
+    "candidate_test_failures": 0,
+    "network_proof_behavior_sha256": "8f50434cf2dba9fc35c4a3920165b9eb1f2324faf0014b26573be76eb8da5588",
+    "network_proof_lifecycle_sha256": "3d1d791cdc7c0523a7862812566ac4c8c308ef9b5dfb7e8a6892fae6249846cd",
+    "network_proof_post_task11_sha256": "b4971c812a0390c2eab61657bb1c6e356a1064284e4328a8adb5c49df5686d84",
+    "repo_preseal_passed": 196,
+    "repo_preseal_skipped": 1,
+    "reseal_idempotency": "CLEAR"
+  }
+}
