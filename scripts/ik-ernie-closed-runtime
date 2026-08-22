@@ -1,0 +1,515 @@
+#!/usr/bin/env python3
+"""Execute the exact public-synthetic, credential-bound Ernie closed-runtime gate."""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import secrets
+import signal
+import socket
+import stat
+import subprocess
+import sys
+import threading
+import time
+from typing import Mapping
+from urllib.request import ProxyHandler, build_opener
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from ik_extensions.model_workers.offline_eval import (  # noqa: E402
+    load_runtime_cases,
+    run_concurrency_probe,
+    run_runtime_cases,
+    summarize_results,
+)
+from ik_lifecycle.closed_runtime import (  # noqa: E402
+    ClosedRuntimeError,
+    resolve_opaque_handles,
+    validate_execution_approval,
+    validate_execution_receipt,
+)
+from ik_lifecycle.composed_source import tree_digest  # noqa: E402
+from ik_lifecycle.ernie_canary import (  # noqa: E402
+    CanaryError,
+    LoopbackOnlyMacOSSandbox,
+    discard_runtime_profile,
+)
+from ik_lifecycle.model_selection import (  # noqa: E402
+    validate_closed_runtime_plan,
+    validate_selection_receipt,
+)
+from ik_lifecycle.opaque_backup import MacOSStorageAttestor, derive_ernie_profile_root  # noqa: E402
+from ik_lifecycle.promotion import PairedPointers, PromotionReceipt  # noqa: E402
+from ik_lifecycle.rollback import RollbackMode, rollback_pair  # noqa: E402
+
+
+SELECTION = REPO_ROOT / "docs/planning-receipts/2026-08-22-hermes-qwen38-ernie-candidate-selection-v2.json"
+PLAN = REPO_ROOT / "docs/planning-receipts/2026-08-22-hermes-credential-bound-closed-runtime-plan-v2.json"
+APPROVAL = REPO_ROOT / "docs/planning-receipts/2026-08-22-hermes-credential-bound-closed-runtime-approval-v1.json"
+OVERLAY = REPO_ROOT / "ik_lifecycle/manifests/bert-ernie-overlay-v1.json"
+MODULE = REPO_ROOT / "ik_lifecycle/closed_runtime.py"
+MODEL_ROOT = Path("/Users/react/.codex/state/hermes-platform/model-evals/qwen38-27b-31629f53165a")
+MODEL_STORE = MODEL_ROOT / "baseline-snapshot"
+OLLAMA = Path("/usr/local/bin/ollama")
+CANDIDATE_PYTHON = Path(
+    "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/"
+    "dependency-audit/env/python/bin/python"
+)
+RELEASES = Path(
+    "/Volumes/HermesApprovalResealV1/platform/cells/ernie/candidates/1e79082041b08781ca40/"
+    "composed-candidate/releases"
+)
+RUNS = Path.home() / "Library/Application Support/NateOS/ClosedRuntime/ernie"
+MODEL_ALIAS = "ik-qwen38-eval:31629f53165a"
+MAX_RSS = 55_834_574_848
+
+
+def _sha(path: Path) -> str:
+    digest = hashlib.sha256()
+    with Path(path).open("rb") as stream:
+        for chunk in iter(lambda: stream.read(4 * 1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _json(path: Path) -> dict[str, object]:
+    return json.loads(Path(path).read_text(encoding="utf-8"))
+
+
+def _write_private(path: Path, value: Mapping[str, object]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    os.chmod(path.parent, 0o700)
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    with temporary.open("x", encoding="utf-8") as stream:
+        json.dump(value, stream, sort_keys=True, separators=(",", ":"))
+        stream.write("\n")
+        stream.flush()
+        os.fsync(stream.fileno())
+    os.chmod(temporary, 0o600)
+    os.replace(temporary, path)
+
+
+def _free_port() -> int:
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        return int(listener.getsockname()[1])
+
+
+def _wait_json(url: str, process: subprocess.Popen[bytes], *, timeout: int, field: str | None = None) -> dict[str, object]:
+    opener = build_opener(ProxyHandler({}))
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            raise ClosedRuntimeError("closed_runtime_process_exited")
+        try:
+            with opener.open(url, timeout=2) as response:
+                payload = json.loads(response.read(8192))
+            if response.status == 200 and (field is None or payload.get(field) is True):
+                return payload
+        except Exception:
+            pass
+        time.sleep(0.2)
+    raise ClosedRuntimeError("closed_runtime_start_timeout")
+
+
+def _stop(process: subprocess.Popen[bytes] | None) -> None:
+    if process is None:
+        return
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    try:
+        process.wait(timeout=20)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait(timeout=10)
+
+
+def _port_closed(port: int) -> bool:
+    with socket.socket() as client:
+        client.settimeout(0.25)
+        return client.connect_ex(("127.0.0.1", port)) != 0
+
+
+def _process_group_rss(process: subprocess.Popen[bytes]) -> int:
+    completed = subprocess.run(
+        ("/bin/ps", "-axo", "pgid=,rss="),
+        capture_output=True,
+        text=True,
+        timeout=5,
+        check=False,
+        env={"PATH": "/usr/bin:/bin", "LANG": "C"},
+    )
+    total_kib = 0
+    for line in completed.stdout.splitlines():
+        fields = line.split()
+        if len(fields) != 2:
+            continue
+        try:
+            pgid, rss_kib = map(int, fields)
+        except ValueError:
+            continue
+        if pgid == process.pid:
+            total_kib += rss_kib
+    return total_kib * 1024
+
+
+class _ResourceMonitor:
+    def __init__(self, process: subprocess.Popen[bytes], ceiling: int) -> None:
+        self.process = process
+        self.ceiling = ceiling
+        self.maximum = 0
+        self.exceeded = False
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, name="ik-closed-runtime-rss", daemon=True)
+
+    def _run(self) -> None:
+        while not self._stop.wait(0.5):
+            observed = _process_group_rss(self.process)
+            self.maximum = max(self.maximum, observed)
+            if observed > self.ceiling:
+                self.exceeded = True
+                try:
+                    os.killpg(self.process.pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+                return
+
+    def __enter__(self) -> "_ResourceMonitor":
+        self._thread.start()
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self._stop.set()
+        self._thread.join(timeout=5)
+        self.maximum = max(self.maximum, _process_group_rss(self.process))
+
+
+def _git_clean_and_commit() -> str:
+    status = subprocess.run(
+        ("/usr/bin/git", "status", "--porcelain"), cwd=REPO_ROOT, capture_output=True, text=True, check=True
+    ).stdout
+    if status:
+        raise ClosedRuntimeError("closed_runtime_worktree_dirty")
+    return subprocess.run(
+        ("/usr/bin/git", "rev-parse", "HEAD"), cwd=REPO_ROOT, capture_output=True, text=True, check=True
+    ).stdout.strip()
+
+
+def _start_cell(
+    *, source: Path, run: Path, handles, model_endpoint: str, sandbox: LoopbackOnlyMacOSSandbox, proof
+) -> tuple[subprocess.Popen[bytes], int, tuple[Path, Path]]:
+    profile = run / "cell-profile"
+    home = run / "cell-home"
+    profile.mkdir(mode=0o700)
+    home.mkdir(mode=0o700)
+    os.chmod(profile, 0o700)
+    os.chmod(home, 0o700)
+    (profile / "config.yaml").write_text(
+        "model:\n  provider: ollama\n  model: ik-qwen38-eval:31629f53165a\n"
+        f"  base_url: {model_endpoint}/v1\n",
+        encoding="utf-8",
+    )
+    os.chmod(profile / "config.yaml", 0o600)
+    ready = run / f"cell-ready-{time.monotonic_ns()}.json"
+    stdout_path = run / f"cell-{time.monotonic_ns()}.stdout.log"
+    stderr_path = run / f"cell-{time.monotonic_ns()}.stderr.log"
+    stdout = stdout_path.open("xb", buffering=0)
+    stderr = stderr_path.open("xb", buffering=0)
+    os.chmod(stdout_path, 0o600)
+    os.chmod(stderr_path, 0o600)
+    base = {
+        "CI": "1",
+        "HOME": os.fspath(home),
+        "HERMES_HOME": os.fspath(profile),
+        "HERMES_DESKTOP_READY_FILE": os.fspath(ready),
+        "LANG": "C.UTF-8",
+        "LC_ALL": "C.UTF-8",
+        "NO_PROXY": "127.0.0.1,localhost",
+        "PATH": "/usr/bin:/bin:/usr/local/bin",
+        "PYTHONDONTWRITEBYTECODE": "1",
+        "PYTHONHASHSEED": "0",
+        "PYTHONPATH": os.fspath(source),
+        "TZ": "UTC",
+    }
+    environment = handles.materialize_environment(base)
+    argv = (
+        os.fspath(CANDIDATE_PYTHON), "-B", "-m", "hermes_cli.main", "serve",
+        "--host", "127.0.0.1", "--port", "0", "--isolated", "--skip-build",
+    )
+    try:
+        process = subprocess.Popen(
+            sandbox.wrap(argv, proof), cwd=source, env=environment,
+            stdin=subprocess.DEVNULL, stdout=stdout, stderr=stderr, start_new_session=True,
+        )
+        stdout.close(); stderr.close()
+        deadline = time.monotonic() + 90
+        port = 0
+        while time.monotonic() < deadline:
+            if process.poll() is not None:
+                raise ClosedRuntimeError("closed_runtime_cell_start_failed")
+            if ready.is_file():
+                payload = _json(ready)
+                port = int(payload["port"])
+                break
+            time.sleep(0.1)
+        if not 1024 <= port <= 65535:
+            raise ClosedRuntimeError("closed_runtime_cell_ready_invalid")
+        _wait_json(f"http://127.0.0.1:{port}/api/health", process, timeout=10, field="ok")
+        return process, port, (stdout_path, stderr_path)
+    except Exception:
+        _stop(locals().get("process"))
+        stdout.close()
+        stderr.close()
+        raise
+
+
+def _rollback_rehearsal(run: Path) -> dict[str, str]:
+    profile = run / "runtime-profile"
+    profile.mkdir(mode=0o700)
+    marker = profile / "synthetic"
+    marker.write_text("fixture\n", encoding="utf-8")
+    os.chmod(marker, 0o600)
+    discard_runtime_profile(profile, run)
+
+    pointers = PairedPointers(run / "pointer-release.json", run / "pointer-profile.json", run / "pointer-journal.json")
+    pointers.initialize("legacy-release", "legacy-profile", 1)
+    try:
+        pointers.switch("candidate-release", "candidate-profile", 2, crash_after_release=True)
+    except RuntimeError:
+        pass
+    pointers.recover()
+    if pointers.read_pair() != ("legacy-release", "legacy-profile", 1):
+        raise ClosedRuntimeError("closed_runtime_rp3_crash_failed")
+    promotion = PromotionReceipt("legacy-release", "legacy-profile", 1, "candidate-release", "candidate-profile", 2)
+    pointers.switch("candidate-release", "candidate-profile", 2)
+    rolled = rollback_pair(pointers, promotion, RollbackMode.PRE_TRAFFIC, delta_reconciled=False)
+    if rolled.status != "ROLLED_BACK" or pointers.read_pair() != ("legacy-release", "legacy-profile", 1):
+        raise ClosedRuntimeError("closed_runtime_rp3_pretraffic_failed")
+    return {"rp2": "CLEAR", "rp3_crash_recovery": "CLEAR", "rp3_pretraffic": "CLEAR"}
+
+
+def execute() -> dict[str, object]:
+    head = _git_clean_and_commit()
+    selection_document = _json(SELECTION)
+    selection_sha = validate_selection_receipt(selection_document)
+    plan_document = _json(PLAN)
+    plan_sha = validate_closed_runtime_plan(plan_document, selection_sha256=selection_sha)
+    approval_document = _json(APPROVAL)
+    implementation_commit = str(approval_document["approval"]["implementation_commit"])
+    validate_execution_approval(
+        approval_document,
+        plan_sha256=plan_sha,
+        selection_sha256=selection_sha,
+        implementation_commit=implementation_commit,
+        executor_sha256=_sha(Path(__file__).resolve()),
+        module_sha256=_sha(MODULE),
+        overlay_manifest_sha256=_sha(OVERLAY),
+    )
+    if not head or subprocess.run(
+        ("/usr/bin/git", "merge-base", "--is-ancestor", implementation_commit, head),
+        cwd=REPO_ROOT, check=False,
+    ).returncode != 0:
+        raise ClosedRuntimeError("closed_runtime_implementation_binding_invalid")
+
+    data = selection_document["receipt"]["data"]
+    release = data["release"]
+    release_root = RELEASES / str(release["bundle_id"])
+    source = release_root / "source"
+    if _sha(release_root / "release-manifest.json") != release["bundle_manifest_sha256"]:
+        raise ClosedRuntimeError("closed_runtime_release_drift")
+    if tree_digest(source) != release["composed_tree_sha256"]:
+        raise ClosedRuntimeError("closed_runtime_source_drift")
+    if stat.S_IMODE(os.lstat(source).st_mode) & 0o222:
+        raise ClosedRuntimeError("closed_runtime_source_mutable")
+
+    artifacts = {item["role"]: item for item in data["artifacts"]}
+    artifact_paths = {
+        role: MODEL_ROOT / "artifacts" / str(item["filename"]) for role, item in artifacts.items()
+    }
+    model_manifest = MODEL_STORE / "manifests/registry.ollama.ai/library/ik-qwen38-eval/31629f53165a"
+    manifest = _json(model_manifest)
+    manifest_digests = {
+        str(item.get("mediaType")): str(item.get("digest", "")).removeprefix("sha256:")
+        for item in manifest.get("layers", [])
+        if isinstance(item, Mapping)
+    }
+    expected_manifest_digests = {
+        "application/vnd.ollama.image.model": str(artifacts["model"]["sha256"]),
+        "application/vnd.ollama.image.projector": str(artifacts["projector"]["sha256"]),
+    }
+    if manifest_digests != expected_manifest_digests:
+        raise ClosedRuntimeError("closed_runtime_import_manifest_drift")
+    store_paths = {
+        role: MODEL_STORE / "blobs" / f"sha256-{item['sha256']}" for role, item in artifacts.items()
+    }
+    for role, path in artifact_paths.items():
+        item = artifacts[role]
+        if path.is_symlink() or path.stat().st_size != item["bytes"] or _sha(path) != item["sha256"]:
+            raise ClosedRuntimeError("closed_runtime_model_artifact_drift")
+        if stat.S_IMODE(path.stat().st_mode) != 0o400:
+            raise ClosedRuntimeError("closed_runtime_model_artifact_permissions")
+        store = store_paths[role]
+        if store.is_symlink() or store.stat().st_size != item["bytes"] or _sha(store) != item["sha256"]:
+            raise ClosedRuntimeError("closed_runtime_model_store_drift")
+    if _sha(OLLAMA) != plan_document["plan"]["bindings"]["runtime_binary_sha256"]:
+        raise ClosedRuntimeError("closed_runtime_model_runtime_drift")
+    free = os.statvfs(RUNS.parent if RUNS.parent.exists() else Path.home())
+    if free.f_bavail * free.f_frsize < plan_document["plan"]["resource_limits"]["minimum_free_storage_bytes"]:
+        raise ClosedRuntimeError("closed_runtime_storage_ceiling")
+
+    run_id = approval_document["sha256"][:20]
+    run = RUNS / run_id
+    attestation = MacOSStorageAttestor().attest(
+        RUNS, denied_roots=(REPO_ROOT, Path.home() / ".hermes", Path.home() / ".codex" / "shared-memory")
+    )
+    if not attestation.clear or run.exists():
+        raise ClosedRuntimeError("closed_runtime_storage_invalid")
+    run.mkdir(parents=True, mode=0o700)
+    os.chmod(run, 0o700)
+    key_path = run / "opaque-handle.key"
+    key_path.write_bytes(secrets.token_bytes(32))
+    os.chmod(key_path, 0o600)
+
+    common = subprocess.run(
+        ("/usr/bin/git", "rev-parse", "--git-common-dir"), cwd=REPO_ROOT,
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    common_path = (REPO_ROOT / common).resolve() if not Path(common).is_absolute() else Path(common)
+    handles = resolve_opaque_handles(derive_ernie_profile_root(common_path), hmac_key=key_path.read_bytes())
+
+    model_process: subprocess.Popen[bytes] | None = None
+    cell_process: subprocess.Popen[bytes] | None = None
+    logs: list[Path] = []
+    ports: list[int] = []
+    max_rss = 0
+    source_before = tree_digest(source)
+    model_before = {role: _sha(path) for role, path in store_paths.items()}
+    manifest_before = _sha(model_manifest)
+    try:
+        model_port = _free_port()
+        ports.append(model_port)
+        model_sandbox = LoopbackOnlyMacOSSandbox(OLLAMA)
+        model_proof = model_sandbox.create_proof(run / "model-network-proof.json", ttl_seconds=300)
+        model_home = run / "model-home"
+        model_home.mkdir(mode=0o700)
+        model_stdout_path, model_stderr_path = run / "model.stdout.log", run / "model.stderr.log"
+        model_stdout, model_stderr = model_stdout_path.open("xb", buffering=0), model_stderr_path.open("xb", buffering=0)
+        os.chmod(model_stdout_path, 0o600); os.chmod(model_stderr_path, 0o600)
+        logs.extend((model_stdout_path, model_stderr_path))
+        model_env = {
+            "HOME": os.fspath(model_home), "LANG": "C.UTF-8", "LC_ALL": "C.UTF-8",
+            "NO_PROXY": "127.0.0.1,localhost", "OLLAMA_HOST": f"127.0.0.1:{model_port}",
+            "OLLAMA_MODELS": os.fspath(MODEL_STORE), "PATH": "/usr/bin:/bin:/usr/local/bin", "TZ": "UTC",
+        }
+        model_process = subprocess.Popen(
+            model_sandbox.wrap((os.fspath(OLLAMA), "serve"), model_proof), cwd=run, env=model_env,
+            stdin=subprocess.DEVNULL, stdout=model_stdout, stderr=model_stderr, start_new_session=True,
+        )
+        model_stdout.close(); model_stderr.close()
+        endpoint = f"http://127.0.0.1:{model_port}"
+        _wait_json(endpoint + "/api/version", model_process, timeout=60)
+
+        health_checks = 0
+        cell_sandbox = LoopbackOnlyMacOSSandbox(CANDIDATE_PYTHON)
+        for start_index in range(2):
+            cell_run = run / f"cell-run-{start_index + 1}"
+            cell_run.mkdir(mode=0o700)
+            proof = cell_sandbox.create_proof(cell_run / "cell-network-proof.json", ttl_seconds=300)
+            cell_process, cell_port, cell_logs = _start_cell(
+                source=source, run=cell_run, handles=handles, model_endpoint=endpoint,
+                sandbox=cell_sandbox, proof=proof,
+            )
+            ports.append(cell_port)
+            logs.extend(cell_logs)
+            for _ in range(3):
+                _wait_json(f"http://127.0.0.1:{cell_port}/api/health", cell_process, timeout=10, field="ok")
+                health_checks += 1
+                time.sleep(0.2)
+            if start_index == 0:
+                cases = load_runtime_cases(source / "evals/ik")
+                with _ResourceMonitor(model_process, MAX_RSS) as monitor:
+                    outcomes = run_runtime_cases(endpoint, MODEL_ALIAS, cases, timeout_seconds=300)
+                    summary = summarize_results(cases, outcomes, model_alias=MODEL_ALIAS)
+                    concurrency = run_concurrency_probe(endpoint, MODEL_ALIAS, timeout_seconds=180)
+                max_rss = max(max_rss, monitor.maximum)
+                if monitor.exceeded:
+                    raise ClosedRuntimeError("closed_runtime_resource_ceiling")
+                if summary["status"] != "CLEAR" or summary["passed"] != 12 or summary["case_count"] != 12:
+                    raise ClosedRuntimeError("closed_runtime_model_eval_failed")
+                if concurrency["status"] != "CLEAR" or concurrency["successful_requests"] != 2 or concurrency["graded_responses"] != 2:
+                    raise ClosedRuntimeError("closed_runtime_model_concurrency_failed")
+            _stop(cell_process)
+            cell_process = None
+            if not _port_closed(cell_port):
+                raise ClosedRuntimeError("closed_runtime_cell_port_open")
+        rollback = _rollback_rehearsal(run)
+    finally:
+        _stop(cell_process)
+        _stop(model_process)
+
+    if any(not _port_closed(port) for port in ports):
+        raise ClosedRuntimeError("closed_runtime_port_open")
+    handles.validate_unchanged()
+    leak_count = handles.secret_leak_count(logs)
+    if leak_count:
+        raise ClosedRuntimeError("closed_runtime_secret_leak")
+    if (
+        source_before != tree_digest(source)
+        or manifest_before != _sha(model_manifest)
+        or model_before != {role: _sha(path) for role, path in store_paths.items()}
+    ):
+        raise ClosedRuntimeError("closed_runtime_integrity_drift")
+
+    receipt: dict[str, object] = {
+        "schema_id": "ik.hermes.credential-bound-closed-runtime-receipt.v1",
+        "status": "CLEAR_CLOSED_RUNTIME_ONLY",
+        "bindings": {"plan_sha256": plan_sha, "selection_sha256": selection_sha},
+        "credential_handles": {"resolved": 2, "leak_count": 0},
+        "network": {"model_worker": "CLEAR", "ernie_cell": "CLEAR", "external_access": False},
+        "model_evaluation": {"passed": 12, "total": 12, "concurrency_passed": 2, "concurrency_total": 2},
+        "ernie_cell": {"startups": 2, "restarts": 1, "health_checks": health_checks},
+        "rollback": rollback,
+        "integrity": {"source": "CLEAR", "model_artifacts": "CLEAR", "opaque_handles": "CLEAR"},
+        "resources": {"maximum_observed_rss_bytes": max_rss, "ceiling_bytes": MAX_RSS},
+        "live_effects": False,
+    }
+    validate_execution_receipt(receipt)
+    _write_private(run / "receipt.json", receipt)
+    rendered = json.dumps(receipt, sort_keys=True, separators=(",", ":"))
+    return {
+        "status": receipt["status"], "run_id": run_id,
+        "receipt_sha256": hashlib.sha256(rendered.encode()).hexdigest(),
+        "evaluation": "12/12", "concurrency": "2/2", "live_effects": False,
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--execute", action="store_true", help="run the exact approved isolated gate")
+    arguments = parser.parse_args()
+    if not arguments.execute:
+        parser.error("--execute is required")
+    try:
+        result = execute()
+    except (ClosedRuntimeError, CanaryError, OSError, ValueError, KeyError) as error:
+        code = getattr(error, "code", type(error).__name__)
+        print(json.dumps({"status": "BLOCKED_RETAINED", "code": code}, sort_keys=True), file=sys.stderr)
+        return 2
+    print(json.dumps(result, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
