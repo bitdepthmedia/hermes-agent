@@ -20,6 +20,7 @@ from .network_guard import (
 
 SCHEMA_ID = "ik.hermes.candidate-execution-plan.v1"
 COMPOSED_SCHEMA_ID = "ik.hermes.composed-execution-plan.v2"
+CORRECTED_SCHEMA_ID = "ik.hermes.corrected-composed-execution-plan.v3"
 APPROVAL_SCHEMA_ID = "ik.hermes.execution-approval.v1"
 FORBIDDEN_COMMAND_TOKENS = (
     "axios@1.14.1",
@@ -309,6 +310,56 @@ def validate_composed_execution_plan(
     }
 
 
+def validate_corrected_execution_plan(plan: Mapping[str, Any]) -> dict[str, Any]:
+    """Validate the post-failure plan and its immutable cache/dependency contract."""
+
+    if plan.get("schema_id") != CORRECTED_SCHEMA_ID:
+        raise LifecycleBlockedError(
+            "corrected_execution_plan_schema_invalid",
+            "only a corrected v3 composed execution plan can authorize this phase",
+        )
+    if plan.get("plan_sha256") != _digest(_unsigned(plan, "plan_sha256")):
+        raise LifecycleBlockedError("execution_plan_digest_invalid", "Corrected execution-plan digest is invalid")
+    common = json.loads(json.dumps(plan))
+    common["schema_id"] = COMPOSED_SCHEMA_ID
+    common = bind_execution_plan(common)
+    validate_composed_execution_plan(common)
+    from .correction_contract import validate_correction_contract
+
+    correction = plan.get("correction_contract")
+    if not isinstance(correction, Mapping):
+        raise LifecycleBlockedError("corrected_contract_incomplete", "corrected execution contract is missing")
+    validate_correction_contract(correction)
+    discovery_path = Path(str(plan.get("focused_test_discovery", {}).get("path", "")))
+    try:
+        discovery = json.loads(discovery_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise LifecycleBlockedError("focused_test_discovery_invalid", "focused test discovery receipt is unavailable") from exc
+    binding = plan.get("focused_test_discovery", {})
+    if (
+        discovery.get("status") != "CLEAR"
+        or not isinstance(discovery.get("test_count"), int)
+        or discovery["test_count"] < 1
+        or binding.get("sha256") != _file_sha256(discovery_path, "focused_test_discovery_invalid")
+        or binding.get("selection_sha256") != discovery.get("selection_sha256")
+        or binding.get("test_count") != discovery.get("test_count")
+    ):
+        raise LifecycleBlockedError("focused_test_discovery_invalid", "focused test discovery binding changed")
+    if (
+        correction.get("prior_failed_plan_sha256") == plan.get("plan_sha256")
+        or correction.get("prior_failed_commands_sha256") == plan.get("commands_sha256")
+    ):
+        raise LifecycleBlockedError("corrected_execution_plan_not_distinct", "corrected plan reused failed approval digests")
+    return {
+        "plan_sha256": plan["plan_sha256"],
+        "commands_sha256": plan["commands_sha256"],
+        "command_count": plan["command_count"],
+        "composition_id": plan["composition"]["composition_id"],
+        "test_count": discovery["test_count"],
+        "executable": False,
+    }
+
+
 def _approval_time(value: object, code: str) -> datetime:
     if not isinstance(value, str):
         raise LifecycleBlockedError(code, "execution approval timestamp is invalid")
@@ -330,7 +381,12 @@ def validate_execution_authorization(
 ) -> dict[str, Any]:
     """Return an exact non-executing authorization record after every gate."""
 
-    validate_composed_execution_plan(plan)
+    if plan.get("schema_id") == CORRECTED_SCHEMA_ID:
+        validate_corrected_execution_plan(plan)
+        required_scope = "exact_corrected_composed_candidate_batch_v3"
+    else:
+        validate_composed_execution_plan(plan)
+        required_scope = "exact_composed_candidate_batch"
     if approval is None:
         raise LifecycleBlockedError("execution_approval_missing", "separate exact execution approval is required")
     if approval.get("schema_id") != APPROVAL_SCHEMA_ID or approval.get("status") != "APPROVED":
@@ -349,7 +405,7 @@ def validate_execution_authorization(
         approval.get("plan_sha256") != plan.get("plan_sha256")
         or approval.get("commands_sha256") != plan.get("commands_sha256")
         or approval.get("command_digests") != command_digests
-        or approval.get("scope") != "exact_composed_candidate_batch"
+        or approval.get("scope") != required_scope
     ):
         raise LifecycleBlockedError("execution_approval_mismatch", "execution approval does not bind the exact plan")
     isolation = plan["network_isolation"]
