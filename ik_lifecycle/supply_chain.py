@@ -18,7 +18,16 @@ _FORBIDDEN = {
     ("plain-crypto-js", "4.2.1"),
 }
 _HOOKS = ("preinstall", "install", "postinstall", "prepare")
-_PASSIVE_PARTS = {"docs", "doc", "fixtures", "fixture", "archives", "archive"}
+_PASSIVE_PARTS = {
+    "docs",
+    "doc",
+    "fixtures",
+    "fixture",
+    "archives",
+    "archive",
+    ".pytest_cache",
+    "__pycache__",
+}
 _LOCK_NAMES = {"package-lock.json", "npm-shrinkwrap.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock"}
 _INSTALL_FILES = {"Dockerfile", "Containerfile", "Makefile"}
 _INSTALL_COMMAND = re.compile(r"(?:npm|pnpm|yarn|bun)\s+(?:install|add|i)\b", re.IGNORECASE)

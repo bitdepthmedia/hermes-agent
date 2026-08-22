@@ -92,6 +92,20 @@ def test_passive_policy_safeguard_and_fixture_mentions_are_clear(tmp_path: Path)
     assert report.findings == ()
 
 
+def test_pytest_cache_of_passive_test_names_is_not_install_evidence(tmp_path: Path) -> None:
+    cache = tmp_path / ".pytest_cache" / "v" / "cache" / "nodeids"
+    cache.parent.mkdir(parents=True)
+    cache.write_text(
+        '["tests/ik_lifecycle/test_supply_chain.py::test_forbidden_implementation_surfaces_block[axios@1.14.1]"]',
+        encoding="utf-8",
+    )
+
+    report = inspect_manifests(tmp_path)
+
+    assert report.status == "CLEAR"
+    assert report.findings == ()
+
+
 def test_executable_test_surface_is_not_blanket_exempted(tmp_path: Path) -> None:
     path = tmp_path / "tests" / "runtime-install.sh"
     path.parent.mkdir(parents=True)

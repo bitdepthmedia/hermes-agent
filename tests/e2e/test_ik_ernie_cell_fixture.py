@@ -21,6 +21,7 @@ from ik_lifecycle.ernie_canary import (
     LoopbackOnlyMacOSSandbox,
     LoopbackProof,
     ProcessCanaryRuntime,
+    aggregate_bound_migration_clone,
     discard_runtime_profile,
     receipt_is_redacted,
 )
@@ -210,6 +211,23 @@ class ErnieCellFixtureTests(unittest.TestCase):
                 ErnieCanaryEngine(attestor=StaticAttestor(), sandbox=FakeSandbox(), runtime=FakeRuntime()).execute(
                     bad, verify_source_digest=False
                 )
+
+    def test_aggregate_bound_clone_reuse_does_not_require_semantic_content_processing(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            storage = Path(directory) / "storage"
+            migrated = storage / "rehearsals" / "synthetic-rehearsal" / "migrated"
+            migrated.mkdir(parents=True)
+            (migrated / "opaque.bin").write_bytes(b"opaque continuity bytes")
+            for path in (storage, storage / "rehearsals", migrated.parent, migrated):
+                os.chmod(path, 0o700)
+            os.chmod(migrated / "opaque.bin", 0o600)
+            expected = __import__("ik_lifecycle.opaque_backup", fromlist=["_tree_digest"])._tree_digest(migrated)[0]
+
+            result = aggregate_bound_migration_clone(storage, "synthetic-rehearsal", expected)
+            self.assertEqual(result, migrated)
+
+            with self.assertRaisesRegex(CanaryError, "semantic_clone_drift"):
+                aggregate_bound_migration_clone(storage, "synthetic-rehearsal", "0" * 64)
 
     def test_rp2_discards_only_an_owned_symlink_free_read_only_disposable_tree(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

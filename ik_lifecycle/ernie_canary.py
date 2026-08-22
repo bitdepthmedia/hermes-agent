@@ -588,6 +588,25 @@ def _build_runtime_profile(source: Path, destination: Path) -> tuple[str, dict[s
     return tree_sha256, {"runtime_files": file_count, "runtime_bytes": total_bytes}, excluded
 
 
+def aggregate_bound_migration_clone(storage_root: Path, rehearsal_id: str, expected_tree_sha256: str) -> Path:
+    """Bind an existing migration clone by aggregate bytes only, without semantic inspection."""
+
+    token = _safe_token(rehearsal_id, "rehearsal_id")
+    if not _valid_digest(expected_tree_sha256):
+        raise CanaryError("semantic_clone_binding_invalid")
+    storage = Path(storage_root).absolute()
+    migrated = storage / "rehearsals" / token / "migrated"
+    if not migrated.is_dir() or migrated.is_symlink() or not _clone_permissions_clear(migrated):
+        raise CanaryError("semantic_clone_binding_invalid")
+    try:
+        observed, _, _ = _tree_digest(migrated)
+    except Exception as error:
+        raise CanaryError("semantic_clone_binding_invalid") from error
+    if observed != expected_tree_sha256:
+        raise CanaryError("semantic_clone_drift")
+    return migrated
+
+
 def discard_runtime_profile(profile_root: Path, run_root: Path) -> None:
     """RP2 discard of one exact disposable tree; never follows symlinks."""
 

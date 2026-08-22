@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import os
@@ -18,6 +19,7 @@ from ik_lifecycle.ernie_canary import (  # noqa: E402
     CanaryError,
     CanaryRequest,
     ErnieCanaryEngine,
+    aggregate_bound_migration_clone,
     receipt_is_redacted,
 )
 from ik_lifecycle.semantic_rehearsal import (  # noqa: E402
@@ -58,10 +60,10 @@ def _load(path: Path, code: str) -> dict[str, object]:
     return document
 
 
-def _bindings() -> tuple[SemanticRehearsalRequest, dict[str, object], dict[str, object]]:
+def _bindings(candidate_outcome: Path = CANDIDATE_OUTCOME) -> tuple[SemanticRehearsalRequest, dict[str, object], dict[str, object], dict[str, object]]:
     snapshot = _load(PUBLIC_SNAPSHOT_RECEIPT, "public_snapshot_receipt_invalid")
     semantic = _load(PUBLIC_SEMANTIC_RECEIPT, "public_semantic_receipt_invalid")
-    outcome = _load(CANDIDATE_OUTCOME, "candidate_outcome_invalid")
+    outcome = _load(candidate_outcome, "candidate_outcome_invalid")
     try:
         release = outcome["release_bundle"]
         release_root = Path(release["root"])
@@ -98,15 +100,25 @@ def _bindings() -> tuple[SemanticRehearsalRequest, dict[str, object], dict[str, 
             Path.home() / "Documents/_IK_International/AI/_apps/nate-os",
         ),
     )
-    return semantic_request, snapshot, outcome
+    return semantic_request, snapshot, semantic, outcome
 
 
-def _request() -> CanaryRequest:
-    semantic_request, snapshot, outcome = _bindings()
-    try:
-        rehearsal = SemanticRehearsalEngine().execute(semantic_request)
-    except SemanticContinuityError as error:
-        raise CanaryError("semantic_rehearsal_binding_invalid") from error
+def _request(*, candidate_outcome: Path = CANDIDATE_OUTCOME, aggregate_only: bool = False) -> CanaryRequest:
+    semantic_request, snapshot, semantic, outcome = _bindings(candidate_outcome)
+    if aggregate_only:
+        migrated_root = aggregate_bound_migration_clone(
+            semantic_request.storage_root,
+            str(semantic.get("rehearsal_id", "")),
+            str(semantic.get("migrated_tree_sha256", "")),
+        )
+        migrated_tree_sha256 = str(semantic["migrated_tree_sha256"])
+    else:
+        try:
+            rehearsal = SemanticRehearsalEngine().execute(semantic_request)
+        except SemanticContinuityError as error:
+            raise CanaryError("semantic_rehearsal_binding_invalid") from error
+        migrated_root = rehearsal.migrated_root
+        migrated_tree_sha256 = rehearsal.receipt.migrated_tree_sha256
     public_semantic_sha256 = hashlib.sha256(PUBLIC_SEMANTIC_RECEIPT.read_bytes()).hexdigest()
     release = outcome["release_bundle"]
     release_root = Path(release["root"])
@@ -117,15 +129,15 @@ def _request() -> CanaryRequest:
         (
             "task11-v5",
             str(release["bundle_id"]),
-            str(rehearsal.receipt.migrated_tree_sha256),
+            migrated_tree_sha256,
             public_semantic_sha256,
         )
     )
     canary_id = "task11-" + hashlib.sha256(seed.encode()).hexdigest()[:20]
     return CanaryRequest(
         storage_root=semantic_request.storage_root,
-        migrated_profile_root=rehearsal.migrated_root,
-        expected_migrated_tree_sha256=rehearsal.receipt.migrated_tree_sha256,
+        migrated_profile_root=migrated_root,
+        expected_migrated_tree_sha256=migrated_tree_sha256,
         semantic_receipt_sha256=public_semantic_sha256,
         architecture_contract_sha256=semantic_request.architecture_contract_sha256,
         candidate_release_root=release_root,
@@ -144,8 +156,14 @@ def _request() -> CanaryRequest:
     )
 
 
-def main() -> int:
-    result = ErnieCanaryEngine().execute(_request())
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--candidate-outcome", type=Path, default=CANDIDATE_OUTCOME)
+    parser.add_argument("--aggregate-only", action="store_true")
+    arguments = parser.parse_args(argv)
+    result = ErnieCanaryEngine().execute(
+        _request(candidate_outcome=arguments.candidate_outcome, aggregate_only=arguments.aggregate_only)
+    )
     payload = result.receipt.to_dict()
     if not receipt_is_redacted(payload):
         raise CanaryError("receipt_privacy_gate_failed")
