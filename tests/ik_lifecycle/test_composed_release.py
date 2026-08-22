@@ -28,8 +28,13 @@ class ComposedReleaseTests(unittest.TestCase):
             "evals/ik/",
             "docs/architecture/",
         )
+        exact_files = {
+            "scripts/ik-ernie-runtime-canary",
+            "tests/e2e/test_ik_ernie_cell_fixture.py",
+            "docs/planning-receipts/2026-08-22-hermes-ernie-runtime-canary-v1.json",
+        }
         self.assertTrue(
-            all(source.startswith(allowed_roots) for source, _ in manifest.entries)
+            all(source.startswith(allowed_roots) or source in exact_files for source, _ in manifest.entries)
         )
         self.assertTrue(any(source == "tests/ik_lifecycle/test_focused_test_selection.py" for source, _ in manifest.entries))
         behavior_tests = {
@@ -41,6 +46,10 @@ class ComposedReleaseTests(unittest.TestCase):
         self.assertTrue(any(source.startswith("evals/ik/") for source, _ in manifest.entries))
         self.assertTrue(
             any(source == "docs/architecture/bert-ernie-hermes-cell-architecture.md" for source, _ in manifest.entries)
+        )
+        self.assertTrue(
+            exact_files
+            <= {source for source, _ in manifest.entries}
         )
 
     def test_composition_is_deterministic_overlay_bound_and_does_not_mutate_source(self) -> None:

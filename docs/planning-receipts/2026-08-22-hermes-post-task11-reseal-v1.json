@@ -1,0 +1,33 @@
+{
+  "artifact_reuse_sha256": "af05f00f24f92af44e3b359c9fc05bf4de42e3f171bc66c3604a04457db99d12",
+  "build_execution_performed": false,
+  "candidate_id": "1e79082041b08781ca40",
+  "composition_id": "ab5aabf61a2bcbf1d27af828",
+  "composed_tree_sha256": "bc5e39c0e6cd1971d677575a9a4d43304e4559b380925e494a006f09c7da8143",
+  "dependency_execution_performed": false,
+  "implementation_commit": "6c79cd15750e9f3e9ba052e8345010794897f0ad",
+  "overlay_manifest_sha256": "f4b043b04710f6f0c5304b683e499f670532c0aae5050c45e042bfe09f00374d",
+  "prior_bundle_preserved": true,
+  "prior_manifest_sha256": "1e83449b631a238cb4afa3132ae5ea0dced349702d604cc9504f725ef3d457f2",
+  "release_bundle": {
+    "bundle_id": "c2a83cc28603501993d9",
+    "manifest_sha256": "76a0ae27ae8b80759ab2f1cc7961b8c6c8c8a555b7211c7ba5389398fbcba6c1",
+    "root": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/releases/c2a83cc28603501993d9",
+    "status": "SEALED_CODE_ONLY"
+  },
+  "reused_artifact_ids": [
+    "dashboard-web-dist",
+    "hermes-ink-dist",
+    "ui-tui-dist"
+  ],
+  "schema_id": "ik.hermes.post-task11-reseal.v1",
+  "status": "SUPERSEDED_PARITY_GAP",
+  "superseded_reason": "declared overlay omitted the exact Task 11 canary acceptance test path",
+  "target": {
+    "latest_commit_sha": "fcbd1076a93841fa88855acce810e342a5b78101",
+    "latest_tag": "v2026.8.19",
+    "policy": "exactly_one_published_stable_release_behind",
+    "selected_commit_sha": "e624e9fde561e1add9388384012b295fde669ade",
+    "selected_tag": "v2026.8.18"
+  }
+}

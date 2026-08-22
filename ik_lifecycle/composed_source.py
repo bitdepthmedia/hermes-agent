@@ -45,11 +45,13 @@ def load_declared_overlay(repo_root: Path, manifest_path: Path) -> OverlayManife
         raise LifecycleBlockedError("overlay_manifest_invalid", "declared overlay manifest is unreadable") from exc
     target = document.get("target", {})
     roots = document.get("roots")
+    files = document.get("files", [])
     if (
         document.get("schema_id") != "ik.hermes.extension-overlay-manifest.v1"
         or document.get("core_patch_count") != 0
         or not isinstance(roots, list)
         or not roots
+        or not isinstance(files, list)
         or not isinstance(target.get("tag"), str)
         or not isinstance(target.get("commit_sha"), str)
     ):
@@ -68,6 +70,14 @@ def load_declared_overlay(repo_root: Path, manifest_path: Path) -> OverlayManife
                 continue
             relative = source.relative_to(root).as_posix()
             entries.append((relative, relative))
+    for raw_file in files:
+        relative_file = _relative(str(raw_file))
+        source = root / relative_file
+        if not source.is_file() or source.is_symlink() or source.resolve() == path:
+            raise LifecycleBlockedError("overlay_file_missing", f"declared overlay file is missing: {raw_file}")
+        relative = relative_file.as_posix()
+        entries.append((relative, relative))
+    entries.sort()
     if len({target_path for _, target_path in entries}) != len(entries):
         raise LifecycleBlockedError("overlay_collision", "declared overlay roots overlap")
     digest = hashlib.sha256()
