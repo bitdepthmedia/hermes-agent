@@ -39,6 +39,22 @@ def _validate_symlinks(root: Path, confinement: Path) -> None:
             raise LifecycleBlockedError("audited_dependency_symlink_invalid", "audited dependency symlink escapes its surface") from exc
 
 
+def _validate_relocated_symlinks(root: Path, destination: Path, confinement: Path) -> None:
+    """Validate relative links using the path where the tree will be atomically moved."""
+
+    for path in root.rglob("*"):
+        if not path.is_symlink():
+            continue
+        target = os.readlink(path)
+        if os.path.isabs(target):
+            raise LifecycleBlockedError("audited_dependency_symlink_invalid", "audited dependency has an absolute symlink")
+        relocated = destination / path.relative_to(root)
+        try:
+            (relocated.parent / target).resolve(strict=False).relative_to(confinement.resolve())
+        except ValueError as exc:
+            raise LifecycleBlockedError("audited_dependency_symlink_invalid", "audited dependency symlink escapes its destination") from exc
+
+
 def dependency_tree_digest(root: Path) -> str:
     digest = hashlib.sha256()
     for path in sorted(Path(root).rglob("*"), key=lambda item: item.relative_to(root).as_posix()):
@@ -104,7 +120,7 @@ def materialize_audited_dependencies(
         destination.parent.mkdir(parents=True, exist_ok=True)
         staging_parent.mkdir(parents=True, exist_ok=True)
         shutil.copytree(source, staging, symlinks=True)
-        _validate_symlinks(staging, staging)
+        _validate_relocated_symlinks(staging, destination, build)
         if dependency_tree_digest(staging) != source_digest:
             raise LifecycleBlockedError("audited_dependency_copy_mismatch", "copied dependency surface differs from audit evidence")
         os.replace(staging, destination)

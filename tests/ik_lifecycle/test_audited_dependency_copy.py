@@ -27,12 +27,16 @@ class AuditedDependencyCopyTests(unittest.TestCase):
         self._temporary.cleanup()
 
     def test_copies_only_declared_audited_dependency_roots_and_is_idempotent(self) -> None:
+        (self.audit / "ui-tui").mkdir()
+        (self.build / "ui-tui").mkdir()
+        (self.audit / "node_modules/ui-tui").symlink_to("../ui-tui")
         first = materialize_audited_dependencies(self.audit, self.build, ("node_modules",))
         second = materialize_audited_dependencies(self.audit, self.build, ("node_modules",))
 
         self.assertEqual(first, second)
         self.assertEqual((self.build / "node_modules/safe-package/cli.js").read_text(), "safe")
         self.assertTrue((self.build / "node_modules/.bin/safe").is_symlink())
+        self.assertEqual((self.build / "node_modules/ui-tui").resolve(), (self.build / "ui-tui").resolve())
         self.assertEqual(first.status, "CLEAR")
 
     def test_tamper_unsafe_symlink_and_forbidden_installed_metadata_fail_closed(self) -> None:
