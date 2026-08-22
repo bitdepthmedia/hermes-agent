@@ -3,6 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -29,7 +30,13 @@ class MacOSNetworkIsolationTests(unittest.TestCase):
 
     def _proof(self) -> tuple[Path, dict]:
         path = self.root / "network-proof.json"
-        receipt = self.adapter.create_proof(path, observed_at=self.now, ttl_seconds=300)
+        outer_proof = os.environ.get("IK_NETWORK_PROOF_PATH")
+        if outer_proof:
+            receipt = json.loads(Path(outer_proof).read_text(encoding="utf-8"))
+            self.now = datetime.fromisoformat(receipt["observed_at"])
+            path.write_text(json.dumps(receipt), encoding="utf-8")
+        else:
+            receipt = self.adapter.create_proof(path, observed_at=self.now, ttl_seconds=300)
         return path, receipt
 
     def test_loopback_control_succeeds_and_sandboxed_connection_is_denied(self) -> None:

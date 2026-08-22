@@ -7,6 +7,7 @@ import unittest
 
 from ik_lifecycle.focused_test_selection import (
     DEFAULT_FOCUSED_TEST_PATHS,
+    LIFECYCLE_REPO_ONLY_TEST_IDS,
     discover_focused_tests,
 )
 from ik_lifecycle.models import LifecycleBlockedError
@@ -66,8 +67,10 @@ class FocusedLifecycleSelectionTests(unittest.TestCase):
 
         proof = discover_focused_tests(repo, DEFAULT_FOCUSED_TEST_PATHS)
 
-        self.assertGreater(proof["test_count"], 0)
+        self.assertEqual(proof["test_count"], 46)
         self.assertEqual(proof["module_count"], len(DEFAULT_FOCUSED_TEST_PATHS))
+        self.assertEqual(proof["excluded_test_ids"], list(LIFECYCLE_REPO_ONLY_TEST_IDS))
+        self.assertTrue(set(proof["test_ids"]).isdisjoint(LIFECYCLE_REPO_ONLY_TEST_IDS))
 
 
 if __name__ == "__main__":

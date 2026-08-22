@@ -42,6 +42,18 @@ BEHAVIOR_TEST_PATHS = (
     "tests/ik_models/test_model_workers.py",
 )
 
+# These checks validate repository planning history rather than the composed
+# candidate. They remain in the normal repository suite, but are deliberately
+# excluded from the portable candidate lifecycle batch.
+LIFECYCLE_REPO_ONLY_TEST_IDS = (
+    "tests/ik_lifecycle/test_composed_execution_authority.py::ComposedExecutionAuthorityTests.test_old_upstream_only_plan_cannot_authorize_composed_execution",
+    "tests/ik_lifecycle/test_composed_release.py::ComposedReleaseTests.test_declared_overlay_is_bound_to_target_and_reviewed_replay",
+    "tests/ik_lifecycle/test_execution_plan.py::ExecutionPlanTests.test_committed_candidate_execution_plan_is_valid_and_non_executable",
+    "tests/ik_lifecycle/test_execution_plan.py::ExecutionPlanTests.test_committed_composed_plan_and_decision_input_are_digest_bound_and_non_executable",
+    "tests/ik_lifecycle/test_execution_plan.py::ExecutionPlanTests.test_committed_next_approval_input_self_digest_is_valid",
+    "tests/ik_lifecycle/test_v4_architecture_execution.py::V4ArchitectureExecutionTests.test_mapping_rejects_unknown_test_and_v3_plan_is_ineligible",
+)
+
 
 def _relative(value: str) -> Path:
     path = PurePosixPath(value)
@@ -84,6 +96,14 @@ def _test_ids(suite: unittest.TestSuite, relative: str) -> list[str]:
     return result
 
 
+def _tests(suite: unittest.TestSuite):
+    for test in suite:
+        if isinstance(test, unittest.TestSuite):
+            yield from _tests(test)
+        else:
+            yield test
+
+
 def _discover(root: Path, selected_paths: tuple[str, ...], suite_id: str) -> tuple[unittest.TestSuite, dict]:
     base = Path(root).resolve()
     if not base.is_dir() or not selected_paths or len(set(selected_paths)) != len(selected_paths):
@@ -92,13 +112,19 @@ def _discover(root: Path, selected_paths: tuple[str, ...], suite_id: str) -> tup
     suite = unittest.TestSuite()
     files: list[dict[str, str]] = []
     test_ids: list[str] = []
+    excluded: set[str] = set()
     for index, relative in enumerate(selected_paths):
         module, digest = _load(base, relative, index)
         discovered = loader.loadTestsFromModule(module)
         if loader.errors:
             raise LifecycleBlockedError("focused_test_import_failed", f"unittest discovery failed: {relative}")
-        suite.addTests(discovered)
-        test_ids.extend(_test_ids(discovered, relative))
+        discovered_ids = _test_ids(discovered, relative)
+        for test, test_id in zip(_tests(discovered), discovered_ids, strict=True):
+            if suite_id == "lifecycle" and test_id in LIFECYCLE_REPO_ONLY_TEST_IDS:
+                excluded.add(test_id)
+                continue
+            suite.addTest(test)
+            test_ids.append(test_id)
         files.append({"path": relative, "sha256": digest})
     test_count = suite.countTestCases()
     if test_count < 1 or len(test_ids) != test_count or len(set(test_ids)) != test_count:
@@ -114,6 +140,7 @@ def _discover(root: Path, selected_paths: tuple[str, ...], suite_id: str) -> tup
         "module_count": len(files),
         "test_count": test_count,
         "test_ids": test_ids,
+        "excluded_test_ids": [test_id for test_id in LIFECYCLE_REPO_ONLY_TEST_IDS if test_id in excluded],
         "mode": "compile_import_discovery_only",
     }
     binding["selection_sha256"] = hashlib.sha256(

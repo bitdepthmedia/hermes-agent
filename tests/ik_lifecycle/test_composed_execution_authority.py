@@ -3,6 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import json
+import os
 from pathlib import Path
 import sys
 import tempfile
@@ -40,7 +41,13 @@ class ComposedExecutionAuthorityTests(unittest.TestCase):
         self.now = datetime(2026, 8, 21, 17, 0, tzinfo=timezone.utc)
         self.proof_path = self.root / "network-proof.json"
         self.adapter = MacOSNetworkIsolation(Path(sys.executable))
-        self.proof = self.adapter.create_proof(self.proof_path, observed_at=self.now)
+        outer_proof = os.environ.get("IK_NETWORK_PROOF_PATH")
+        if outer_proof:
+            self.proof = json.loads(Path(outer_proof).read_text(encoding="utf-8"))
+            self.now = datetime.fromisoformat(self.proof["observed_at"])
+            self.proof_path.write_text(json.dumps(self.proof), encoding="utf-8")
+        else:
+            self.proof = self.adapter.create_proof(self.proof_path, observed_at=self.now)
         self.plan = self._plan()
 
     def tearDown(self) -> None:
