@@ -1,0 +1,144 @@
+{
+  "approval_contract": {
+    "api_sha256": "39c64e1d09afc42b1b49cc27826009808b9aaf6709c6e066f3e80795b61c6965",
+    "fail_closed": true,
+    "model_neutral": true,
+    "qwen_adapter_sha256": "a012242670bcb215345572f86ac2376e2e12dd27816fb46ddd9b3aa89dc86cf0",
+    "schema_sha256": "2f50d00f2266ace102e0b35b721e8fded0da4331f9e538210447adb0151f9e64",
+    "states": [
+      "required",
+      "approved",
+      "denied",
+      "not_required"
+    ],
+    "unauthorized_execution_rejected": true
+  },
+  "candidate": {
+    "artifact_manifest_sha256": "26e0a3a36561ea7d0dfa6fd27356292d3dcc0888da2ba7d8f5beb17c35a4ec5a",
+    "artifacts": [
+      {
+        "bytes": 18973870432,
+        "mode": "0400",
+        "sha256": "31629f53165ab6a7dad8c9847dcfd1fdf55829dac1e6e748f4a68581b0033d34"
+      },
+      {
+        "bytes": 629247008,
+        "mode": "0400",
+        "sha256": "2e968a6af97ce35d8971890b257b9b7edabf20ad91450501fa53162a19ee33eb"
+      }
+    ],
+    "disposition": "EVALUATED_NOT_SELECTED",
+    "model_alias": "ik-qwen38-eval:31629f53165a"
+  },
+  "evaluation": {
+    "approval_gate_first": {
+      "case_id": "tools-approval",
+      "errors": 0,
+      "latency_ms": 13260,
+      "passed": 1,
+      "total": 1
+    },
+    "concurrency": {
+      "aggregate_latency_ms": 5222,
+      "graded_responses": 2,
+      "receipt_sha256": "fdd7a383c9947451d560531ec78356607ae48c9c4c4a5823bd14a5d3ef43b07e",
+      "requested": 2,
+      "successful": 2
+    },
+    "errors": 0,
+    "evaluator_changed": false,
+    "full_suite": {
+      "aggregate_latency_ms": 324269,
+      "case_selection_sha256": "2a46c4c4c55a0b51f91af1a017aa3afb98c1bdd11c38e5444a96e83a6b3a5f86",
+      "failed": 0,
+      "failed_critical": 0,
+      "passed": 12,
+      "receipt_sha256": "607d5d9bf5a44bb45a13476e25991feae3320b128e551b17c5cc9e450a17e664",
+      "total": 12
+    },
+    "promotion_eligible": false,
+    "status": "CLEAR",
+    "timeouts": 0
+  },
+  "implementation": {
+    "commit": "0635a07c359864227f0a175a87e2c6a1907b5c4e",
+    "dependency_execution_performed": false,
+    "grader_changes": false,
+    "manifest_or_lock_changes": false
+  },
+  "network_boundary": {
+    "adapter": "macos_sandbox_exec_loopback_only",
+    "external_blocked": true,
+    "loopback_roundtrip": true,
+    "proof_receipt_sha256": "c67ce35dd77823f74f9d56988aa4830d2f6e7cbdae70b5e110ff2fc970613297",
+    "proof_sha256": "4dbc88a642532820a15cdce8daf9dced469054e2cdfffcabc82c7c83a350e3a3",
+    "ttl_seconds": 300
+  },
+  "next_gate": {
+    "decision": "model selection and credential-bound closed-runtime evaluation before any live Ernie delta or pointer change",
+    "requires_new_authority": true
+  },
+  "release_binding": {
+    "artifact_reuse_sha256": "06b18ff706d1e8bea562d9d50455c90048ba22553b74edb69dbf80ed969ac0d5",
+    "build_execution_performed": false,
+    "builder_alias": "hermes-typed-approval-reseal-v1",
+    "builder_case_sensitive": true,
+    "builder_read_only_after_seal": true,
+    "bundle_id": "303b52d150d8afe861dd",
+    "bundle_manifest_sha256": "28be939777b7a5a5d7eb7f7141aec26cb7f98c3b176f958b7520c7fa3ae533dd",
+    "bundle_status": "SEALED_CODE_ONLY",
+    "composed_tree_sha256": "9aae25f4fe804a5a6fe7e16dca1ccfe8a070452cbf1b18e9470db849dcb7e68f",
+    "composition_id": "05b76efef3475df34bb7a5a5",
+    "composition_manifest_sha256": "69ac373c514b5f7fcfc501612c3c829344e2b905d65d998b1cdfa1dd2c58da54",
+    "dependency_execution_performed": false,
+    "idempotency_replays": 2,
+    "overlay_manifest_sha256": "56326d3d71cf4fdecf7feaabfd42a2789c0b0aeea2d6a6ca3658908dc05d3ebf",
+    "prior_artifacts_preserved": true,
+    "prior_manifest_sha256": "dbe7bb4976760a0fc5e047b64bf6699ec5bcda49e7d1b17617d396dadb478ae5",
+    "precloseout_binding_mismatch_evidence_retained": true,
+    "reused_artifact_ids": [
+      "dashboard-web-dist",
+      "hermes-ink-dist",
+      "ui-tui-dist"
+    ]
+  },
+  "schema_id": "ik.hermes.typed-approval-contract-receipt.v1",
+  "skipped_surfaces": [
+    "private_data",
+    "credentials",
+    "live_profiles",
+    "live_model_selection",
+    "services",
+    "release_pointers",
+    "automations",
+    "live_bert",
+    "deployment",
+    "push",
+    "external_state"
+  ],
+  "status": "CLEAR_OFFLINE_ONLY",
+  "supply_chain": {
+    "forbidden_findings": 0,
+    "release_manifest_or_lock_artifacts": 19,
+    "status": "CLEAR"
+  },
+  "target": {
+    "candidate_id": "1e79082041b08781ca40",
+    "official_commit": "e624e9fde561e1add9388384012b295fde669ade",
+    "official_tag": "v2026.8.18",
+    "policy": "exactly_one_published_stable_release_behind"
+  },
+  "verification": {
+    "compiled_python": "CLEAR",
+    "default_local_runtime_version": "0.32.15",
+    "diff_check": "CLEAR",
+    "full_relevant_tests": {
+      "passed": 208,
+      "skipped": 1
+    },
+    "isolated_eval_port_closed": true,
+    "json_parse": "CLEAR",
+    "release_binding_count": 4,
+    "secret_diff_scan": "CLEAR"
+  }
+}
