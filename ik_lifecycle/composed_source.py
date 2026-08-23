@@ -11,6 +11,7 @@ import shutil
 import stat
 
 from .models import LifecycleBlockedError
+from .immutable_copy import copy_immutable_tree
 
 
 @dataclass(frozen=True)
@@ -147,7 +148,7 @@ def compose_source(official_source: Path, overlay_root: Path, destination: Path,
     if staging.exists():
         raise LifecycleBlockedError("composed_staging_exists", "staging path already exists")
     try:
-        shutil.copytree(source, staging, symlinks=False)
+        copy_immutable_tree(source, staging, materialize_symlinks=True)
         # The authoritative source is immutable. Its copied directory modes
         # must be writable only while the reviewed overlay is assembled.
         _make_staging_writable(staging)

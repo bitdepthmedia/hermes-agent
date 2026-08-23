@@ -12,6 +12,7 @@ import stat
 from typing import Any
 
 from .composed_source import OverlayManifest, compose_source, tree_digest
+from .immutable_copy import copy_immutable_tree
 from .models import LifecycleBlockedError
 
 
@@ -126,7 +127,7 @@ def construct_composed_candidate(inputs: ComposedCandidateInputs) -> ComposedCan
     build_root.parent.mkdir(parents=True, exist_ok=False)
     try:
         composed = compose_source(official, overlay, immutable_source, inputs.overlay_manifest)
-        shutil.copytree(immutable_source, build_root, symlinks=False)
+        copy_immutable_tree(immutable_source, build_root, materialize_symlinks=True)
         _make_writable(build_root)
         pristine = tree_digest(build_root)
         if pristine != composed.tree_digest:

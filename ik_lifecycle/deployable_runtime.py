@@ -11,11 +11,11 @@ import re
 import shutil
 import stat
 import subprocess
-import sys
 import tempfile
 from typing import Iterable
 
 from .composed_source import tree_digest
+from .immutable_copy import copy_immutable_tree
 from .models import LifecycleBlockedError
 
 
@@ -136,25 +136,7 @@ def _make_writable(root: Path) -> None:
 
 
 def _copytree_for_release(source: Path, destination: Path, *, materialize_symlinks: bool) -> None:
-    """Copy one immutable surface, using APFS copy-on-write on macOS."""
-
-    if sys.platform != "darwin":
-        shutil.copytree(source, destination, symlinks=not materialize_symlinks)
-        return
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    flags = "-cRL" if materialize_symlinks else "-cR"
-    completed = subprocess.run(
-        ("/bin/cp", flags, str(source), str(destination)),
-        capture_output=True,
-        text=True,
-        timeout=300,
-        check=False,
-    )
-    if completed.returncode != 0:
-        raise LifecycleBlockedError(
-            "runtime_clone_failed",
-            "immutable runtime surface could not be copied with macOS copy-on-write",
-        )
+    copy_immutable_tree(source, destination, materialize_symlinks=materialize_symlinks)
 
 
 def _validate_inputs(inputs: DeployableRuntimeInputs, output: Path, running_roots: Iterable[Path]) -> dict[str, object]:
