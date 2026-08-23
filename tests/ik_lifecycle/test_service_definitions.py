@@ -23,6 +23,7 @@ def test_bert_topology_uses_one_stable_cell_launcher_without_local_model_service
         BertServiceTopologySpec(
             cell_root=cell,
             profile_root=profile,
+            writable_paths=(tmp_path / "nate-state" / "bert",),
             account="bert",
             gateway_unit="hermes-gateway.service",
             dashboard_unit="hermes-dashboard-bert.service",
@@ -47,7 +48,9 @@ def test_bert_topology_uses_one_stable_cell_launcher_without_local_model_service
     assert "--host 127.0.0.1 --port 7611 --no-open" not in dashboard
     assert "model" not in result.systemd_units
     assert f"ReadWritePaths={profile}" in gateway
+    assert f"ReadWritePaths={tmp_path / 'nate-state' / 'bert'}" in gateway
     assert f"ReadWritePaths={profile} {cell}" not in gateway
+    assert result.manifest["additional_writable_path_count"] == 1
     assert result.manifest["status"] == "CLEAR_EXACT_BERT_TOPOLOGY"
     assert result.manifest["start_order"] == ["gateway", "dashboard"]
     assert result.manifest["stop_order"] == ["dashboard", "gateway"]
@@ -83,6 +86,22 @@ def test_bert_topology_allows_cell_local_profile_and_rejects_unsafe_unit_paths(t
                 runtime_verifier_sha256="c" * 64,
             ),
             tmp_path / "unsafe-definitions",
+        )
+
+    with pytest.raises(LifecycleBlockedError, match="writable"):
+        render_bert_service_topology(
+            BertServiceTopologySpec(
+                cell_root=cell,
+                profile_root=tmp_path / "profile",
+                writable_paths=(Path("/"),),
+                account="bert",
+                gateway_unit="hermes-gateway.service",
+                dashboard_unit="hermes-dashboard-bert.service",
+                dashboard_port=7611,
+                runtime_manifest_sha256="b" * 64,
+                runtime_verifier_sha256="c" * 64,
+            ),
+            tmp_path / "unsafe-writable-definitions",
         )
 
 

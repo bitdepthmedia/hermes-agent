@@ -65,6 +65,7 @@ class BertServiceTopologySpec:
     dashboard_port: int
     runtime_manifest_sha256: str
     runtime_verifier_sha256: str
+    writable_paths: tuple[Path, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -377,6 +378,7 @@ def render_bert_service_topology(
 
     cell_root = Path(spec.cell_root).resolve(strict=False)
     profile_root = Path(spec.profile_root).resolve(strict=False)
+    writable_paths = tuple(Path(path).resolve(strict=False) for path in spec.writable_paths)
     output = Path(output_root).resolve(strict=False)
     unit_name = re.compile(r"[A-Za-z0-9_.@-]+\.service")
     if (
@@ -391,6 +393,16 @@ def render_bert_service_topology(
         or not all(re.fullmatch(r"/[A-Za-z0-9_./-]+", str(path)) for path in (cell_root, profile_root, output))
     ):
         raise LifecycleBlockedError("bert_service_spec_invalid", "Bert service topology specification is invalid")
+    profile_parent = profile_root.parent
+    if len(set(writable_paths)) != len(writable_paths) or any(
+        path in {Path("/"), profile_parent, profile_root}
+        or _within(path, cell_root)
+        or _within(path, profile_root)
+        or not _within(path, profile_parent)
+        or not re.fullmatch(r"/[A-Za-z0-9_./-]+", str(path))
+        for path in writable_paths
+    ):
+        raise LifecycleBlockedError("bert_writable_path_invalid", "Bert additional writable path is invalid")
     for forbidden in forbidden_roots:
         root = Path(forbidden).resolve(strict=False)
         if _within(cell_root, root) or _within(root, cell_root):
@@ -415,6 +427,7 @@ def render_bert_service_topology(
         "PrivateTmp=true",
         "ProtectSystem=strict",
         f"ReadWritePaths={profile_root}",
+        *(f"ReadWritePaths={path}" for path in writable_paths),
         f"ReadOnlyPaths={cell_root}",
         "Restart=on-failure",
         "RestartSec=5",
@@ -462,6 +475,8 @@ def render_bert_service_topology(
         "dashboard_port": spec.dashboard_port,
         "runtime_manifest_sha256": spec.runtime_manifest_sha256,
         "runtime_verifier_sha256": spec.runtime_verifier_sha256,
+        "additional_writable_path_count": len(writable_paths),
+        "additional_writable_path_sha256": [hashlib.sha256(str(path).encode()).hexdigest() for path in writable_paths],
         "start_order": ["gateway", "dashboard"],
         "stop_order": ["dashboard", "gateway"],
         "systemd_sha256": {role: _sha(path) for role, path in units.items()},
