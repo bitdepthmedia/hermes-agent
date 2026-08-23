@@ -35,6 +35,7 @@ class ComposedReleaseTests(unittest.TestCase):
             "scripts/ik-cell-service",
             "scripts/ik-ernie-closed-runtime",
             "scripts/ik-ernie-runtime-canary",
+            "scripts/ik-offline-model-eval",
             "tests/e2e/test_ik_bert_cell_fixture.py",
             "tests/e2e/test_ik_ernie_cell_fixture.py",
             "tests/e2e/test_ik_launchd_service_fixture.py",
