@@ -86,7 +86,7 @@
         "status": "CLEAR",
         "screened_surfaces": 19,
         "forbidden_implementation_findings": 0,
-        "shared_bundle_receipt_sha256": "49d5ea359a14ee291afcfd4cf246af0614445932d2a560ef1593928e4a617880"
+        "shared_bundle_receipt_sha256": "b2f5e64051dc4e84f1ca9f01e7d341e69f14dda528660868a49eb7defba7585e"
       }
     },
     "retained_blockers": [
@@ -107,5 +107,5 @@
       "deployment-or-push"
     ]
   },
-  "sha256": "e38c2b5778bcfdc047f9eae7ce232f29cdcab78abe7ca85e311023048d9b300d"
+  "sha256": "437de3bd38d4e8c3bba5934b7964e606f1ef2a997f42f65b6e8896e5a599c91b"
 }

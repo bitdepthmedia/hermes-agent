@@ -6,11 +6,11 @@
     "bundle_id": "c10433025d24c7d14471",
     "bundle_manifest_sha256": "dbaaa34ed2a43ea8cb1b2ffb1a90021549f3129d3fdeb9fce66e22d5c6dd5e0a",
     "composed_source_tree_sha256": "7087c9923288b6d7c54ee92a2f011da61d5163ecc25c18b9c1061015bdc24899",
-    "composition_id": "1d203627163508be09be54cb",
-    "composition_manifest_sha256": "88e422050f9dd08a4115a789dd4454b10fd8635e3c0d84257ca79583f9664dcf",
+    "composition_id": "66342a923802d240e57e3513",
+    "composition_manifest_sha256": "5a380d1a3bda496112c37498c8d2ca9615d12dab663410f4b1fbe23176d3e15f",
     "overlay_manifest_sha256": "01fbf1c4c27f5dba796900491995e28e4589c368226fc28bed99647e8d554a3b",
     "overlay_source_sha256": "6c5f538935f47cbcb01b72eea79c7a30e66dc478c8eea5c4f16a6d0da5f60dca",
-    "implementation_commit": "fd16492c5c8bcb91ea90181704e2b59135d76d03",
+    "implementation_commit": "fd16492c5c1eff26dd70ac73f9777170dfc20ef8",
     "official_target": {
       "tag": "v2026.8.18",
       "commit_sha": "e624e9fde561e1add9388384012b295fde669ade",
@@ -18,8 +18,8 @@
     },
     "artifact_reuse": {
       "status": "CLEAR_DIGEST_BOUND_REUSE",
-      "binding_sha256": "55b18b92e3e42e91c9f018fe2aad602be115f243a34f0861c455ae7f63e0c538",
-      "prior_bundle_manifest_sha256": "e78e309581b7e636254944ac22077fd1de1c1bcfeb6b2880c027a5ae7373e136",
+      "binding_sha256": "0353121858a717ce1c585a3d8710b10e59ad9ce30aca43713c07eff1b9e37436",
+      "prior_bundle_manifest_sha256": "dbaaa34ed2a43ea8cb1b2ffb1a90021549f3129d3fdeb9fce66e22d5c6dd5e0a",
       "artifacts": [
         "dashboard-web-dist",
         "hermes-ink-dist",
