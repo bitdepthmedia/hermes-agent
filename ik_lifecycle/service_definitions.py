@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 import plistlib
 import re
 
@@ -85,6 +85,16 @@ def _within(path: Path, root: Path) -> bool:
 
 def _sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _remote_posix(path: Path) -> Path:
+    """Normalize a remote path lexically without resolving host symlinks."""
+
+    raw = str(path)
+    pure = PurePosixPath(raw)
+    if not pure.is_absolute() or ".." in pure.parts or "\\" in raw or "\x00" in raw:
+        raise LifecycleBlockedError("bert_remote_path_invalid", "Bert remote path is invalid")
+    return Path(pure.as_posix())
 
 
 def _validate_release_store(release_image: Path, release_mount: Path) -> None:
@@ -376,9 +386,9 @@ def render_bert_service_topology(
 ) -> RenderedBertServiceTopology:
     """Render the cloud Bert cell as a paired systemd service group."""
 
-    cell_root = Path(spec.cell_root).resolve(strict=False)
-    profile_root = Path(spec.profile_root).resolve(strict=False)
-    writable_paths = tuple(Path(path).resolve(strict=False) for path in spec.writable_paths)
+    cell_root = _remote_posix(spec.cell_root)
+    profile_root = _remote_posix(spec.profile_root)
+    writable_paths = tuple(_remote_posix(path) for path in spec.writable_paths)
     output = Path(output_root).resolve(strict=False)
     unit_name = re.compile(r"[A-Za-z0-9_.@-]+\.service")
     if (
@@ -404,7 +414,7 @@ def render_bert_service_topology(
     ):
         raise LifecycleBlockedError("bert_writable_path_invalid", "Bert additional writable path is invalid")
     for forbidden in forbidden_roots:
-        root = Path(forbidden).resolve(strict=False)
+        root = _remote_posix(forbidden)
         if _within(cell_root, root) or _within(root, cell_root):
             raise LifecycleBlockedError("service_cell_root_forbidden", "cell root overlaps a mutable checkout")
     if output.exists() or output.is_symlink():

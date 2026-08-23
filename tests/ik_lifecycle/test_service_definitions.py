@@ -105,6 +105,29 @@ def test_bert_topology_allows_cell_local_profile_and_rejects_unsafe_unit_paths(t
         )
 
 
+def test_bert_topology_preserves_remote_posix_paths_on_macos(tmp_path: Path) -> None:
+    result = render_bert_service_topology(
+        BertServiceTopologySpec(
+            cell_root=Path("/home/bert/.hermes-cells/bert"),
+            profile_root=Path("/home/bert/.hermes"),
+            writable_paths=(Path("/home/bert/.nate-os/state/bert"),),
+            account="bert",
+            gateway_unit="hermes-gateway.service",
+            dashboard_unit="hermes-dashboard-bert.service",
+            dashboard_port=7611,
+            runtime_manifest_sha256="a" * 64,
+            runtime_verifier_sha256="b" * 64,
+        ),
+        tmp_path / "remote-definitions",
+    )
+
+    unit = result.systemd_units["gateway"].read_text(encoding="utf-8")
+    assert "WorkingDirectory=/home/bert/.hermes-cells/bert" in unit
+    assert "ReadWritePaths=/home/bert/.hermes" in unit
+    assert "ReadWritePaths=/home/bert/.nate-os/state/bert" in unit
+    assert "/System/Volumes/Data/home" not in unit
+
+
 def test_renders_exact_launchd_and_systemd_definitions_from_cell_pointers(tmp_path: Path) -> None:
     cell = tmp_path / "cell"
     result = render_cell_service_definitions(
