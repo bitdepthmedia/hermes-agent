@@ -194,12 +194,28 @@ def _validate_inputs(inputs: DeployableRuntimeInputs, output: Path, running_root
     model_runtime = next(Path(item.path).resolve() for item in inputs.surfaces if item.surface_id == "model-runtime")
     model_executable = model_runtime / "ollama"
     model_server = model_runtime / "llama-server"
+    external_marker = model_runtime / "EXTERNAL_MODEL_ONLY"
+    model_runtime_identity: dict[str, object]
     if (
-        not model_executable.is_file()
-        or not os.access(model_executable, os.X_OK)
-        or not model_server.is_file()
-        or not os.access(model_server, os.X_OK)
+        external_marker.is_file()
+        and not external_marker.is_symlink()
+        and external_marker.read_bytes() == b"BERT_EXTERNAL_MODEL_WORKER_ONLY\n"
+        and tuple(path.relative_to(model_runtime).as_posix() for path in model_runtime.rglob("*"))
+        == ("EXTERNAL_MODEL_ONLY",)
     ):
+        model_runtime_identity = {"mode": "external-profile-managed"}
+    elif (
+        model_executable.is_file()
+        and os.access(model_executable, os.X_OK)
+        and model_server.is_file()
+        and os.access(model_server, os.X_OK)
+    ):
+        model_runtime_identity = {
+            "mode": "local-embedded",
+            "executable_sha256": _sha256(model_executable),
+            "server_sha256": _sha256(model_server),
+        }
+    else:
         raise LifecycleBlockedError("runtime_model_executable_missing", "model runtime executable or model server is missing")
     lockfiles: dict[str, str] = {}
     for binding in inputs.lockfiles:
@@ -229,8 +245,7 @@ def _validate_inputs(inputs: DeployableRuntimeInputs, output: Path, running_root
             "minor": inputs.expected_python[1],
             "executable_sha256": _sha256(python),
         },
-        "model_runtime_executable_sha256": _sha256(model_executable),
-        "model_runtime_server_sha256": _sha256(model_server),
+        "model_runtime": model_runtime_identity,
     }
 
 

@@ -153,6 +153,29 @@ def test_runtime_seal_requires_model_server_companion(tmp_path: Path) -> None:
         seal_deployable_runtime(inputs, tmp_path / "missing-model-server", running_roots=())
 
 
+def test_runtime_seal_accepts_explicit_external_model_worker_cell(tmp_path: Path) -> None:
+    inputs = _inputs(tmp_path)
+    model_runtime = inputs.surfaces[-1].path
+    shutil.rmtree(model_runtime)
+    _write(model_runtime / "EXTERNAL_MODEL_ONLY", b"BERT_EXTERNAL_MODEL_WORKER_ONLY\n", 0o444)
+
+    sealed = seal_deployable_runtime(inputs, tmp_path / "external-model-releases", running_roots=())
+    document = json.loads(sealed.manifest_path.read_text(encoding="utf-8"))
+
+    assert document["identity"]["model_runtime"] == {"mode": "external-profile-managed"}
+    assert validate_deployable_runtime(sealed.root).status == "CLEAR"
+
+
+def test_runtime_seal_rejects_unreviewed_external_model_marker(tmp_path: Path) -> None:
+    inputs = _inputs(tmp_path)
+    model_runtime = inputs.surfaces[-1].path
+    shutil.rmtree(model_runtime)
+    _write(model_runtime / "EXTERNAL_MODEL_ONLY", b"external\n", 0o444)
+
+    with pytest.raises(LifecycleBlockedError, match="model runtime"):
+        seal_deployable_runtime(inputs, tmp_path / "bad-external-model", running_roots=())
+
+
 def test_casefold_collision_requires_case_sensitive_release_store(tmp_path: Path) -> None:
     inputs = _inputs(tmp_path)
     with patch("ik_lifecycle.deployable_runtime._casefold_collisions", return_value=("x",)), patch(
