@@ -59,6 +59,10 @@ def _config(path: Path) -> Path:
                     "mid_conversation_keyword_switching": False,
                     "tools_force_primary": False,
                 },
+                "approval_contract": {
+                    "schema_id": "ik.hermes.approval-result.v1",
+                    "sha256": "2f50d00f2266ace102e0b35b721e8fded0da4331f9e538210447adb0151f9e64",
+                },
             },
             sort_keys=True,
         )
@@ -135,3 +139,13 @@ def test_committed_model_manifest_binds_selected_qwen_artifacts() -> None:
     assert document["model"]["sha256"] == "31629f53165ab6a7dad8c9847dcfd1fdf55829dac1e6e748f4a68581b0033d34"
     assert document["projector"]["sha256"] == "2e968a6af97ce35d8971890b257b9b7edabf20ad91450501fa53162a19ee33eb"
     assert document["import_manifest_sha256"] == "26e0a3a36561ea7d0dfa6fd27356292d3dcc0888da2ba7d8f5beb17c35a4ec5a"
+
+
+def test_runtime_router_requires_typed_approval_contract_binding(tmp_path: Path) -> None:
+    path = _config(tmp_path / "router.json")
+    document = json.loads(path.read_text(encoding="utf-8"))
+    document.pop("approval_contract")
+    path.write_text(json.dumps(document), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="approval contract"):
+        load_router_config(path)

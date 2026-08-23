@@ -17,6 +17,8 @@ from .router import ModelCatalog, TaskRequirements, select_worker
 _QWEN_MODEL_ID = "qwen38-27b-q4km"
 _QWEN_ARTIFACT = "31629f53165ab6a7dad8c9847dcfd1fdf55829dac1e6e748f4a68581b0033d34"
 _QWEN_PROJECTOR = "2e968a6af97ce35d8971890b257b9b7edabf20ad91450501fa53162a19ee33eb"
+_APPROVAL_SCHEMA = "ik.hermes.approval-result.v1"
+_APPROVAL_SCHEMA_SHA256 = "2f50d00f2266ace102e0b35b721e8fded0da4331f9e538210447adb0151f9e64"
 
 
 @dataclass(frozen=True)
@@ -97,6 +99,11 @@ def load_router_config(path: Path) -> RuntimeRouterConfig:
         "tools_force_primary": False,
     }:
         raise ValueError("router selection contract is invalid")
+    if document.get("approval_contract") != {
+        "schema_id": _APPROVAL_SCHEMA,
+        "sha256": _APPROVAL_SCHEMA_SHA256,
+    }:
+        raise ValueError("router approval contract binding is invalid")
     primary_document = document.get("primary", {})
     primary = _worker(primary_document)
     if (

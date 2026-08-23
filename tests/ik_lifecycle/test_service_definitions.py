@@ -6,7 +6,12 @@ import plistlib
 import pytest
 
 from ik_lifecycle.models import LifecycleBlockedError
-from ik_lifecycle.service_definitions import CellServiceSpec, render_cell_service_definitions
+from ik_lifecycle.service_definitions import (
+    CellServiceSpec,
+    ErnieServiceTopologySpec,
+    render_cell_service_definitions,
+    render_ernie_service_topology,
+)
 
 
 def test_renders_exact_launchd_and_systemd_definitions_from_cell_pointers(tmp_path: Path) -> None:
@@ -63,3 +68,38 @@ def test_service_definition_rejects_mutable_checkout_or_bad_identity(tmp_path: P
                 tmp_path / f"out-{cell_id}",
                 forbidden_roots=(Path.cwd(),),
             )
+
+
+def test_ernie_topology_defines_model_router_two_hermes_profiles_and_compat_gateway(tmp_path: Path) -> None:
+    cell = tmp_path / "cell"
+    result = render_ernie_service_topology(
+        ErnieServiceTopologySpec(
+            cell_root=cell,
+            service_label="com.ik.hermes-ernie-v2",
+            account="react",
+            model_port=18421,
+            router_port=18423,
+            fast_port=18424,
+            primary_port=18425,
+            compatibility_gateway_port=18426,
+            release_image=cell / "release-store.sparsebundle",
+            release_mount=cell / "runtime-volume",
+        ),
+        tmp_path / "ernie-definitions",
+    )
+
+    assert tuple(result.launchd_plists) == (
+        "model",
+        "router",
+        "fast",
+        "primary",
+        "compatibility-gateway",
+    )
+    documents = {name: plistlib.loads(path.read_bytes()) for name, path in result.launchd_plists.items()}
+    assert documents["model"]["EnvironmentVariables"]["OLLAMA_HOST"] == "127.0.0.1:18421"
+    assert documents["router"]["EnvironmentVariables"]["IK_CELL_SERVICE_ROLE"] == "router"
+    assert documents["router"]["EnvironmentVariables"]["OLLAMA_BASE_URL"] == "http://127.0.0.1:18421"
+    assert documents["fast"]["EnvironmentVariables"]["HERMES_HOME"].endswith("current-profile/fast")
+    assert documents["primary"]["EnvironmentVariables"]["HERMES_HOME"].endswith("current-profile/primary")
+    assert documents["compatibility-gateway"]["EnvironmentVariables"]["IK_CELL_SERVICE_ROLE"] == "compatibility-gateway"
+    assert result.manifest["start_order"] == ["model", "router", "fast", "primary", "compatibility-gateway"]
