@@ -174,6 +174,30 @@ def _plan(selection_sha256: str) -> dict[str, object]:
     return {"plan": body, "sha256": _digest(body)}
 
 
+def _clone_bound_plan(selection_sha256: str) -> dict[str, object]:
+    document = _plan(selection_sha256)
+    plan = document["plan"]
+    plan["schema_id"] = "ik.hermes.credential-bound-closed-runtime-plan.v2"
+    plan["bindings"].update(
+        {
+            "shared_bundle_receipt_sha256": "c" * 64,
+            "semantic_receipt_sha256": "d" * 64,
+            "migrated_tree_sha256": "e" * 64,
+            "rollback_artifact_sha256": "f" * 64,
+        }
+    )
+    plan["data_policy"] = {
+        "fixture_class": "public_synthetic_with_aggregate_bound_migration_clone",
+        "private_content_allowed": "isolated_runtime_startup_only",
+        "private_clone_access": "read_only_aggregate_bound",
+        "model_exposure": False,
+        "cloud_or_bert_exposure": False,
+    }
+    plan["ordered_operations"].insert(2, {"id": "bind-migration-clone", "executed": False})
+    document["sha256"] = _digest(plan)
+    return document
+
+
 def test_selection_is_machine_verifiable_and_candidate_only() -> None:
     selection = _selection()
     expected = {
@@ -220,6 +244,25 @@ def test_closed_runtime_plan_is_non_executable_private_safe_and_separate_from_be
     selection = _selection()
     plan = _plan(selection["sha256"])
     assert validate_closed_runtime_plan(plan, selection_sha256=selection["sha256"]) == plan["sha256"]
+
+
+def test_v2_closed_runtime_plan_allows_only_aggregate_bound_clone_startup_and_denies_model_exposure() -> None:
+    selection = _selection()
+    plan = _clone_bound_plan(selection["sha256"])
+
+    assert validate_closed_runtime_plan(plan, selection_sha256=selection["sha256"]) == plan["sha256"]
+
+    exposed = copy.deepcopy(plan)
+    exposed["plan"]["data_policy"]["model_exposure"] = True
+    exposed["sha256"] = _digest(exposed["plan"])
+    with pytest.raises(ModelSelectionError, match="closed_plan_privacy_invalid"):
+        validate_closed_runtime_plan(exposed, selection_sha256=selection["sha256"])
+
+    missing_clone_binding = copy.deepcopy(plan)
+    del missing_clone_binding["plan"]["bindings"]["migrated_tree_sha256"]
+    missing_clone_binding["sha256"] = _digest(missing_clone_binding["plan"])
+    with pytest.raises(ModelSelectionError, match="closed_plan_binding_invalid"):
+        validate_closed_runtime_plan(missing_clone_binding, selection_sha256=selection["sha256"])
 
 
 @pytest.mark.parametrize(

@@ -21,6 +21,18 @@ _CLOSED_OPERATIONS = (
     "stop-isolated-cell",
     "rehearse-rp2-rp3-rollback",
 )
+_CLOSED_OPERATIONS_V2 = (
+    "rebind-immutable-inputs",
+    "resolve-opaque-handles",
+    "bind-migration-clone",
+    "fresh-network-proof",
+    "start-loopback-model-worker",
+    "start-isolated-ernie-cell",
+    "run-public-synthetic-gates",
+    "verify-zero-private-exposure",
+    "stop-isolated-cell",
+    "rehearse-rp2-rp3-rollback",
+)
 _CLOSED_STOP_CONDITIONS = frozenset(
     {
         "binding-drift",
@@ -48,6 +60,14 @@ _CLOSED_BINDINGS = frozenset(
         "evaluation_receipt_sha256",
         "concurrency_receipt_sha256",
         "runtime_binary_sha256",
+    }
+)
+_CLOSED_BINDINGS_V2 = _CLOSED_BINDINGS | frozenset(
+    {
+        "shared_bundle_receipt_sha256",
+        "semantic_receipt_sha256",
+        "migrated_tree_sha256",
+        "rollback_artifact_sha256",
     }
 )
 _PRIVATE_PAYLOAD_KEYS = frozenset(
@@ -268,8 +288,12 @@ def validate_closed_runtime_plan(
         raise ModelSelectionError("closed_plan_digest_mismatch")
     if not _hex(selection_sha256) or plan.get("selection_sha256") != selection_sha256:
         raise ModelSelectionError("closed_plan_selection_mismatch")
+    schema_id = plan.get("schema_id")
     if (
-        plan.get("schema_id") != "ik.hermes.credential-bound-closed-runtime-plan.v1"
+        schema_id not in {
+            "ik.hermes.credential-bound-closed-runtime-plan.v1",
+            "ik.hermes.credential-bound-closed-runtime-plan.v2",
+        }
         or plan.get("status") != "PREPARED_NOT_EXECUTABLE"
         or plan.get("cell") != "ernie"
     ):
@@ -278,10 +302,11 @@ def validate_closed_runtime_plan(
         raise ModelSelectionError("closed_plan_privacy_invalid")
 
     bindings = _mapping(plan.get("bindings"), "closed_plan_binding_invalid")
-    if set(bindings) != _CLOSED_BINDINGS or any(not _hex(value) for value in bindings.values()):
+    expected_binding_names = _CLOSED_BINDINGS_V2 if schema_id.endswith(".v2") else _CLOSED_BINDINGS
+    if set(bindings) != expected_binding_names or any(not _hex(value) for value in bindings.values()):
         raise ModelSelectionError("closed_plan_binding_invalid")
     for name, expected in (expected_bindings or {}).items():
-        if name not in _CLOSED_BINDINGS or bindings.get(name) != expected:
+        if name not in expected_binding_names or bindings.get(name) != expected:
             raise ModelSelectionError("closed_plan_binding_mismatch")
 
     execution = _mapping(plan.get("execution"), "closed_plan_execution_invalid")
@@ -302,12 +327,23 @@ def validate_closed_runtime_plan(
         raise ModelSelectionError("closed_plan_handle_invalid")
 
     policy = _mapping(plan.get("data_policy"), "closed_plan_privacy_invalid")
-    if policy != {
-        "fixture_class": "public_synthetic_only",
-        "private_content_allowed": False,
-        "private_clone_access": False,
-        "cloud_or_bert_exposure": False,
-    }:
+    expected_policy = (
+        {
+            "fixture_class": "public_synthetic_with_aggregate_bound_migration_clone",
+            "private_content_allowed": "isolated_runtime_startup_only",
+            "private_clone_access": "read_only_aggregate_bound",
+            "model_exposure": False,
+            "cloud_or_bert_exposure": False,
+        }
+        if schema_id.endswith(".v2")
+        else {
+            "fixture_class": "public_synthetic_only",
+            "private_content_allowed": False,
+            "private_clone_access": False,
+            "cloud_or_bert_exposure": False,
+        }
+    )
+    if policy != expected_policy:
         raise ModelSelectionError("closed_plan_privacy_invalid")
 
     network = _mapping(plan.get("network"), "closed_plan_network_invalid")
@@ -356,7 +392,8 @@ def validate_closed_runtime_plan(
         if operation.get("executed") is not False or not isinstance(operation.get("id"), str):
             raise ModelSelectionError("closed_plan_operations_invalid")
         observed_ids.append(str(operation["id"]))
-    if tuple(observed_ids) != _CLOSED_OPERATIONS:
+    expected_operations = _CLOSED_OPERATIONS_V2 if schema_id.endswith(".v2") else _CLOSED_OPERATIONS
+    if tuple(observed_ids) != expected_operations:
         raise ModelSelectionError("closed_plan_operations_invalid")
 
     stops = plan.get("stop_conditions")

@@ -10,6 +10,7 @@ import sys
 
 import pytest
 
+import ik_lifecycle.closed_runtime as closed_runtime
 from ik_lifecycle.closed_runtime import (
     BoundExecutableLoopbackSandbox,
     ClosedRuntimeError,
@@ -181,6 +182,81 @@ def test_execution_approval_is_exact_digest_bound_and_excludes_live_private_surf
         )
 
 
+def test_v2_execution_approval_explicitly_limits_clone_use_to_isolated_runtime() -> None:
+    assert "migration_clone_runtime" in __import__("inspect").signature(build_execution_approval).parameters
+    approval = build_execution_approval(
+        plan_sha256=PLAN_SHA,
+        selection_sha256=SELECTION_SHA,
+        implementation_commit=IMPLEMENTATION_SHA,
+        executor_sha256=EXECUTOR_SHA,
+        module_sha256=MODULE_SHA,
+        overlay_manifest_sha256=OVERLAY_SHA,
+        migration_clone_runtime=True,
+    )
+
+    assert approval["approval"]["scope"] == {
+        "public_synthetic_only": True,
+        "migration_clone_runtime": "isolated_startup_only",
+        "private_content": "no_model_or_log_exposure",
+        "live_or_external_state": False,
+        "bert": False,
+        "promotion": False,
+        "automation": False,
+    }
+    assert validate_execution_approval(
+        approval,
+        plan_sha256=PLAN_SHA,
+        selection_sha256=SELECTION_SHA,
+        implementation_commit=IMPLEMENTATION_SHA,
+        executor_sha256=EXECUTOR_SHA,
+        module_sha256=MODULE_SHA,
+        overlay_manifest_sha256=OVERLAY_SHA,
+        migration_clone_runtime=True,
+    ) == approval["sha256"]
+
+
+def test_aggregate_clone_binding_is_redacted_and_fails_on_clone_or_rollback_drift(tmp_path: Path) -> None:
+    assert hasattr(closed_runtime, "resolve_clone_runtime_binding")
+    storage = tmp_path / "continuity"
+    migrated = storage / "rehearsals" / "rehearsal-fixture" / "migrated"
+    rollback = storage / "backups" / "snapshot-fixture" / "snapshot.enc"
+    migrated.mkdir(parents=True, mode=0o700)
+    rollback.parent.mkdir(parents=True, mode=0o700)
+    private = migrated / "state.db"
+    private.write_bytes(b"private-fixture-state")
+    private.chmod(0o600)
+    rollback.write_bytes(b"encrypted-rollback-fixture")
+    rollback.chmod(0o400)
+    migrated_tree, _, _ = closed_runtime._tree_digest(migrated)
+    rollback_sha = __import__("hashlib").sha256(rollback.read_bytes()).hexdigest()
+    semantic = {
+        "status": "CLEAR",
+        "rehearsal_id": "rehearsal-fixture",
+        "migrated_tree_sha256": migrated_tree,
+    }
+    snapshot = {
+        "status": "CLEAR",
+        "snapshot_id": "snapshot-fixture",
+        "archive_sha256": rollback_sha,
+    }
+
+    binding = closed_runtime.resolve_clone_runtime_binding(storage, semantic, snapshot)
+    rendered = json.dumps(binding.safe_receipt(), sort_keys=True)
+    assert binding.safe_receipt() == {
+        "status": "CLEAR",
+        "migrated_tree_sha256": migrated_tree,
+        "rollback_artifact_sha256": rollback_sha,
+        "aggregate_file_count": 1,
+        "aggregate_bytes": len(b"private-fixture-state"),
+    }
+    assert str(storage) not in rendered
+    assert "private-fixture-state" not in rendered
+
+    private.write_bytes(b"changed-private-fixture-state")
+    with pytest.raises(ClosedRuntimeError, match="closed_runtime_migration_clone_drift"):
+        binding.validate_unchanged()
+
+
 def test_execution_receipt_rejects_private_fields_paths_and_nonclear_gates() -> None:
     receipt = {
         "schema_id": "ik.hermes.credential-bound-closed-runtime-receipt.v1",
@@ -206,6 +282,42 @@ def test_execution_receipt_rejects_private_fields_paths_and_nonclear_gates() -> 
     invalid["model_evaluation"]["passed"] = 11
     with pytest.raises(ClosedRuntimeError, match="closed_runtime_receipt_gate_failed"):
         validate_execution_receipt(invalid)
+
+
+def test_v2_receipt_requires_unchanged_clone_and_disposable_runtime_profile() -> None:
+    receipt = {
+        "schema_id": "ik.hermes.credential-bound-closed-runtime-receipt.v2",
+        "status": "CLEAR_CLOSED_RUNTIME_ONLY",
+        "bindings": {"plan_sha256": PLAN_SHA, "selection_sha256": SELECTION_SHA},
+        "credential_handles": {"resolved": 2, "leak_count": 0},
+        "process_separation": {"model_credential_keys": 0, "model_identity": False, "private_prompt_count": 0},
+        "network": {"model_worker": "CLEAR", "ernie_cell": "CLEAR", "external_access": False},
+        "model_evaluation": {"passed": 12, "total": 12, "concurrency_passed": 2, "concurrency_total": 2},
+        "ernie_cell": {"startups": 2, "restarts": 1, "health_checks": 6},
+        "continuity": {"migration_clone": "CLEAR_UNCHANGED", "runtime_profile": "CLEAR_DISPOSABLE"},
+        "continuity_aggregate": {
+            "runtime_files": 12,
+            "runtime_bytes": 4096,
+            "excluded_configuration": 2,
+            "excluded_credentials": 2,
+            "excluded_schedules": 7,
+            "excluded_execution_surfaces": 4,
+        },
+        "rollback": {"immutable_backup": "CLEAR_UNCHANGED", "rp2": "CLEAR", "rp3_crash_recovery": "CLEAR", "rp3_pretraffic": "CLEAR"},
+        "live_effects": False,
+    }
+    assert validate_execution_receipt(receipt) is True
+
+    for field in ("migration_clone", "runtime_profile"):
+        invalid = copy.deepcopy(receipt)
+        invalid["continuity"][field] = "BLOCKED"
+        with pytest.raises(ClosedRuntimeError, match="closed_runtime_receipt_gate_failed"):
+            validate_execution_receipt(invalid)
+
+    missing_aggregate = copy.deepcopy(receipt)
+    del missing_aggregate["continuity_aggregate"]
+    with pytest.raises(ClosedRuntimeError, match="closed_runtime_receipt_gate_failed"):
+        validate_execution_receipt(missing_aggregate)
 
 
 def test_closed_runtime_entrypoint_resolves_repo_imports_outside_repo_workdir(tmp_path: Path) -> None:

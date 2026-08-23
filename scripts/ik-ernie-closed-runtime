@@ -33,6 +33,7 @@ from ik_lifecycle.closed_runtime import (  # noqa: E402
     BoundExecutableLoopbackSandbox,
     ClosedRuntimeError,
     resolve_opaque_handles,
+    resolve_clone_runtime_binding,
     validate_execution_approval,
     validate_execution_receipt,
 )
@@ -40,6 +41,7 @@ from ik_lifecycle.composed_source import tree_digest  # noqa: E402
 from ik_lifecycle.ernie_canary import (  # noqa: E402
     CanaryError,
     LoopbackOnlyMacOSSandbox,
+    _build_runtime_profile,
     discard_runtime_profile,
 )
 from ik_lifecycle.model_selection import (  # noqa: E402
@@ -51,9 +53,12 @@ from ik_lifecycle.promotion import PairedPointers, PromotionReceipt  # noqa: E40
 from ik_lifecycle.rollback import RollbackMode, rollback_pair  # noqa: E402
 
 
-SELECTION = REPO_ROOT / "docs/planning-receipts/2026-08-22-hermes-qwen38-ernie-candidate-selection-v4.json"
-PLAN = REPO_ROOT / "docs/planning-receipts/2026-08-22-hermes-credential-bound-closed-runtime-plan-v4.json"
-APPROVAL = REPO_ROOT / "docs/planning-receipts/2026-08-22-hermes-credential-bound-closed-runtime-approval-v3.json"
+SELECTION = REPO_ROOT / "docs/planning-receipts/2026-08-23-hermes-qwen38-ernie-candidate-selection-v5.json"
+PLAN = REPO_ROOT / "docs/planning-receipts/2026-08-23-hermes-credential-bound-closed-runtime-plan-v5.json"
+APPROVAL = REPO_ROOT / "docs/planning-receipts/2026-08-23-hermes-credential-bound-closed-runtime-approval-v4.json"
+SHARED_BUNDLE = REPO_ROOT / "docs/planning-receipts/2026-08-22-hermes-shared-bundle-reseal-v1.json"
+SEMANTIC_RECEIPT = REPO_ROOT / "docs/planning-receipts/2026-08-22-hermes-ernie-semantic-continuity-v6.json"
+SNAPSHOT_RECEIPT = REPO_ROOT / "docs/planning-receipts/2026-08-21-hermes-ernie-opaque-continuity-v1.json"
 OVERLAY = REPO_ROOT / "ik_lifecycle/manifests/bert-ernie-overlay-v1.json"
 MODULE = REPO_ROOT / "ik_lifecycle/closed_runtime.py"
 MODEL_ROOT = Path("/Users/react/.codex/state/hermes-platform/model-evals/qwen38-27b-31629f53165a")
@@ -64,7 +69,7 @@ CANDIDATE_PYTHON = Path(
     "dependency-audit/env/python/bin/python"
 )
 RELEASES = Path(
-    "/Volumes/HermesApprovalResealV1/platform/cells/ernie/candidates/1e79082041b08781ca40/"
+    "/Volumes/HermesBertParityV1/platform/shared/candidates/1e79082041b08781ca40/"
     "composed-candidate/releases"
 )
 RUNS = Path.home() / "Library/Application Support/NateOS/ClosedRuntime/ernie"
@@ -209,20 +214,11 @@ def _git_clean_and_commit() -> str:
 
 
 def _start_cell(
-    *, source: Path, run: Path, handles, model_endpoint: str, sandbox: LoopbackOnlyMacOSSandbox, proof
+    *, source: Path, run: Path, profile: Path, handles, sandbox: LoopbackOnlyMacOSSandbox, proof
 ) -> tuple[subprocess.Popen[bytes], int, tuple[Path, Path]]:
-    profile = run / "cell-profile"
     home = run / "cell-home"
-    profile.mkdir(mode=0o700)
     home.mkdir(mode=0o700)
-    os.chmod(profile, 0o700)
     os.chmod(home, 0o700)
-    (profile / "config.yaml").write_text(
-        "model:\n  provider: ollama\n  model: ik-qwen38-eval:31629f53165a\n"
-        f"  base_url: {model_endpoint}/v1\n",
-        encoding="utf-8",
-    )
-    os.chmod(profile / "config.yaml", 0o600)
     ready = run / f"cell-ready-{time.monotonic_ns()}.json"
     stdout_path = run / f"cell-{time.monotonic_ns()}.stdout.log"
     stderr_path = run / f"cell-{time.monotonic_ns()}.stderr.log"
@@ -276,12 +272,7 @@ def _start_cell(
         raise
 
 
-def _rollback_rehearsal(run: Path) -> dict[str, str]:
-    profile = run / "runtime-profile"
-    profile.mkdir(mode=0o700)
-    marker = profile / "synthetic"
-    marker.write_text("fixture\n", encoding="utf-8")
-    os.chmod(marker, 0o600)
+def _rollback_rehearsal(run: Path, profile: Path) -> dict[str, str]:
     discard_runtime_profile(profile, run)
 
     pointers = PairedPointers(run / "pointer-release.json", run / "pointer-profile.json", run / "pointer-journal.json")
@@ -305,8 +296,22 @@ def execute() -> dict[str, object]:
     head = _git_clean_and_commit()
     selection_document = _json(SELECTION)
     selection_sha = validate_selection_receipt(selection_document)
+    shared_document = _json(SHARED_BUNDLE)
+    semantic_document = _json(SEMANTIC_RECEIPT)
+    snapshot_document = _json(SNAPSHOT_RECEIPT)
+    storage = Path.home() / "Library/Application Support/NateOS/OpaqueContinuity/ernie-private-cell"
+    clone_binding = resolve_clone_runtime_binding(storage, semantic_document, snapshot_document)
     plan_document = _json(PLAN)
-    plan_sha = validate_closed_runtime_plan(plan_document, selection_sha256=selection_sha)
+    plan_sha = validate_closed_runtime_plan(
+        plan_document,
+        selection_sha256=selection_sha,
+        expected_bindings={
+            "shared_bundle_receipt_sha256": _sha(SHARED_BUNDLE),
+            "semantic_receipt_sha256": _sha(SEMANTIC_RECEIPT),
+            "migrated_tree_sha256": clone_binding.migrated_tree_sha256,
+            "rollback_artifact_sha256": clone_binding.rollback_artifact_sha256,
+        },
+    )
     approval_document = _json(APPROVAL)
     implementation_commit = str(approval_document["approval"]["implementation_commit"])
     validate_execution_approval(
@@ -317,6 +322,7 @@ def execute() -> dict[str, object]:
         executor_sha256=_sha(Path(__file__).resolve()),
         module_sha256=_sha(MODULE),
         overlay_manifest_sha256=_sha(OVERLAY),
+        migration_clone_runtime=True,
     )
     if not head or subprocess.run(
         ("/usr/bin/git", "merge-base", "--is-ancestor", implementation_commit, head),
@@ -326,6 +332,18 @@ def execute() -> dict[str, object]:
 
     data = selection_document["receipt"]["data"]
     release = data["release"]
+    try:
+        shared = shared_document["receipt"]
+    except (KeyError, TypeError) as error:
+        raise ClosedRuntimeError("closed_runtime_shared_bundle_invalid") from error
+    if (
+        shared.get("status") != "CLEAR_SHARED_CODE_ONLY_RESEAL"
+        or release.get("bundle_id") != shared.get("bundle_id")
+        or release.get("bundle_manifest_sha256") != shared.get("bundle_manifest_sha256")
+        or release.get("composed_tree_sha256") != shared.get("composed_source_tree_sha256")
+        or release.get("composition_manifest_sha256") != shared.get("composition_manifest_sha256")
+    ):
+        raise ClosedRuntimeError("closed_runtime_shared_bundle_invalid")
     release_root = RELEASES / str(release["bundle_id"])
     source = release_root / "source"
     if _sha(release_root / "release-manifest.json") != release["bundle_manifest_sha256"]:
@@ -375,7 +393,11 @@ def execute() -> dict[str, object]:
     attestation = MacOSStorageAttestor().attest(
         RUNS, denied_roots=(REPO_ROOT, Path.home() / ".hermes", Path.home() / ".codex" / "shared-memory")
     )
-    if not attestation.clear or run.exists():
+    continuity_attestation = MacOSStorageAttestor().attest(
+        storage,
+        denied_roots=(REPO_ROOT, Path.home() / ".hermes", Path.home() / ".codex" / "shared-memory"),
+    )
+    if not attestation.clear or not continuity_attestation.clear or run.exists():
         raise ClosedRuntimeError("closed_runtime_storage_invalid")
     run.mkdir(parents=True, mode=0o700)
     os.chmod(run, 0o700)
@@ -397,9 +419,16 @@ def execute() -> dict[str, object]:
     ports: list[int] = []
     max_rss = 0
     source_before = tree_digest(source)
+    clone_binding.validate_unchanged()
     model_before = {role: _sha(path) for role, path in store_paths.items()}
     manifest_before = _sha(model_manifest)
+    runtime_profile = run / "runtime-profile"
     try:
+        profile_tree, profile_aggregate, profile_excluded = _build_runtime_profile(
+            clone_binding.migrated_root, runtime_profile
+        )
+        if not profile_tree or profile_aggregate["runtime_files"] < 1:
+            raise ClosedRuntimeError("closed_runtime_profile_clone_invalid")
         model_port = _free_port()
         ports.append(model_port)
         model_sandbox = BoundExecutableLoopbackSandbox(
@@ -424,6 +453,13 @@ def execute() -> dict[str, object]:
         model_stdout.close(); model_stderr.close()
         endpoint = f"http://127.0.0.1:{model_port}"
         _wait_json(endpoint + "/api/version", model_process, timeout=60)
+        cell_config = runtime_profile / "config.yaml"
+        with cell_config.open("x", encoding="utf-8") as stream:
+            stream.write(
+                "model:\n  provider: ollama\n  model: ik-qwen38-eval:31629f53165a\n"
+                f"  base_url: {endpoint}/v1\n"
+            )
+        os.chmod(cell_config, 0o600)
 
         health_checks = 0
         cell_sandbox = LoopbackOnlyMacOSSandbox(CANDIDATE_PYTHON)
@@ -432,7 +468,7 @@ def execute() -> dict[str, object]:
             cell_run.mkdir(mode=0o700)
             proof = cell_sandbox.create_proof(cell_run / "cell-network-proof.json", ttl_seconds=300)
             cell_process, cell_port, current_cell_logs = _start_cell(
-                source=source, run=cell_run, handles=handles, model_endpoint=endpoint,
+                source=source, run=cell_run, profile=runtime_profile, handles=handles,
                 sandbox=cell_sandbox, proof=proof,
             )
             ports.append(cell_port)
@@ -458,7 +494,7 @@ def execute() -> dict[str, object]:
             cell_process = None
             if not _port_closed(cell_port):
                 raise ClosedRuntimeError("closed_runtime_cell_port_open")
-        rollback = _rollback_rehearsal(run)
+        rollback = _rollback_rehearsal(run, runtime_profile)
     finally:
         _stop(cell_process)
         _stop(model_process)
@@ -466,6 +502,7 @@ def execute() -> dict[str, object]:
     if any(not _port_closed(port) for port in ports):
         raise ClosedRuntimeError("closed_runtime_port_open")
     handles.validate_unchanged()
+    clone_binding.validate_unchanged()
     leak_count = handles.secret_leak_count((*model_logs, *cell_logs)) + handles.identity_leak_count(cell_logs)
     if leak_count:
         raise ClosedRuntimeError("closed_runtime_secret_leak")
@@ -477,15 +514,24 @@ def execute() -> dict[str, object]:
         raise ClosedRuntimeError("closed_runtime_integrity_drift")
 
     receipt: dict[str, object] = {
-        "schema_id": "ik.hermes.credential-bound-closed-runtime-receipt.v1",
+        "schema_id": "ik.hermes.credential-bound-closed-runtime-receipt.v2",
         "status": "CLEAR_CLOSED_RUNTIME_ONLY",
         "bindings": {"plan_sha256": plan_sha, "selection_sha256": selection_sha},
         "credential_handles": {"resolved": 2, "leak_count": 0},
-        "process_separation": {"model_credential_keys": 0, "model_identity": False},
+        "process_separation": {"model_credential_keys": 0, "model_identity": False, "private_prompt_count": 0},
         "network": {"model_worker": "CLEAR", "ernie_cell": "CLEAR", "external_access": False},
         "model_evaluation": {"passed": 12, "total": 12, "concurrency_passed": 2, "concurrency_total": 2},
         "ernie_cell": {"startups": 2, "restarts": 1, "health_checks": health_checks},
-        "rollback": rollback,
+        "continuity": {"migration_clone": "CLEAR_UNCHANGED", "runtime_profile": "CLEAR_DISPOSABLE"},
+        "continuity_aggregate": {
+            "runtime_files": profile_aggregate["runtime_files"],
+            "runtime_bytes": profile_aggregate["runtime_bytes"],
+            "excluded_configuration": profile_excluded["configuration"],
+            "excluded_credentials": profile_excluded["credentials"],
+            "excluded_schedules": profile_excluded["schedules"],
+            "excluded_execution_surfaces": profile_excluded["execution_surfaces"],
+        },
+        "rollback": {"immutable_backup": "CLEAR_UNCHANGED", **rollback},
         "integrity": {"source": "CLEAR", "model_artifacts": "CLEAR", "opaque_handles": "CLEAR"},
         "resources": {"maximum_observed_rss_bytes": max_rss, "ceiling_bytes": MAX_RSS},
         "live_effects": False,

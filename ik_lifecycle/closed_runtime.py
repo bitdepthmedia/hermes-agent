@@ -14,6 +14,8 @@ from typing import Any, Mapping, Sequence
 
 import yaml
 
+from .opaque_backup import _clone_permissions_clear, _tree_digest
+
 
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
 _HEX40 = re.compile(r"^[0-9a-f]{40}$")
@@ -23,6 +25,18 @@ _HANDLE_CLASSES = ("ernie_profile_secret_bundle", "nate_os_local_agent_identity"
 _OPERATIONS = (
     "rebind-immutable-inputs",
     "resolve-opaque-handles",
+    "fresh-network-proof",
+    "start-loopback-model-worker",
+    "start-isolated-ernie-cell",
+    "run-public-synthetic-gates",
+    "verify-zero-private-exposure",
+    "stop-isolated-cell",
+    "rehearse-rp2-rp3-rollback",
+)
+_OPERATIONS_WITH_CLONE = (
+    "rebind-immutable-inputs",
+    "resolve-opaque-handles",
+    "bind-migration-clone",
     "fresh-network-proof",
     "start-loopback-model-worker",
     "start-isolated-ernie-cell",
@@ -73,6 +87,84 @@ class ClosedRuntimeError(RuntimeError):
     def __init__(self, code: str) -> None:
         self.code = code
         super().__init__(code)
+
+
+@dataclass(frozen=True, repr=False)
+class CloneRuntimeBinding:
+    migrated_root: Path = field(repr=False)
+    rollback_artifact: Path = field(repr=False)
+    migrated_tree_sha256: str
+    rollback_artifact_sha256: str
+    aggregate_file_count: int
+    aggregate_bytes: int
+
+    def __repr__(self) -> str:
+        return "CloneRuntimeBinding(paths=<opaque>, status=CLEAR)"
+
+    def safe_receipt(self) -> dict[str, object]:
+        return {
+            "status": "CLEAR",
+            "migrated_tree_sha256": self.migrated_tree_sha256,
+            "rollback_artifact_sha256": self.rollback_artifact_sha256,
+            "aggregate_file_count": self.aggregate_file_count,
+            "aggregate_bytes": self.aggregate_bytes,
+        }
+
+    def validate_unchanged(self) -> None:
+        if not _clone_permissions_clear(self.migrated_root):
+            raise ClosedRuntimeError("closed_runtime_migration_clone_permissions")
+        observed_tree, observed_count, observed_bytes = _tree_digest(self.migrated_root)
+        if (
+            observed_tree != self.migrated_tree_sha256
+            or observed_count != self.aggregate_file_count
+            or observed_bytes != self.aggregate_bytes
+        ):
+            raise ClosedRuntimeError("closed_runtime_migration_clone_drift")
+        if _file_sha256(self.rollback_artifact, "closed_runtime_rollback_artifact_missing") != self.rollback_artifact_sha256:
+            raise ClosedRuntimeError("closed_runtime_rollback_artifact_drift")
+
+
+def resolve_clone_runtime_binding(
+    storage_root: Path,
+    semantic_receipt: Mapping[str, object],
+    snapshot_receipt: Mapping[str, object],
+) -> CloneRuntimeBinding:
+    """Resolve an aggregate-bound clone and rollback artifact without exposing paths or content."""
+
+    safe_token = re.compile(r"^[A-Za-z0-9._-]{1,96}$")
+    rehearsal_id = semantic_receipt.get("rehearsal_id")
+    snapshot_id = snapshot_receipt.get("snapshot_id")
+    migrated_digest = semantic_receipt.get("migrated_tree_sha256")
+    rollback_digest = snapshot_receipt.get("archive_sha256")
+    if (
+        semantic_receipt.get("status") != "CLEAR"
+        or snapshot_receipt.get("status") != "CLEAR"
+        or not isinstance(rehearsal_id, str)
+        or safe_token.fullmatch(rehearsal_id) is None
+        or not isinstance(snapshot_id, str)
+        or safe_token.fullmatch(snapshot_id) is None
+        or not _is_hex(migrated_digest)
+        or not _is_hex(rollback_digest)
+    ):
+        raise ClosedRuntimeError("closed_runtime_continuity_receipt_invalid")
+    storage = Path(storage_root).absolute()
+    migrated = storage / "rehearsals" / rehearsal_id / "migrated"
+    rollback = storage / "backups" / snapshot_id / "snapshot.enc"
+    if not migrated.is_dir() or migrated.is_symlink() or not rollback.is_file() or rollback.is_symlink():
+        raise ClosedRuntimeError("closed_runtime_continuity_artifact_missing")
+    observed_tree, observed_count, observed_bytes = _tree_digest(migrated)
+    binding = CloneRuntimeBinding(
+        migrated,
+        rollback,
+        str(observed_tree),
+        str(rollback_digest),
+        observed_count,
+        observed_bytes,
+    )
+    if observed_tree != migrated_digest:
+        raise ClosedRuntimeError("closed_runtime_migration_clone_drift")
+    binding.validate_unchanged()
+    return binding
 
 
 def _file_sha256(path: Path, code: str) -> str:
@@ -401,6 +493,7 @@ def build_execution_approval(
     executor_sha256: str,
     module_sha256: str,
     overlay_manifest_sha256: str,
+    migration_clone_runtime: bool = False,
 ) -> dict[str, object]:
     if (
         not _is_hex(plan_sha256)
@@ -421,15 +514,27 @@ def build_execution_approval(
             "module_sha256": module_sha256,
             "overlay_manifest_sha256": overlay_manifest_sha256,
         },
-        "ordered_operations": list(_OPERATIONS),
-        "scope": {
-            "public_synthetic_only": True,
-            "private_content": False,
-            "live_or_external_state": False,
-            "bert": False,
-            "promotion": False,
-            "automation": False,
-        },
+        "ordered_operations": list(_OPERATIONS_WITH_CLONE if migration_clone_runtime else _OPERATIONS),
+        "scope": (
+            {
+                "public_synthetic_only": True,
+                "migration_clone_runtime": "isolated_startup_only",
+                "private_content": "no_model_or_log_exposure",
+                "live_or_external_state": False,
+                "bert": False,
+                "promotion": False,
+                "automation": False,
+            }
+            if migration_clone_runtime
+            else {
+                "public_synthetic_only": True,
+                "private_content": False,
+                "live_or_external_state": False,
+                "bert": False,
+                "promotion": False,
+                "automation": False,
+            }
+        ),
     }
     return {"approval": body, "sha256": hashlib.sha256(_canonical(body)).hexdigest()}
 
@@ -443,6 +548,7 @@ def validate_execution_approval(
     executor_sha256: str,
     module_sha256: str,
     overlay_manifest_sha256: str,
+    migration_clone_runtime: bool = False,
 ) -> str:
     body = document.get("approval")
     claimed = document.get("sha256")
@@ -455,6 +561,7 @@ def validate_execution_approval(
         executor_sha256=executor_sha256,
         module_sha256=module_sha256,
         overlay_manifest_sha256=overlay_manifest_sha256,
+        migration_clone_runtime=migration_clone_runtime,
     )
     if document != expected:
         raise ClosedRuntimeError("closed_runtime_approval_scope_mismatch")
@@ -475,8 +582,12 @@ def _has_private_payload(value: object) -> bool:
 def validate_execution_receipt(receipt: Mapping[str, object]) -> bool:
     if _has_private_payload(receipt):
         raise ClosedRuntimeError("closed_runtime_receipt_privacy_invalid")
+    schema_id = receipt.get("schema_id")
     if (
-        receipt.get("schema_id") != "ik.hermes.credential-bound-closed-runtime-receipt.v1"
+        schema_id not in {
+            "ik.hermes.credential-bound-closed-runtime-receipt.v1",
+            "ik.hermes.credential-bound-closed-runtime-receipt.v2",
+        }
         or receipt.get("status") != "CLEAR_CLOSED_RUNTIME_ONLY"
         or receipt.get("live_effects") is not False
     ):
@@ -488,14 +599,44 @@ def validate_execution_receipt(receipt: Mapping[str, object]) -> bool:
     evaluation = receipt.get("model_evaluation")
     cell = receipt.get("ernie_cell")
     rollback = receipt.get("rollback")
-    if (
+    base_clear = (
         not isinstance(bindings, Mapping)
         or not all(_is_hex(bindings.get(name)) for name in ("plan_sha256", "selection_sha256"))
         or credentials != {"resolved": 2, "leak_count": 0}
         or network != {"model_worker": "CLEAR", "ernie_cell": "CLEAR", "external_access": False}
-        or separation != {"model_credential_keys": 0, "model_identity": False}
         or evaluation != {"passed": 12, "total": 12, "concurrency_passed": 2, "concurrency_total": 2}
         or cell != {"startups": 2, "restarts": 1, "health_checks": 6}
+    )
+    if base_clear:
+        raise ClosedRuntimeError("closed_runtime_receipt_gate_failed")
+    if schema_id.endswith(".v2"):
+        continuity_aggregate = receipt.get("continuity_aggregate")
+        expected_aggregate_keys = {
+            "runtime_files",
+            "runtime_bytes",
+            "excluded_configuration",
+            "excluded_credentials",
+            "excluded_schedules",
+            "excluded_execution_surfaces",
+        }
+        if (
+            separation != {"model_credential_keys": 0, "model_identity": False, "private_prompt_count": 0}
+            or receipt.get("continuity")
+            != {"migration_clone": "CLEAR_UNCHANGED", "runtime_profile": "CLEAR_DISPOSABLE"}
+            or not isinstance(continuity_aggregate, Mapping)
+            or set(continuity_aggregate) != expected_aggregate_keys
+            or any(not isinstance(value, int) or value < 0 for value in continuity_aggregate.values())
+            or rollback
+            != {
+                "immutable_backup": "CLEAR_UNCHANGED",
+                "rp2": "CLEAR",
+                "rp3_crash_recovery": "CLEAR",
+                "rp3_pretraffic": "CLEAR",
+            }
+        ):
+            raise ClosedRuntimeError("closed_runtime_receipt_gate_failed")
+    elif (
+        separation != {"model_credential_keys": 0, "model_identity": False}
         or rollback != {"rp2": "CLEAR", "rp3_crash_recovery": "CLEAR", "rp3_pretraffic": "CLEAR"}
     ):
         raise ClosedRuntimeError("closed_runtime_receipt_gate_failed")
