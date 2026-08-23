@@ -164,7 +164,9 @@ def test_casefold_collision_requires_case_sensitive_release_store(tmp_path: Path
 
 def test_failed_seal_retains_staging_evidence(tmp_path: Path) -> None:
     inputs = _inputs(tmp_path)
-    original = shutil.copytree
+    from ik_lifecycle.deployable_runtime import _copytree_for_release
+
+    original = _copytree_for_release
     calls = 0
 
     def fail_second(source: Path, destination: Path, **kwargs):
@@ -176,7 +178,7 @@ def test_failed_seal_retains_staging_evidence(tmp_path: Path) -> None:
             raise OSError("injected copy failure")
         return original(source, destination, **kwargs)
 
-    with patch("ik_lifecycle.deployable_runtime.shutil.copytree", side_effect=fail_second):
+    with patch("ik_lifecycle.deployable_runtime._copytree_for_release", side_effect=fail_second):
         with pytest.raises(OSError, match="injected"):
             seal_deployable_runtime(inputs, tmp_path / "releases", running_roots=())
     failures = tuple((tmp_path / "releases").glob("*.failed"))

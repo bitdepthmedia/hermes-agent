@@ -11,6 +11,7 @@ import re
 import shutil
 import stat
 import subprocess
+import sys
 import tempfile
 from typing import Iterable
 
@@ -132,6 +133,28 @@ def _make_writable(root: Path) -> None:
     for path in root.rglob("*"):
         if not path.is_symlink():
             path.chmod(stat.S_IMODE(path.stat().st_mode) | (0o700 if path.is_dir() else 0o600))
+
+
+def _copytree_for_release(source: Path, destination: Path, *, materialize_symlinks: bool) -> None:
+    """Copy one immutable surface, using APFS copy-on-write on macOS."""
+
+    if sys.platform != "darwin":
+        shutil.copytree(source, destination, symlinks=not materialize_symlinks)
+        return
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    flags = "-cRL" if materialize_symlinks else "-cR"
+    completed = subprocess.run(
+        ("/bin/cp", flags, str(source), str(destination)),
+        capture_output=True,
+        text=True,
+        timeout=300,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise LifecycleBlockedError(
+            "runtime_clone_failed",
+            "immutable runtime surface could not be copied with macOS copy-on-write",
+        )
 
 
 def _validate_inputs(inputs: DeployableRuntimeInputs, output: Path, running_roots: Iterable[Path]) -> dict[str, object]:
@@ -285,9 +308,13 @@ def seal_deployable_runtime(
         raise LifecycleBlockedError("runtime_staging_exists", "runtime staging path already exists")
     staging.mkdir(mode=0o700)
     try:
-        shutil.copytree(Path(inputs.source).resolve(), staging / "source", symlinks=False)
+        _copytree_for_release(Path(inputs.source).resolve(), staging / "source", materialize_symlinks=False)
         for surface in inputs.surfaces:
-            shutil.copytree(Path(surface.path).resolve(), staging / "surfaces" / surface.surface_id, symlinks=False)
+            _copytree_for_release(
+                Path(surface.path).resolve(),
+                staging / "surfaces" / surface.surface_id,
+                materialize_symlinks=True,
+            )
         (staging / "config").mkdir()
         shutil.copy2(inputs.router_config, staging / "config/router.json")
         shutil.copy2(inputs.model_manifest, staging / "config/model.json")
