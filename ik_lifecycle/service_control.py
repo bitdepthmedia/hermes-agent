@@ -56,10 +56,23 @@ class ServiceAdapter(Protocol):
 class ServiceGroupAdapter:
     """Treat an ordered model-to-gateway service set as one promotion unit."""
 
-    def __init__(self, services: tuple[ServiceAdapter, ...]) -> None:
+    def __init__(
+        self,
+        services: tuple[ServiceAdapter, ...],
+        *,
+        quiescence_seconds: float = 0.0,
+        monotonic: Callable[[], float] = time.monotonic,
+        sleeper: Callable[[float], None] = time.sleep,
+    ) -> None:
         if not services:
             raise LifecycleBlockedError("service_group_empty", "service group is empty")
+        if not 0.0 <= quiescence_seconds <= 300.0:
+            raise LifecycleBlockedError("service_group_quiescence_invalid", "service group quiescence is invalid")
         self.services = services
+        self.quiescence_seconds = quiescence_seconds
+        self.monotonic = monotonic
+        self.sleeper = sleeper
+        self._closed_at: float | None = None
 
     def preflight(self) -> ServicePreflight:
         states = [service.preflight() for service in self.services]
@@ -69,11 +82,16 @@ class ServiceGroupAdapter:
     def close(self) -> None:
         for service in reversed(self.services):
             service.close()
+        self._closed_at = self.monotonic()
 
     def closed(self) -> bool:
         return all(service.closed() for service in self.services)
 
     def open(self) -> None:
+        if self._closed_at is not None:
+            remaining = self.quiescence_seconds - (self.monotonic() - self._closed_at)
+            if remaining > 0:
+                self.sleeper(remaining)
         for service in self.services:
             service.open()
 

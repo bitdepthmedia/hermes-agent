@@ -331,6 +331,31 @@ def test_service_group_starts_model_before_gateway_and_stops_in_reverse() -> Non
     assert events == ["close:gateway", "close:model", "open:model", "open:gateway"]
 
 
+def test_service_group_enforces_bounded_port_quiescence_before_reopen() -> None:
+    events: list[str] = []
+    clock = iter((100.0, 115.0))
+
+    class Fake:
+        running = True
+        def preflight(self):
+            from ik_lifecycle.service_control import ServicePreflight
+            return ServicePreflight(self.running, "running" if self.running else "unloaded")
+        def close(self): self.running = False
+        def closed(self): return not self.running
+        def open(self): events.append("open"); self.running = True
+
+    group = ServiceGroupAdapter(
+        (Fake(),),
+        quiescence_seconds=70.0,
+        monotonic=lambda: next(clock),
+        sleeper=lambda seconds: events.append(f"sleep:{seconds}"),
+    )
+    group.close()
+    group.open()
+
+    assert events == ["sleep:55.0", "open"]
+
+
 def test_service_transition_stops_legacy_switches_pair_and_starts_candidate(tmp_path: Path) -> None:
     old_release = tmp_path / "legacy/release"; old_release.mkdir(parents=True)
     old_profile = tmp_path / "legacy/profile"; old_profile.mkdir(parents=True)

@@ -31,7 +31,16 @@ def test_builds_one_atomic_profile_bundle_with_two_isolated_profiles_and_opaque_
     shared = tmp_path / "shared.env"; shared.write_text("SHARED_SECRET=red\n", encoding="utf-8"); shared.chmod(0o600)
 
     result = build_ernie_profile_bundle(
-        ErnieProfileBundleInputs(primary, fast, router, gateway, shared, router_port=18423),
+        ErnieProfileBundleInputs(
+            primary,
+            fast,
+            router,
+            gateway,
+            shared,
+            router_port=18423,
+            fast_port=18424,
+            primary_port=18425,
+        ),
         tmp_path / "bundles/bundle",
     )
 
@@ -42,11 +51,57 @@ def test_builds_one_atomic_profile_bundle_with_two_isolated_profiles_and_opaque_
         assert config["model"]["base_url"] == "http://127.0.0.1:18423/v1"
         assert config["smart_model_routing"]["enabled"] is False
         assert "ik-persona-orchestration" in config["plugins"]["enabled"]
+        expected_port = 18425 if alias == "primary" else 18424
+        assert config["platforms"]["api_server"]["extra"] == {
+            "host": "127.0.0.1",
+            "port": expected_port,
+        }
     assert (result.root / "router/.env").read_text() == "ROUTER_SECRET=red\n"
     assert (result.root / "compatibility-gateway/.env").read_text() == "GATEWAY_SECRET=red\n"
     assert (result.root / "compatibility-gateway/shared-core.env").read_text() == "SHARED_SECRET=red\n"
     serialized = json.dumps(result.receipt, sort_keys=True)
     assert "ROUTER_SECRET" not in serialized and "GATEWAY_SECRET" not in serialized and "PRIVATE_PRIMARY" not in serialized
+
+
+def test_profile_bundle_removes_only_runtime_control_env_keys(tmp_path: Path) -> None:
+    primary = tmp_path / "primary"
+    fast = tmp_path / "fast"
+    _profile(primary, "primary")
+    _profile(fast, "fast")
+    for profile in (primary, fast):
+        (profile / ".env").write_text(
+            "PRIVATE_TOKEN=keep-secret\nAPI_SERVER_PORT=8644\nIK_MODEL_BASE_URL=http://stale.invalid/v1\n"
+            "TELEGRAM_BOT_TOKEN=must-remain-outside-api-worker\n",
+            encoding="utf-8",
+        )
+        (profile / ".env").chmod(0o600)
+    credentials = []
+    for name in ("router", "gateway", "shared"):
+        path = tmp_path / f"{name}.env"
+        path.write_text("S=x\n", encoding="utf-8")
+        path.chmod(0o600)
+        credentials.append(path)
+
+    result = build_ernie_profile_bundle(
+        ErnieProfileBundleInputs(
+            primary,
+            fast,
+            *credentials,
+            router_port=18423,
+            fast_port=18424,
+            primary_port=18425,
+        ),
+        tmp_path / "bundles/bundle",
+    )
+
+    for alias in ("primary", "fast"):
+        environment = (result.root / alias / ".env").read_text(encoding="utf-8")
+        assert "PRIVATE_TOKEN=keep-secret" in environment
+        assert "API_SERVER_PORT" not in environment
+        assert "IK_MODEL_BASE_URL" not in environment
+        assert "TELEGRAM_BOT_TOKEN" not in environment
+        config = yaml.safe_load((result.root / alias / "config.yaml").read_text(encoding="utf-8"))
+        assert set(config["platforms"]) == {"api_server"}
 
 
 def test_profile_bundle_is_idempotent_and_tamper_fails_closed(tmp_path: Path) -> None:

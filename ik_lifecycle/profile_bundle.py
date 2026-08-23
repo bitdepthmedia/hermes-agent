@@ -10,6 +10,8 @@ from pathlib import Path
 import shutil
 import stat
 
+import yaml
+
 from .models import LifecycleBlockedError
 from .opaque_backup import OpaqueBackupError, _clone_permissions_clear, _tree_digest
 from .profile_candidate import _configure
@@ -24,6 +26,8 @@ class ErnieProfileBundleInputs:
     shared_credentials: Path
     router_port: int
     fast_link_root: Path | None = None
+    fast_port: int = 8644
+    primary_port: int = 8645
 
 
 @dataclass(frozen=True)
@@ -110,6 +114,87 @@ def _credential(path: Path) -> tuple[Path, str]:
     return source, hashlib.sha256(source.read_bytes()).hexdigest()
 
 
+_RUNTIME_CONTROL_ENV = frozenset(
+    {
+        "API_SERVER_ENABLED",
+        "API_SERVER_HOST",
+        "API_SERVER_PORT",
+        "API_SERVER_MODEL_NAME",
+        "IK_MODEL_BASE_URL",
+        "OLLAMA_BASE_URL",
+        "OLLAMA_MODEL",
+        "ERNIE_ROUTER_MODEL_NAME",
+        "LLM_MODEL",
+        "OPENAI_MODEL",
+        "OPENAI_BASE_URL",
+    }
+)
+_EXTERNAL_PLATFORM_ENV_PREFIXES = (
+    "BLUEBUBBLES_",
+    "DINGTALK_",
+    "DISCORD_",
+    "EMAIL_",
+    "FEISHU_",
+    "HOMEASSISTANT_",
+    "MATTERMOST_",
+    "MATRIX_",
+    "QQ_",
+    "SIGNAL_",
+    "SLACK_",
+    "SMS_",
+    "TELEGRAM_",
+    "WHATSAPP_",
+    "WECOM_",
+    "WEIXIN_",
+    "WEBHOOK_",
+)
+
+
+def _scrub_runtime_control_environment(profile: Path) -> None:
+    environment = profile / ".env"
+    if not environment.is_file() or environment.is_symlink():
+        return
+    try:
+        lines = environment.read_text(encoding="utf-8").splitlines(keepends=True)
+    except (OSError, UnicodeError) as exc:
+        raise LifecycleBlockedError("profile_environment_invalid", "profile environment is invalid") from exc
+    retained: list[str] = []
+    for raw in lines:
+        candidate = raw.strip()
+        if candidate.startswith("export "):
+            candidate = candidate[7:].lstrip()
+        key = candidate.split("=", 1)[0].strip() if "=" in candidate else ""
+        if key in _RUNTIME_CONTROL_ENV or key.startswith(_EXTERNAL_PLATFORM_ENV_PREFIXES):
+            continue
+        retained.append(raw)
+    temporary = environment.with_name(f".{environment.name}.{os.getpid()}.tmp")
+    temporary.write_text("".join(retained), encoding="utf-8")
+    temporary.chmod(0o600)
+    os.replace(temporary, environment)
+
+
+def _configure_api_server(profile: Path, port: int) -> None:
+    if not 1024 <= port <= 65535:
+        raise LifecycleBlockedError("profile_api_endpoint_invalid", "profile API endpoint is invalid")
+    config_path = profile / "config.yaml"
+    try:
+        config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    except (OSError, UnicodeError, yaml.YAMLError) as exc:
+        raise LifecycleBlockedError("profile_config_invalid", "profile configuration is invalid") from exc
+    if not isinstance(config, dict):
+        raise LifecycleBlockedError("profile_config_invalid", "profile configuration is invalid")
+    config["platforms"] = {
+        "api_server": {
+            "enabled": True,
+            "extra": {"host": "127.0.0.1", "port": port},
+        }
+    }
+    temporary = config_path.with_name(f".{config_path.name}.{os.getpid()}.tmp")
+    temporary.write_text(yaml.safe_dump(config, sort_keys=True), encoding="utf-8")
+    temporary.chmod(0o600)
+    os.replace(temporary, config_path)
+
+
 def validate_ernie_profile_bundle(root: Path, receipt: dict[str, object]) -> ProfileBundleValidation:
     path = Path(root).absolute()
     try: clear = _clone_permissions_clear(path)
@@ -133,7 +218,8 @@ def validate_ernie_profile_bundle(root: Path, receipt: dict[str, object]) -> Pro
 
 
 def build_ernie_profile_bundle(inputs: ErnieProfileBundleInputs, destination: Path) -> ErnieProfileBundle:
-    if not 1024 <= inputs.router_port <= 65535:
+    ports = (inputs.router_port, inputs.fast_port, inputs.primary_port)
+    if len(set(ports)) != len(ports) or any(not 1024 <= port <= 65535 for port in ports):
         raise LifecycleBlockedError("profile_bundle_endpoint_invalid", "profile bundle router endpoint is invalid")
     primary, primary_tree = _source(inputs.primary)
     fast_link_root = inputs.fast_link_root or primary
@@ -150,6 +236,8 @@ def build_ernie_profile_bundle(inputs: ErnieProfileBundleInputs, destination: Pa
         "compatibility_gateway_credential_sha256": gateway_sha,
         "shared_credential_sha256": shared_sha,
         "router_port": inputs.router_port,
+        "fast_port": inputs.fast_port,
+        "primary_port": inputs.primary_port,
     }
     if target.exists() or target.is_symlink():
         try: receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
@@ -169,6 +257,10 @@ def build_ernie_profile_bundle(inputs: ErnieProfileBundleInputs, destination: Pa
         shutil.copytree(fast, staging / "fast", symlinks=False)
         _configure(staging / "primary", inputs.router_port)
         _configure(staging / "fast", inputs.router_port)
+        _configure_api_server(staging / "primary", inputs.primary_port)
+        _configure_api_server(staging / "fast", inputs.fast_port)
+        _scrub_runtime_control_environment(staging / "primary")
+        _scrub_runtime_control_environment(staging / "fast")
         (staging / "router").mkdir(mode=0o700)
         shutil.copy2(router, staging / "router/.env")
         (staging / "compatibility-gateway").mkdir(mode=0o700)
