@@ -1,0 +1,49 @@
+{
+  "schema_id": "ik.hermes.shared-bundle-reseal-receipt.v1",
+  "receipt": {
+    "status": "CLEAR_SHARED_CODE_ONLY_RESEAL",
+    "phase": "shared-platform-ernie-first-bert-parity",
+    "bundle_id": "c10433025d24c7d14471",
+    "bundle_manifest_sha256": "dbaaa34ed2a43ea8cb1b2ffb1a90021549f3129d3fdeb9fce66e22d5c6dd5e0a",
+    "composed_source_tree_sha256": "7087c9923288b6d7c54ee92a2f011da61d5163ecc25c18b9c1061015bdc24899",
+    "composition_id": "1d203627163508be09be54cb",
+    "composition_manifest_sha256": "88e422050f9dd08a4115a789dd4454b10fd8635e3c0d84257ca79583f9664dcf",
+    "overlay_manifest_sha256": "01fbf1c4c27f5dba796900491995e28e4589c368226fc28bed99647e8d554a3b",
+    "overlay_source_sha256": "6c5f538935f47cbcb01b72eea79c7a30e66dc478c8eea5c4f16a6d0da5f60dca",
+    "implementation_commit": "fd16492c5c8bcb91ea90181704e2b59135d76d03",
+    "official_target": {
+      "tag": "v2026.8.18",
+      "commit_sha": "e624e9fde561e1add9388384012b295fde669ade",
+      "selection": "exactly_one_stable_release_behind_v2026.8.19"
+    },
+    "artifact_reuse": {
+      "status": "CLEAR_DIGEST_BOUND_REUSE",
+      "binding_sha256": "55b18b92e3e42e91c9f018fe2aad602be115f243a34f0861c455ae7f63e0c538",
+      "prior_bundle_manifest_sha256": "e78e309581b7e636254944ac22077fd1de1c1bcfeb6b2880c027a5ae7373e136",
+      "artifacts": [
+        "dashboard-web-dist",
+        "hermes-ink-dist",
+        "ui-tui-dist"
+      ],
+      "dependency_or_build_execution": false
+    },
+    "supply_chain": {
+      "status": "CLEAR",
+      "screened_surfaces": 19,
+      "implementation_findings": 0,
+      "receipt_sha256": "a3ce3f5e0ebbb876183faf26276ae47705cf4a4c6b3ec9e418d78a7d14618179"
+    },
+    "immutability": {
+      "writable_entries": 0,
+      "symlinks": 0,
+      "running_service_root": false
+    },
+    "cell_contract": {
+      "shared_platform_bundle": true,
+      "ernie_and_bert_profiles_separate": true,
+      "ernie_first": true,
+      "promotion_authorized": false
+    },
+    "retained_prior_evidence": true
+  }
+}

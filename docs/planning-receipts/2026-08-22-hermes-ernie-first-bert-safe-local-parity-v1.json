@@ -1,0 +1,111 @@
+{
+  "receipt": {
+    "schema_version": "ik.hermes.ernie-first-bert-safe-local-parity.v1",
+    "observed_at": "2026-08-23T00:22:17Z",
+    "status": "CLEAR_SAFE_LOCAL_STOPPED_AT_SECURITY_BOUNDARY",
+    "architecture": {
+      "shared_platform_bundle": "c10433025d24c7d14471",
+      "bundle_manifest_sha256": "dbaaa34ed2a43ea8cb1b2ffb1a90021549f3129d3fdeb9fce66e22d5c6dd5e0a",
+      "composed_source_tree_sha256": "7087c9923288b6d7c54ee92a2f011da61d5163ecc25c18b9c1061015bdc24899",
+      "official_target_tag": "v2026.8.18",
+      "official_target_commit": "e624e9fde561e1add9388384012b295fde669ade",
+      "zero_core_patches": true,
+      "cell_profiles_state_credentials_services_schedules_and_pointers_separate": true,
+      "ernie_private_state_exported_to_bert": false
+    },
+    "ernie": {
+      "order": "FIRST",
+      "current_live_local_primary": {
+        "router_route": "ernie-gemma4-ctx",
+        "materialized_model": "ernie-gemma4-ctx:latest",
+        "model_digest": "c6cb73f6b441ee4e776f6059e672594442c185b59c99d4ad335326aad9abad23",
+        "architecture": "gemma4",
+        "parameters": "25.8B",
+        "quantization": "Q4_K_M",
+        "artifact_bytes": 17987581232,
+        "resident_at_observation": false,
+        "evidence": {
+          "hermes_config_sha256": "0edba0497057eb4a76733c52a70cb03dacd5adda80bf4b5b58da4076a373f018",
+          "router_config_sha256": "c0df8fc60ba29f4c7537d73f6b5fdbb8c22e3d2f3400f45a1fc96e196759e07e",
+          "runtime_metadata_sha256": "3e9f087d534dfc2bac0b9692d083a9ee5c74c430b92adc824380c378984b9bad"
+        }
+      },
+      "selected_candidate": {
+        "status": "SELECTED_CANDIDATE_NOT_DEPLOYED",
+        "model": "official-Qwen3.8-27B-Q4_K_M",
+        "model_sha256": "31629f53165ab6a7dad8c9847dcfd1fdf55829dac1e6e748f4a68581b0033d34",
+        "projector": "official-Qwen3.8-27B-Q8_0-projector",
+        "projector_sha256": "2e968a6af97ce35d8971890b257b9b7edabf20ad91450501fa53162a19ee33eb",
+        "redownloaded_or_substituted": false,
+        "prior_selection_receipt_sha256": "2820bf5ba65e99893b3ababd865f7188756d5fe5420474b5a6128e599ce0466b",
+        "strict_eval": "12_OF_12_CLEAR",
+        "concurrency": "2_OF_2_CLEAR"
+      },
+      "completed_safe_local_evidence": {
+        "semantic_continuity": "CLEAR_ON_DISPOSABLE_LOCAL_CLONE",
+        "isolated_canary_restart_rp2_rp3": "CLEAR_RETAINED",
+        "credential_bound_closed_runtime": "CLEAR_RETAINED_FOR_PRIOR_BUNDLE",
+        "shared_bundle_reseal": "CLEAR"
+      },
+      "next_boundary": [
+        "rebind-and-rerun-credential-bound-closed-runtime-on-shared-bundle",
+        "fresh-final-encrypted-backup-and-final-delta",
+        "approval-pause-legacy-health-automation",
+        "live-model-profile-service-and-pointer-promotion"
+      ]
+    },
+    "bert": {
+      "order": "AFTER_ERNIE_SAFE_LOCAL_BOUNDARY",
+      "safe_local_status": "CLEAR_SAFE_LOCAL_BERT_CANARY",
+      "canary_receipt_sha256": "d5ab04a0a9bd0b7158186396242f021ab37e643d3deb693ecce2501eeadab6c3",
+      "retained_evidence_sha256": "0b835579351a559f56e63a6b18b0c3682a10cbe98e701a0f358fac5ad80db7d6",
+      "restart_counts": {
+        "startups": 2,
+        "heartbeats": 2,
+        "stops": 2
+      },
+      "architecture_behavior_gates": "8_OF_8_CLEAR",
+      "rollback": {
+        "rp2": "CLEAR",
+        "rp3_crash_recovery": "CLEAR",
+        "rp3_pretraffic": "CLEAR"
+      },
+      "credentials_private_content_models_live_services_and_automations_used": false,
+      "promotion_eligible": false
+    },
+    "shared_validation": {
+      "behavior_selection": {
+        "modules": 11,
+        "tests": 30,
+        "selection_sha256": "cf1519f015e2334cc6321b242e705315fcec9e1c14ddf71e9d9b6f486e184c88",
+        "status": "CLEAR",
+        "os_network_denial_proof_sha256": "22551b1ae25481ac9618b61e745ae503831a37491abdda58ad6d23f6aca21b01",
+        "outcome_sha256": "d96804d2c82b416bf05fc28bf277208adc2485a4e107c85bef88781951b39e3a"
+      },
+      "supply_chain": {
+        "status": "CLEAR",
+        "screened_surfaces": 19,
+        "forbidden_implementation_findings": 0,
+        "shared_bundle_receipt_sha256": "49d5ea359a14ee291afcfd4cf246af0614445932d2a560ef1593928e4a617880"
+      }
+    },
+    "retained_blockers": [
+      "selected-qwen-candidate-not-live",
+      "new-shared-bundle-ernie-credential-runtime-rehearsal-not-authorized",
+      "fresh-final-backup-and-delta-required",
+      "legacy-health-automation-active",
+      "live-ernie-promotion-not-authorized",
+      "live-bert-access-and-promotion-not-authorized"
+    ],
+    "skipped_surfaces": [
+      "credential-resolution",
+      "new-private-content-processing",
+      "live-profile-or-model-change",
+      "service-restart-or-pointer-switch",
+      "schedule-or-automation-mutation",
+      "live-bert-or-ssh",
+      "deployment-or-push"
+    ]
+  },
+  "sha256": "e38c2b5778bcfdc047f9eae7ce232f29cdcab78abe7ca85e311023048d9b300d"
+}
