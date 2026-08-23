@@ -211,7 +211,7 @@ class LaunchdServiceAdapter:
         plist_path: Path,
         expected_program: str,
         expected_workdir: str,
-        expected_profile: str,
+        expected_profile: str | None,
         uid: int,
         runner: CommandRunner = _run,
     ) -> None:
@@ -244,7 +244,12 @@ class LaunchdServiceAdapter:
             raise LifecycleBlockedError("launchd_program_mismatch", "launchd service program mismatch")
         if document.get("WorkingDirectory") != self.expected_workdir:
             raise LifecycleBlockedError("launchd_workdir_mismatch", "launchd service working directory mismatch")
-        if not isinstance(environment, dict) or environment.get("HERMES_HOME") != self.expected_profile:
+        if not isinstance(environment, dict):
+            raise LifecycleBlockedError("launchd_profile_mismatch", "launchd service profile mismatch")
+        if self.expected_profile is None:
+            if "HERMES_HOME" in environment:
+                raise LifecycleBlockedError("launchd_profile_mismatch", "launchd service profile must be verified separately")
+        elif environment.get("HERMES_HOME") != self.expected_profile:
             raise LifecycleBlockedError("launchd_profile_mismatch", "launchd service profile mismatch")
         return document
 

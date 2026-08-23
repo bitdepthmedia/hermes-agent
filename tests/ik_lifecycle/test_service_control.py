@@ -98,6 +98,22 @@ def test_launchd_preflight_rejects_profile_or_service_mismatch(tmp_path: Path) -
         adapter.preflight()
 
 
+def test_launchd_adapter_supports_separately_verified_wrapper_profile(tmp_path: Path) -> None:
+    plist = tmp_path / "legacy.plist"
+    plist.write_bytes(plistlib.dumps({
+        "Label": "com.ik.hermes-legacy",
+        "ProgramArguments": ["/opt/ik/bin/legacy-wrapper"],
+        "WorkingDirectory": "/opt/ik/legacy",
+    }))
+    adapter = LaunchdServiceAdapter(
+        label="com.ik.hermes-legacy", plist_path=plist,
+        expected_program="/opt/ik/bin/legacy-wrapper", expected_workdir="/opt/ik/legacy",
+        expected_profile=None, uid=501,
+        runner=ScriptedRunner([CommandResult(0, "state = running", "")]),
+    )
+    assert adapter.preflight().running
+
+
 def test_systemd_ssh_adapter_is_status_first_and_uses_no_shell_interpolation() -> None:
     runner = ScriptedRunner(
         [
