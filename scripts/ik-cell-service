@@ -7,12 +7,44 @@ set -eu
 : "${IK_CELL_SERVICE_ROLE:=gateway}"
 
 cell_root=$IK_CELL_ROOT
-if [ ! -d "$IK_RELEASE_MOUNT" ]; then
+require_port() {
+    case "$1" in
+        ''|*[!0-9]*) exit 86 ;;
+    esac
+    [ "$1" -ge 1024 ] && [ "$1" -le 65535 ] || exit 86
+}
+
+# Reject unsafe bind requests before any attempt to attach the runtime volume.
+case "$IK_CELL_SERVICE_ROLE" in
+    model)
+        : "${OLLAMA_HOST:?OLLAMA_HOST is required}"
+        case "$OLLAMA_HOST" in
+            127.0.0.1:*) require_port "${OLLAMA_HOST#127.0.0.1:}" ;;
+            *) exit 86 ;;
+        esac
+        ;;
+    router)
+        : "${IK_SERVICE_HOST:=127.0.0.1}"
+        : "${IK_SERVICE_PORT:?IK_SERVICE_PORT is required}"
+        [ "$IK_SERVICE_HOST" = "127.0.0.1" ] || exit 86
+        require_port "$IK_SERVICE_PORT"
+        ;;
+esac
+
+release_mount_parent=$(/usr/bin/dirname "$IK_RELEASE_MOUNT")
+release_mount_is_active() {
+    [ -d "$IK_RELEASE_MOUNT" ] || return 1
+    mount_device=$(/usr/bin/stat -f %d "$IK_RELEASE_MOUNT") || return 1
+    parent_device=$(/usr/bin/stat -f %d "$release_mount_parent") || return 1
+    [ "$mount_device" != "$parent_device" ]
+}
+
+if ! release_mount_is_active; then
     [ -e "$IK_RELEASE_IMAGE" ] || exit 70
     /bin/mkdir -p "$IK_RELEASE_MOUNT"
     /usr/bin/hdiutil attach -nobrowse -mountpoint "$IK_RELEASE_MOUNT" "$IK_RELEASE_IMAGE" >/dev/null
 fi
-[ -d "$IK_RELEASE_MOUNT" ] || exit 71
+release_mount_is_active || exit 71
 [ -L "$cell_root/current-release" ] || exit 72
 [ -L "$cell_root/current-profile" ] || exit 73
 
@@ -42,13 +74,6 @@ run_loopback_only() {
 (allow network-inbound (local ip))
 (allow network-outbound (remote ip "localhost:*"))'
     exec /usr/bin/sandbox-exec -p "$policy" "$@"
-}
-
-require_port() {
-    case "$1" in
-        ''|*[!0-9]*) exit 86 ;;
-    esac
-    [ "$1" -ge 1024 ] && [ "$1" -le 65535 ] || exit 86
 }
 
 case "$IK_CELL_SERVICE_ROLE" in

@@ -70,6 +70,27 @@ def test_service_definition_rejects_mutable_checkout_or_bad_identity(tmp_path: P
             )
 
 
+def test_service_definitions_reject_same_runtime_image_and_mountpoint(tmp_path: Path) -> None:
+    cell = tmp_path / "cell"
+
+    with pytest.raises(LifecycleBlockedError, match="release image and mountpoint must be distinct"):
+        render_ernie_service_topology(
+            ErnieServiceTopologySpec(
+                cell_root=cell,
+                service_label="com.ik.hermes-ernie-v2",
+                account="react",
+                model_port=18421,
+                router_port=18423,
+                fast_port=18424,
+                primary_port=18425,
+                compatibility_gateway_port=18426,
+                release_image=cell / "runtime-volume",
+                release_mount=cell / "runtime-volume",
+            ),
+            tmp_path / "ernie-definitions",
+        )
+
+
 def test_ernie_topology_defines_model_router_two_hermes_profiles_and_compat_gateway(tmp_path: Path) -> None:
     cell = tmp_path / "cell"
     result = render_ernie_service_topology(

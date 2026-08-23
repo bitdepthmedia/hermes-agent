@@ -67,6 +67,14 @@ def _sha(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _validate_release_store(release_image: Path, release_mount: Path) -> None:
+    if release_image == release_mount:
+        raise LifecycleBlockedError(
+            "service_release_store_ambiguous",
+            "release image and mountpoint must be distinct",
+        )
+
+
 def render_cell_service_definitions(
     spec: CellServiceSpec,
     output_root: Path,
@@ -86,6 +94,7 @@ def render_cell_service_definitions(
     cell_root = Path(spec.cell_root).resolve(strict=False)
     release_image = Path(spec.release_image).resolve(strict=False)
     release_mount = Path(spec.release_mount).resolve(strict=False)
+    _validate_release_store(release_image, release_mount)
     output = Path(output_root).resolve(strict=False)
     for forbidden in forbidden_roots:
         root = Path(forbidden).resolve(strict=False)
@@ -243,6 +252,7 @@ def render_ernie_service_topology(
     output = Path(output_root).resolve(strict=False)
     release_image = Path(spec.release_image).resolve(strict=False)
     release_mount = Path(spec.release_mount).resolve(strict=False)
+    _validate_release_store(release_image, release_mount)
     ports = (
         spec.model_port,
         spec.router_port,
