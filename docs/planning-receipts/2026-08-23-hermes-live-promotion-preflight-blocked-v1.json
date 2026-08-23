@@ -1,0 +1,76 @@
+{
+  "receipt": {
+    "schema_id": "ik.hermes.live-promotion-preflight.v1",
+    "observed_at": "2026-08-23T00:53:10Z",
+    "status": "BLOCKED_HIGH_RISK_ARCHITECTURE_GAP",
+    "repository": {
+      "branch": "codex/hermes-staged-lifecycle",
+      "head": "09983fd404abbfebb3b7a23648d005145965694e",
+      "worktree_required_clean_before_live_execution": true
+    },
+    "release_selection": {
+      "status": "CLEAR",
+      "latest_stable_tag": "v2026.8.19",
+      "latest_stable_commit": "fcbd1076a93841fa88855acce810e342a5b78101",
+      "latest_published_at": "2026-08-21T12:16:39Z",
+      "target_tag": "v2026.8.18",
+      "target_commit": "e624e9fde561e1add9388384012b295fde669ade",
+      "target_published_at": "2026-08-18T07:26:46Z",
+      "upstream_push_disabled": true
+    },
+    "safe_local_evidence": {
+      "shared_bundle_id": "656625584b415e5edec9",
+      "shared_bundle_manifest_sha256": "1461712442382e5ae981230cb9883e9682f6843ea502f4ff3c8064dbefc9036a",
+      "shared_tree_sha256": "ec11d0bc4c54be274b5af02226b3fbe40dce418bb1ae0c811b2129028558c5dd",
+      "ernie_closed_runtime": "CLEAR_12_OF_12_CONCURRENCY_2_OF_2",
+      "bert_safe_local": "CLEAR_8_OF_8",
+      "owned_tests": "CLEAR_266_PASSED_1_SKIPPED",
+      "forbidden_implementation_findings": 0
+    },
+    "model_artifacts": {
+      "status": "CLEAR_SELECTED_CANDIDATE_NOT_DEPLOYED",
+      "model_sha256": "31629f53165ab6a7dad8c9847dcfd1fdf55829dac1e6e748f4a68581b0033d34",
+      "projector_sha256": "2e968a6af97ce35d8971890b257b9b7edabf20ad91450501fa53162a19ee33eb"
+    },
+    "blocking_findings": [
+      {
+        "code": "release_not_runtime_sealed",
+        "evidence": "candidate manifest status is SEALED_CODE_ONLY and contains no frozen runtime environment",
+        "required_correction": "build and seal a local immutable runtime environment from the committed lock without mutable-builder dependencies"
+      },
+      {
+        "code": "live_promotion_adapter_missing",
+        "evidence": "paired-pointer implementation is explicitly fixture-safe and has no service adapter",
+        "required_correction": "implement and verify launchd service closure, atomic release/profile switching, health reopening, and automatic rollback"
+      },
+      {
+        "code": "semantic_snapshot_source_not_live_profile",
+        "evidence": "validated snapshot source alias resolves to the configuration profile while the running Hermes service uses a distinct live profile root",
+        "required_correction": "create a fresh encrypted snapshot from the actual live profile and rerun aggregate semantic migration before final delta"
+      },
+      {
+        "code": "live_model_adapter_not_integrated",
+        "evidence": "running router still selects Gemma by default, keyword-switches coding and reasoning workers, disables Qwen reasoning, and does not invoke the tested Qwen tool-history and typed-approval adapter",
+        "required_correction": "integrate the model-neutral task-boundary worker contract into the live candidate router and rerun closed end-to-end Hermes tool/history gates"
+      },
+      {
+        "code": "persona_routing_not_live_integrated",
+        "evidence": "the shipped overlay plugin exposes a policy-evaluation placeholder but does not enforce durable exactly-once Codex handoff or mixed-request decomposition at live gateway ingress",
+        "required_correction": "wire the tested routing, privacy, envelope, durable transport, and ownership contracts into a supported gateway hook and prove live-equivalent synthetic ingress"
+      }
+    ],
+    "preserved_live_state": {
+      "current_primary_model": "ernie-gemma4-ctx",
+      "qwen_candidate_deployed": false,
+      "services_restarted": false,
+      "release_or_profile_pointer_changed": false,
+      "credentials_changed": false,
+      "legacy_health_automation": "ACTIVE_UNCHANGED",
+      "final_backup_claimed": false,
+      "live_bert_accessed": false,
+      "deployment_or_push_performed": false
+    },
+    "stop_reason": "mandatory promotion gates are not CLEAR and deploying would validate or run the wrong system"
+  },
+  "sha256": "f33fe0f132516d1cc7cacde639d60e3eaeb088507ec8fcd3120bf8c31040a033"
+}
