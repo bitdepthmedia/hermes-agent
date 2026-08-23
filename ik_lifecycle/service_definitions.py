@@ -80,6 +80,7 @@ def render_cell_service_definitions(
     executable = cell_root / "bin/ik-cell-service"
     environment = {
         "HERMES_HOME": str(profile),
+        "HERMES_WEB_DIST": str(cell_root / "current-release/surfaces/built-assets/dashboard-web-dist"),
         "IK_CELL_ROOT": str(cell_root),
         "IK_CELL_ID": spec.cell_id,
         "IK_GATEWAY_PORT": str(spec.gateway_port),
@@ -113,6 +114,7 @@ def render_cell_service_definitions(
                 f"User={spec.account}",
                 f"WorkingDirectory={cell_root}",
                 f"Environment=HERMES_HOME={profile}",
+                f"Environment=HERMES_WEB_DIST={cell_root / 'current-release/surfaces/built-assets/dashboard-web-dist'}",
                 f"Environment=IK_CELL_ROOT={cell_root}",
                 f"Environment=IK_CELL_ID={spec.cell_id}",
                 f"Environment=IK_GATEWAY_PORT={spec.gateway_port}",

@@ -33,12 +33,16 @@ def test_renders_exact_launchd_and_systemd_definitions_from_cell_pointers(tmp_pa
     assert launchd["EnvironmentVariables"]["IK_CELL_ID"] == "ernie"
     assert launchd["EnvironmentVariables"]["IK_MODEL_BASE_URL"] == "http://127.0.0.1:18422/v1"
     assert launchd["EnvironmentVariables"]["IK_ROUTER_CONFIG"] == str(cell / "current-release/config/router.json")
+    assert launchd["EnvironmentVariables"]["HERMES_WEB_DIST"] == str(
+        cell / "current-release/surfaces/built-assets/dashboard-web-dist"
+    )
     assert launchd["EnvironmentVariables"]["IK_RELEASE_IMAGE"] == str(cell / "release-store.sparsebundle")
     assert launchd["EnvironmentVariables"]["IK_RELEASE_MOUNT"] == str(cell / "runtime-volume")
     systemd = result.systemd_unit.read_text(encoding="utf-8")
     assert f"ExecStart={cell}/bin/ik-cell-service" in systemd
     assert f"Environment=HERMES_HOME={cell}/current-profile" in systemd
     assert f"Environment=IK_ROUTER_CONFIG={cell}/current-release/config/router.json" in systemd
+    assert f"Environment=HERMES_WEB_DIST={cell}/current-release/surfaces/built-assets/dashboard-web-dist" in systemd
     assert "Restart=on-failure" in systemd
     model_launchd = plistlib.loads(result.model_launchd_plist.read_bytes())
     assert model_launchd["Label"] == "com.ik.hermes-ernie-v2.model"
