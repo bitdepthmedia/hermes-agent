@@ -30,3 +30,10 @@ def test_cell_service_dispatches_the_declared_full_ernie_topology() -> None:
     assert 'IK_CELL_CREDENTIAL_FILE' in source
     assert 'IK_CELL_SHARED_CREDENTIAL_FILE' in source
     assert 'eval' not in source
+
+
+def test_cell_service_does_not_remount_an_existing_runtime_volume() -> None:
+    source = SCRIPT.read_text(encoding="utf-8")
+    directory_guard = source.index('if [ ! -d "$IK_RELEASE_MOUNT" ]')
+    attach = source.index('/usr/bin/hdiutil attach -nobrowse -mountpoint')
+    assert directory_guard < attach

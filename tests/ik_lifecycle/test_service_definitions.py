@@ -100,6 +100,8 @@ def test_ernie_topology_defines_model_router_two_hermes_profiles_and_compat_gate
     assert documents["router"]["EnvironmentVariables"]["IK_CELL_SERVICE_ROLE"] == "router"
     assert documents["router"]["EnvironmentVariables"]["OLLAMA_BASE_URL"] == "http://127.0.0.1:18421"
     assert documents["fast"]["EnvironmentVariables"]["HERMES_HOME"].endswith("current-profile/fast")
+    assert documents["fast"]["EnvironmentVariables"]["IK_MODEL_BASE_URL"] == "http://127.0.0.1:18423/v1"
     assert documents["primary"]["EnvironmentVariables"]["HERMES_HOME"].endswith("current-profile/primary")
+    assert documents["primary"]["EnvironmentVariables"]["IK_MODEL_BASE_URL"] == "http://127.0.0.1:18423/v1"
     assert documents["compatibility-gateway"]["EnvironmentVariables"]["IK_CELL_SERVICE_ROLE"] == "compatibility-gateway"
     assert result.manifest["start_order"] == ["model", "router", "fast", "primary", "compatibility-gateway"]

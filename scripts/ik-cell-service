@@ -7,11 +7,12 @@ set -eu
 : "${IK_CELL_SERVICE_ROLE:=gateway}"
 
 cell_root=$IK_CELL_ROOT
-if ! /usr/sbin/diskutil info "$IK_RELEASE_MOUNT" >/dev/null 2>&1; then
-    [ -d "$IK_RELEASE_IMAGE" ] || exit 70
+if [ ! -d "$IK_RELEASE_MOUNT" ]; then
+    [ -e "$IK_RELEASE_IMAGE" ] || exit 70
     /bin/mkdir -p "$IK_RELEASE_MOUNT"
     /usr/bin/hdiutil attach -nobrowse -mountpoint "$IK_RELEASE_MOUNT" "$IK_RELEASE_IMAGE" >/dev/null
 fi
+[ -d "$IK_RELEASE_MOUNT" ] || exit 71
 [ -L "$cell_root/current-release" ] || exit 72
 [ -L "$cell_root/current-profile" ] || exit 73
 

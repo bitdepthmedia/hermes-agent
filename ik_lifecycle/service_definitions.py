@@ -289,12 +289,12 @@ def render_ernie_service_topology(
         (
             "fast",
             f"{spec.service_label}.fast",
-            {"IK_CELL_SERVICE_ROLE": "gateway", "HERMES_HOME": str(cell_root / "current-profile/fast"), "IK_ROUTER_CONFIG": str(cell_root / "current-release/config/router.json"), "API_SERVER_HOST": "127.0.0.1", "API_SERVER_PORT": str(spec.fast_port), "API_SERVER_ENABLED": "true"},
+            {"IK_CELL_SERVICE_ROLE": "gateway", "HERMES_HOME": str(cell_root / "current-profile/fast"), "IK_ROUTER_CONFIG": str(cell_root / "current-release/config/router.json"), "IK_MODEL_BASE_URL": f"http://127.0.0.1:{spec.router_port}/v1", "API_SERVER_HOST": "127.0.0.1", "API_SERVER_PORT": str(spec.fast_port), "API_SERVER_ENABLED": "true"},
         ),
         (
             "primary",
             spec.service_label,
-            {"IK_CELL_SERVICE_ROLE": "gateway", "HERMES_HOME": str(cell_root / "current-profile/primary"), "IK_ROUTER_CONFIG": str(cell_root / "current-release/config/router.json"), "API_SERVER_HOST": "127.0.0.1", "API_SERVER_PORT": str(spec.primary_port), "API_SERVER_ENABLED": "true"},
+            {"IK_CELL_SERVICE_ROLE": "gateway", "HERMES_HOME": str(cell_root / "current-profile/primary"), "IK_ROUTER_CONFIG": str(cell_root / "current-release/config/router.json"), "IK_MODEL_BASE_URL": f"http://127.0.0.1:{spec.router_port}/v1", "API_SERVER_HOST": "127.0.0.1", "API_SERVER_PORT": str(spec.primary_port), "API_SERVER_ENABLED": "true"},
         ),
         (
             "compatibility-gateway",
