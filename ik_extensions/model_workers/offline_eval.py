@@ -228,7 +228,12 @@ def build_request_payload(case: RuntimeCase, model: str) -> dict[str, object]:
 
 
 def run_runtime_cases(
-    endpoint: str, model: str, cases: Sequence[RuntimeCase], *, timeout_seconds: int = 300
+    endpoint: str,
+    model: str,
+    cases: Sequence[RuntimeCase],
+    *,
+    timeout_seconds: int = 300,
+    authorization_bearer: str | None = None,
 ) -> tuple[dict[str, object], ...]:
     if not endpoint.startswith("http://127.0.0.1:"):
         raise OfflineEvalError("endpoint_not_loopback")
@@ -237,10 +242,13 @@ def run_runtime_cases(
     for case in cases:
         payload = build_request_payload(case, model)
         started = time.monotonic()
+        headers = {"Content-Type": "application/json"}
+        if authorization_bearer:
+            headers["Authorization"] = f"Bearer {authorization_bearer}"
         request = Request(
             endpoint.rstrip("/") + "/api/chat",
             data=json.dumps(payload, sort_keys=True, separators=(",", ":")).encode(),
-            headers={"Content-Type": "application/json"},
+            headers=headers,
             method="POST",
         )
         try:
@@ -266,7 +274,11 @@ def run_runtime_cases(
 
 
 def run_concurrency_probe(
-    endpoint: str, model: str, *, timeout_seconds: int = 120
+    endpoint: str,
+    model: str,
+    *,
+    timeout_seconds: int = 120,
+    authorization_bearer: str | None = None,
 ) -> dict[str, object]:
     """Prove two synthetic loopback requests complete without retaining text."""
 
@@ -284,7 +296,13 @@ def run_concurrency_probe(
     )
 
     def execute(case: RuntimeCase) -> Mapping[str, object]:
-        return run_runtime_cases(endpoint, model, (case,), timeout_seconds=timeout_seconds)[0]
+        return run_runtime_cases(
+            endpoint,
+            model,
+            (case,),
+            timeout_seconds=timeout_seconds,
+            authorization_bearer=authorization_bearer,
+        )[0]
 
     with ThreadPoolExecutor(max_workers=2, thread_name_prefix="ik-model-eval") as executor:
         outcomes = tuple(executor.map(execute, probes))

@@ -8,6 +8,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import sys
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -52,15 +53,34 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--timeout-seconds", type=int, default=300)
     parser.add_argument("--concurrency-probe", action="store_true")
+    parser.add_argument("--api-key-env")
     args = parser.parse_args()
+    authorization_bearer = None
+    if args.api_key_env:
+        if not re.fullmatch(r"[A-Z][A-Z0-9_]{2,127}", args.api_key_env):
+            parser.error("credential handle name is invalid")
+        authorization_bearer = os.environ.get(args.api_key_env)
+        if not authorization_bearer:
+            parser.error("credential handle is unavailable")
     if args.concurrency_probe:
-        receipt = run_concurrency_probe(args.endpoint, args.model, timeout_seconds=args.timeout_seconds)
+        receipt = run_concurrency_probe(
+            args.endpoint,
+            args.model,
+            timeout_seconds=args.timeout_seconds,
+            authorization_bearer=authorization_bearer,
+        )
         receipt["case_selection_sha256"] = _selection_digest(args.fixtures)
         _write_private_json(args.output, receipt)
         print(json.dumps({key: receipt[key] for key in ("status", "model_alias", "requested_concurrency", "successful_requests", "graded_responses")}, sort_keys=True))
         return 0 if receipt["status"] == "CLEAR" else 2
     cases = load_runtime_cases(args.fixtures)
-    outcomes = run_runtime_cases(args.endpoint, args.model, cases, timeout_seconds=args.timeout_seconds)
+    outcomes = run_runtime_cases(
+        args.endpoint,
+        args.model,
+        cases,
+        timeout_seconds=args.timeout_seconds,
+        authorization_bearer=authorization_bearer,
+    )
     receipt = summarize_results(cases, outcomes, model_alias=args.model)
     receipt["case_selection_sha256"] = _selection_digest(args.fixtures)
     receipt["outcomes"] = list(outcomes)

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -15,6 +17,7 @@ from ik_extensions.model_workers.offline_eval import (
     grade_case,
     load_runtime_cases,
     run_concurrency_probe,
+    run_runtime_cases,
     summarize_results,
 )
 
@@ -79,7 +82,7 @@ class OfflineEvalTests(unittest.TestCase):
     def test_concurrency_probe_requires_two_overlapping_transport_successes(self) -> None:
         barrier = threading.Barrier(2)
 
-        def fake_run(endpoint, model, cases, *, timeout_seconds):
+        def fake_run(endpoint, model, cases, *, timeout_seconds, authorization_bearer=None):
             barrier.wait(timeout=2)
             return ({"case_id": cases[0].case_id, "passed": True, "latency_ms": 7, "error_code": None},)
 
@@ -89,8 +92,74 @@ class OfflineEvalTests(unittest.TestCase):
         self.assertEqual(receipt["requested_concurrency"], 2)
         self.assertEqual(receipt["successful_requests"], 2)
 
+    def test_runtime_transport_uses_opaque_bearer_without_receipt_leak(self) -> None:
+        observed: list[str | None] = []
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self):  # noqa: N802 - stdlib callback name
+                observed.append(self.headers.get("Authorization"))
+                length = int(self.headers.get("Content-Length", "0"))
+                self.rfile.read(length)
+                body = json.dumps({"message": {"content": '{"owner":"codex","duplicate_execution":false}'}}).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, _format, *_args):
+                return
+
+        server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            case = next(
+                case
+                for case in load_runtime_cases(Path(__file__).resolve().parents[2] / "evals/ik")
+                if case.case_id == "cos-work-to-codex"
+            )
+            outcomes = run_runtime_cases(
+                f"http://127.0.0.1:{server.server_port}",
+                "fixture",
+                (case,),
+                authorization_bearer="opaque-secret-value",
+            )
+        finally:
+            server.shutdown()
+            thread.join(timeout=2)
+        self.assertEqual(observed, ["Bearer opaque-secret-value"])
+        self.assertNotIn("opaque-secret-value", json.dumps(outcomes))
+
+    def test_runner_requires_named_nonempty_environment_handle_without_disclosure(self) -> None:
+        runner = Path(__file__).resolve().parents[2] / "scripts/ik-offline-model-eval"
+        fixtures = Path(__file__).resolve().parents[2] / "evals/ik"
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "receipt.json"
+            environment = os.environ.copy()
+            environment.pop("IK_TEST_ROUTER_HANDLE", None)
+            completed = subprocess.run(
+                (
+                    sys.executable,
+                    str(runner),
+                    "--fixtures", str(fixtures),
+                    "--endpoint", "http://127.0.0.1:1",
+                    "--model", "fixture",
+                    "--output", str(output),
+                    "--api-key-env", "IK_TEST_ROUTER_HANDLE",
+                ),
+                env=environment,
+                capture_output=True,
+                text=True,
+                timeout=10,
+                check=False,
+            )
+        self.assertNotEqual(completed.returncode, 0)
+        self.assertIn("credential handle is unavailable", completed.stderr)
+        self.assertNotIn("opaque-secret-value", completed.stdout + completed.stderr)
+
     def test_concurrency_probe_fails_closed_on_one_transport_error(self) -> None:
-        def fake_run(endpoint, model, cases, *, timeout_seconds):
+        def fake_run(endpoint, model, cases, *, timeout_seconds, authorization_bearer=None):
             code = None if cases[0].case_id.endswith("alpha") else "TimeoutError"
             return ({"case_id": cases[0].case_id, "passed": code is None, "latency_ms": 7, "error_code": code},)
 
