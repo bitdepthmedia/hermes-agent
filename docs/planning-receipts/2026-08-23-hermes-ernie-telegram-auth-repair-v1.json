@@ -1,0 +1,136 @@
+{
+  "backup": {
+    "aggregate_bytes": 125777234,
+    "aggregate_file_count": 2334,
+    "archive_binding_verified": true,
+    "rollback_handle_present": true,
+    "snapshot_id": "41b022a254c5ba978d804dc1",
+    "status": "CLEAR_ENCRYPTED_OPAQUE"
+  },
+  "deployment": {
+    "current_generation": 11,
+    "deployment_id": "dd3e82f94eef680d370697da",
+    "deployment_manifest_sha256": "5af243d98b17480ea9a1cfc35749e1218cdc1fb2e8fe2d1020b6427279adde81",
+    "profile_id": "ernie-live-c31f85513f-ctx64k-v3",
+    "release_id": "c11253fa8e40796e3e1439d9",
+    "runtime_manifest_sha256": "a90cf4dfa01cca1cdcb31588d81bf70d1b2d43c0c612095239d89246e65c582d",
+    "runtime_status": "SEALED_DEPLOYABLE_RUNTIME",
+    "service_count": 5,
+    "status": "PROMOTED_CLEAR"
+  },
+  "failed_attempts_retained": [
+    {
+      "deployment_id": "dc565f34da07b43a2a72a9fb",
+      "generation": 10,
+      "reason": "upstream_context_floor_rejected_32768",
+      "rollback": "CLEAR_TO_GENERATION_9",
+      "status": "BLOCKED_RETAINED"
+    }
+  ],
+  "implementation": {
+    "commits": [
+      "c46f77050f",
+      "c31f85513f"
+    ],
+    "provider_plugin_credential_contract": "ERNIE_ROUTER_API_KEY_REQUIRED",
+    "provider_plugin_registered": true,
+    "router_context_tokens": 65536,
+    "router_credential_file_bound_to_primary_gateway": true,
+    "shared_credential_file_bound_to_primary_gateway": true,
+    "status": "CLEAR_NARROW_REPAIR"
+  },
+  "latency_and_resources": {
+    "direct_router_reasoning_medium_seconds": 4.339,
+    "direct_router_reasoning_none_seconds": 1.934,
+    "loaded_model_bytes": 36264193554,
+    "maximum_runtime_bytes": 55834574848,
+    "post_restart_gateway_seconds": [
+      55.853,
+      59.913,
+      36.031
+    ],
+    "prior_receipt_warm_max_seconds": 24.44,
+    "reasoning_effective": "medium",
+    "status": "WARN_GATEWAY_LATENCY_ABOVE_PRIOR_RECEIPT",
+    "tracking_criteria": {
+      "blocked": "empty response, timeout at 180 seconds, health failure, tool or approval regression, or resource ceiling breach",
+      "clear": "authenticated nonempty response with mandatory behavior gates clear",
+      "warn": "warm gateway latency exceeds 1.5 times the prior receipt maximum"
+    }
+  },
+  "model": {
+    "artifact_sha256": "31629f53165ab6a7dad8c9847dcfd1fdf55829dac1e6e748f4a68581b0033d34",
+    "configured_context_tokens": 65536,
+    "loaded_context_capability_tokens": 262144,
+    "primary": "ik-qwen38-eval:31629f53165a",
+    "projector_sha256": "2e968a6af97ce35d8971890b257b9b7edabf20ad91450501fa53162a19ee33eb",
+    "quantization": "Q4_K_M",
+    "status": "CLEAR_IDENTITY"
+  },
+  "observed_at": "2026-08-23T16:02:36Z",
+  "profile_continuity": {
+    "cron_config_preserved": true,
+    "gateway_config_preserved": true,
+    "plugins_config_preserved": true,
+    "profiles_config_preserved": true,
+    "telegram_allowed_users_preserved": true,
+    "telegram_bot_token_preserved": true
+  },
+  "restart_and_rollback": {
+    "controlled_restart": "CLEAR",
+    "current_pointer_generation": 11,
+    "post_restart_health_surfaces": 5,
+    "previous_deployment_exists": true,
+    "previous_generation": 9,
+    "previous_profile_exists": true,
+    "promotion_journal_complete": true,
+    "status": "CLEAR"
+  },
+  "root_cause": {
+    "gateway_router_bearer": "primary gateway service omitted the sealed router credential-file binding",
+    "provider_registry": "ik-ernie-local declared no required credential environment variable and therefore was not registered by Hermes authentication discovery",
+    "telegram_token": "HEALTHY_NOT_ROOT_CAUSE"
+  },
+  "schema_id": "ik.hermes.ernie-telegram-auth-repair.v1",
+  "security": {
+    "credential_values_logged": false,
+    "credential_values_modified": false,
+    "dependency_or_lock_refresh": false,
+    "forbidden_implementation_findings": 0,
+    "private_content_disclosed": false,
+    "status": "CLEAR"
+  },
+  "status": "CLEAR_AUTH_REPAIR_WITH_LATENCY_WARN",
+  "target": {
+    "latest_commit_sha": "fcbd1076a93841fa88855acce810e342a5b78101",
+    "latest_tag": "v2026.8.19",
+    "policy": "exactly_one_published_stable_release_behind",
+    "selected_commit_sha": "e624e9fde561e1add9388384012b295fde669ade",
+    "selected_tag": "v2026.8.18"
+  },
+  "telegram": {
+    "allowed_chat_count": 1,
+    "bot_api_get_me_http": 200,
+    "bot_api_get_me_ok": true,
+    "bot_api_send_http": 200,
+    "bot_api_send_ok": true,
+    "gateway_connected_after_restart": true,
+    "message_id_present": true,
+    "non_private_model_generated_diagnostic_sent": true,
+    "post_restart_polling_error_count": 0,
+    "post_restart_provider_auth_failure_count": 0,
+    "post_restart_router_401_count": 0,
+    "post_restart_token_error_count": 0,
+    "user_originated_inbound_reply_test": "NOT_AUTOMATABLE_WITHOUT_USER_MESSAGE",
+    "status": "CLEAR_OUTBOUND_AND_CONNECTED_INBOUND_POLLING"
+  },
+  "verification": {
+    "architecture_and_lifecycle": "389 passed, 1 skipped",
+    "focused_auth_and_context": "63 passed",
+    "primary_gateway_authenticated_http": 200,
+    "primary_gateway_response_nonempty": true,
+    "provider_plugin_env_binding": true,
+    "sealed_release_forbidden_findings": 0,
+    "worktree_forbidden_findings": 0
+  }
+}
