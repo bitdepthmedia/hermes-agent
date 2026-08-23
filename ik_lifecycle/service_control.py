@@ -482,20 +482,30 @@ def promote_with_service(
             approval,
             service_closed=True,
         )
-    adapter.open()
-    deadline = time.monotonic() + observation_timeout_seconds
     healthy = False
-    while time.monotonic() < deadline:
-        try:
-            if adapter.preflight().running and health():
-                healthy = True
-                break
-        except LifecycleBlockedError:
-            pass
-        time.sleep(0.1)
+    candidate_opened = False
+    try:
+        adapter.open()
+        candidate_opened = True
+        deadline = time.monotonic() + observation_timeout_seconds
+        while time.monotonic() < deadline:
+            try:
+                if adapter.preflight().running and health():
+                    healthy = True
+                    break
+            except LifecycleBlockedError:
+                pass
+            time.sleep(0.1)
+    except Exception:
+        # A partially opened service group is still a pre-traffic failure.
+        # The exact previous pointer pair remains the only rollback target.
+        healthy = False
     if healthy:
         return ServicePromotionResult("PROMOTED_CLEAR")
-    adapter.close()
+    if candidate_opened:
+        adapter.close()
+    elif not adapter.closed():
+        adapter.close()
     if not adapter.closed():
         raise LifecycleBlockedError("rollback_service_not_closed", "service remained running before rollback")
     if isinstance(pointers, PairedSymlinks):

@@ -394,6 +394,43 @@ def test_failed_health_restores_real_symlink_pair(tmp_path: Path) -> None:
     assert pointers.read_pair() == (str(old_release), str(old_profile), 1)
 
 
+def test_candidate_open_failure_restores_real_symlink_pair_and_legacy_service(tmp_path: Path) -> None:
+    old_release = tmp_path / "releases/old"; old_release.mkdir(parents=True)
+    new_release = tmp_path / "releases/new"; new_release.mkdir()
+    profile = tmp_path / "profiles/live"; profile.mkdir(parents=True)
+    pointers = PairedSymlinks(
+        tmp_path / "current-release", tmp_path / "current-profile", tmp_path / "journal.json",
+        allowed_release_root=tmp_path / "releases", allowed_profile_root=tmp_path / "profiles",
+    )
+    pointers.initialize(old_release, profile, 1)
+
+    class FailFirstOpen:
+        def __init__(self) -> None:
+            self.running = True
+            self.opens = 0
+        def preflight(self):
+            from ik_lifecycle.service_control import ServicePreflight
+            return ServicePreflight(self.running, "running" if self.running else "unloaded")
+        def close(self): self.running = False
+        def closed(self): return not self.running
+        def open(self):
+            self.opens += 1
+            if self.opens == 1:
+                raise LifecycleBlockedError("injected_open_failure", "candidate failed to open")
+            self.running = True
+
+    adapter = FailFirstOpen()
+    result = promote_with_service(
+        pointers=pointers, adapter=adapter, release=str(new_release), profile=str(profile), generation=2,
+        approval=ApprovalReceipt("ernie", "new-release", datetime.now(timezone.utc) + timedelta(minutes=5), "d" * 64),
+        release_id="new-release", health=lambda: True, observation_timeout_seconds=0.01,
+    )
+
+    assert result.status == "ROLLED_BACK_PRE_TRAFFIC"
+    assert pointers.read_pair() == (str(old_release), str(profile), 1)
+    assert adapter.running is True
+
+
 def test_service_group_starts_model_before_gateway_and_stops_in_reverse() -> None:
     events: list[str] = []
 
