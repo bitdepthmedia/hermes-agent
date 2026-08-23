@@ -22,11 +22,6 @@ sqlite_library="$release/surfaces/python-runtime/lib/sqlite-safe/libsqlite3.so.0
 [ -d "$profile" ] || exit 73
 [ -r "$manifest" ] || exit 74
 [ -x "$python" ] || exit 75
-if [ -e "$sqlite_library" ]; then
-    [ -f "$sqlite_library" ] && [ ! -L "$sqlite_library" ] || exit 82
-    sqlite_library_dir=$(/usr/bin/dirname "$sqlite_library")
-    export LD_LIBRARY_PATH="$sqlite_library_dir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-fi
 case "$IK_RUNTIME_MANIFEST_SHA256" in *[!0-9a-f]*|'') exit 80 ;; esac
 [ "${#IK_RUNTIME_MANIFEST_SHA256}" -eq 64 ] || exit 80
 if [ -x /usr/bin/sha256sum ]; then
@@ -44,6 +39,11 @@ verifier="$cell_root/bin/ik-bert-runtime-verify"
     --manifest-sha "$IK_RUNTIME_MANIFEST_SHA256" \
     --self-sha "$IK_RUNTIME_VERIFIER_SHA256" || exit 81
 
+if [ -e "$sqlite_library" ]; then
+    [ -f "$sqlite_library" ] && [ ! -L "$sqlite_library" ] || exit 82
+    sqlite_library_dir=$(/usr/bin/dirname "$sqlite_library")
+    export LD_LIBRARY_PATH="$sqlite_library_dir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+fi
 "$python" -c 'import json,os,sys; p=sys.argv[1]; d=json.load(open(p, encoding="utf-8")); raise SystemExit(0 if d.get("status")=="SEALED_DEPLOYABLE_RUNTIME" and d.get("release_id")==os.path.basename(os.path.dirname(p)) else 76)' "$manifest"
 "$python" -c 'import sqlite3; raise SystemExit(0 if sqlite3.sqlite_version_info >= (3, 51, 3) else 82)' || exit 82
 

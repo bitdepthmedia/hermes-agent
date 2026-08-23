@@ -39,6 +39,7 @@ def test_bert_cell_launcher_requires_wal_safe_sqlite_and_uses_bound_library_surf
     assert "LD_LIBRARY_PATH" in source
     assert "(3, 51, 3)" in source
     assert "sqlite3.sqlite_version_info" in source
+    assert source.index("ik-bert-runtime-verify") < source.index("export LD_LIBRARY_PATH")
 
 
 def test_bert_cell_launcher_fails_closed_on_manifest_or_profile_drift(tmp_path: Path) -> None:
