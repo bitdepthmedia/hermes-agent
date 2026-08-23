@@ -99,3 +99,117 @@ def test_fast_profile_link_outside_primary_fails_closed(tmp_path: Path) -> None:
             ErnieProfileBundleInputs(primary, fast, *credentials, router_port=18423),
             tmp_path / "bundles/bundle",
         )
+
+
+def test_legacy_read_only_credential_handle_is_restricted_in_bundle(tmp_path: Path) -> None:
+    primary = tmp_path / "primary"
+    fast = tmp_path / "fast"
+    _profile(primary, "primary")
+    _profile(fast, "fast")
+    credentials = []
+    for name in ("router", "gateway", "shared"):
+        path = tmp_path / f"{name}.env"
+        path.write_text("S=x\n", encoding="utf-8")
+        path.chmod(0o644)
+        credentials.append(path)
+
+    result = build_ernie_profile_bundle(
+        ErnieProfileBundleInputs(primary, fast, *credentials, router_port=18423),
+        tmp_path / "bundles/bundle",
+    )
+
+    assert (result.root / "router/.env").stat().st_mode & 0o777 == 0o600
+    assert (result.root / "compatibility-gateway/.env").stat().st_mode & 0o777 == 0o600
+    assert (result.root / "compatibility-gateway/shared-core.env").stat().st_mode & 0o777 == 0o600
+
+
+def test_group_writable_credential_handle_fails_closed(tmp_path: Path) -> None:
+    primary = tmp_path / "primary"
+    fast = tmp_path / "fast"
+    _profile(primary, "primary")
+    _profile(fast, "fast")
+    credentials = []
+    for name, mode in (("router", 0o600), ("gateway", 0o620), ("shared", 0o600)):
+        path = tmp_path / f"{name}.env"
+        path.write_text("S=x\n", encoding="utf-8")
+        path.chmod(mode)
+        credentials.append(path)
+
+    with pytest.raises(Exception, match="credential"):
+        build_ernie_profile_bundle(
+            ErnieProfileBundleInputs(primary, fast, *credentials, router_port=18423),
+            tmp_path / "bundles/bundle",
+        )
+
+
+def test_legacy_read_only_profile_modes_are_restricted_in_bundle(tmp_path: Path) -> None:
+    primary = tmp_path / "primary"
+    fast = tmp_path / "fast"
+    _profile(primary, "primary")
+    _profile(fast, "fast")
+    (fast / "legacy-dir").mkdir(mode=0o755)
+    (fast / "legacy-dir/value").write_text("opaque", encoding="utf-8")
+    (fast / "legacy-dir/value").chmod(0o644)
+    credentials = []
+    for name in ("router", "gateway", "shared"):
+        path = tmp_path / f"{name}.env"
+        path.write_text("S=x\n", encoding="utf-8")
+        path.chmod(0o600)
+        credentials.append(path)
+
+    result = build_ernie_profile_bundle(
+        ErnieProfileBundleInputs(primary, fast, *credentials, router_port=18423),
+        tmp_path / "bundles/bundle",
+    )
+
+    assert (result.root / "fast/legacy-dir").stat().st_mode & 0o777 == 0o700
+    assert (result.root / "fast/legacy-dir/value").stat().st_mode & 0o777 == 0o600
+
+
+def test_group_writable_profile_source_fails_closed(tmp_path: Path) -> None:
+    primary = tmp_path / "primary"
+    fast = tmp_path / "fast"
+    _profile(primary, "primary")
+    _profile(fast, "fast")
+    (fast / "config.yaml").chmod(0o620)
+    credentials = []
+    for name in ("router", "gateway", "shared"):
+        path = tmp_path / f"{name}.env"
+        path.write_text("S=x\n", encoding="utf-8")
+        path.chmod(0o600)
+        credentials.append(path)
+
+    with pytest.raises(Exception, match="permissions"):
+        build_ernie_profile_bundle(
+            ErnieProfileBundleInputs(primary, fast, *credentials, router_port=18423),
+            tmp_path / "bundles/bundle",
+        )
+
+
+def test_fast_links_may_bind_to_a_distinct_authoritative_primary_root(tmp_path: Path) -> None:
+    migrated_primary = tmp_path / "migrated-primary"
+    live_primary = tmp_path / "live-primary"
+    fast = tmp_path / "fast"
+    _profile(migrated_primary, "migrated")
+    _profile(live_primary, "live")
+    _profile(fast, "fast")
+    (fast / "shared-persona").symlink_to(live_primary / "config.yaml")
+    credentials = []
+    for name in ("router", "gateway", "shared"):
+        path = tmp_path / f"{name}.env"
+        path.write_text("S=x\n", encoding="utf-8")
+        path.chmod(0o600)
+        credentials.append(path)
+
+    result = build_ernie_profile_bundle(
+        ErnieProfileBundleInputs(
+            migrated_primary,
+            fast,
+            *credentials,
+            router_port=18423,
+            fast_link_root=live_primary,
+        ),
+        tmp_path / "bundles/bundle",
+    )
+
+    assert (result.root / "fast/shared-persona").is_file()

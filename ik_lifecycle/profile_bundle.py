@@ -23,6 +23,7 @@ class ErnieProfileBundleInputs:
     compatibility_gateway_credentials: Path
     shared_credentials: Path
     router_port: int
+    fast_link_root: Path | None = None
 
 
 @dataclass(frozen=True)
@@ -49,20 +50,14 @@ def _source(path: Path, *, allowed_link_root: Path | None = None) -> tuple[Path,
     ):
         raise LifecycleBlockedError("profile_bundle_source_invalid", "profile bundle source is invalid")
     links = tuple(path for path in root.rglob("*") if path.is_symlink())
-    if not links:
-        try: clear = _clone_permissions_clear(root)
-        except OpaqueBackupError as exc:
-            raise LifecycleBlockedError("profile_bundle_source_invalid", "profile bundle source is invalid") from exc
-        if not clear:
-            raise LifecycleBlockedError("profile_bundle_source_invalid", "profile bundle source is invalid")
-        return root, _tree_digest(root)[0]
-    if allowed_link_root is None:
+    if links and allowed_link_root is None:
         raise LifecycleBlockedError("profile_bundle_symlink_invalid", "profile bundle symlink is not permitted")
-    allowed = Path(allowed_link_root).resolve()
+    allowed = Path(allowed_link_root).resolve() if allowed_link_root is not None else None
     digest = hashlib.sha256()
     for item in sorted(root.rglob("*"), key=lambda value: value.relative_to(root).as_posix()):
         relative = item.relative_to(root).as_posix()
         if item.is_symlink():
+            assert allowed is not None
             try:
                 resolved = item.resolve(strict=True)
                 resolved.relative_to(allowed)
@@ -82,8 +77,13 @@ def _source(path: Path, *, allowed_link_root: Path | None = None) -> tuple[Path,
                 )
             digest.update(f"L\0{relative}\0{value}\0".encode())
             continue
-        expected = 0o700 if item.is_dir() else 0o600
-        if stat.S_IMODE(os.lstat(item).st_mode) != expected:
+        metadata = os.lstat(item)
+        mode = stat.S_IMODE(metadata.st_mode)
+        if (
+            metadata.st_uid != os.getuid()
+            or mode & 0o022
+            or not (stat.S_ISDIR(metadata.st_mode) or stat.S_ISREG(metadata.st_mode))
+        ):
             raise LifecycleBlockedError("profile_bundle_source_invalid", "profile bundle source permissions are invalid")
         if item.is_dir():
             digest.update(f"D\0{relative}\0".encode())
@@ -94,10 +94,18 @@ def _source(path: Path, *, allowed_link_root: Path | None = None) -> tuple[Path,
 
 def _credential(path: Path) -> tuple[Path, str]:
     source = Path(path).absolute()
-    try: mode = source.stat().st_mode & 0o777
+    try:
+        metadata = os.lstat(source)
     except OSError as exc:
         raise LifecycleBlockedError("profile_bundle_credential_invalid", "opaque credential handle is invalid") from exc
-    if source.is_symlink() or not source.is_file() or mode & 0o077 or source.stat().st_uid != os.getuid():
+    mode = stat.S_IMODE(metadata.st_mode)
+    if (
+        stat.S_ISLNK(metadata.st_mode)
+        or not stat.S_ISREG(metadata.st_mode)
+        or mode & 0o022
+        or not mode & 0o400
+        or metadata.st_uid != os.getuid()
+    ):
         raise LifecycleBlockedError("profile_bundle_credential_invalid", "opaque credential handle is invalid")
     return source, hashlib.sha256(source.read_bytes()).hexdigest()
 
@@ -128,7 +136,8 @@ def build_ernie_profile_bundle(inputs: ErnieProfileBundleInputs, destination: Pa
     if not 1024 <= inputs.router_port <= 65535:
         raise LifecycleBlockedError("profile_bundle_endpoint_invalid", "profile bundle router endpoint is invalid")
     primary, primary_tree = _source(inputs.primary)
-    fast, fast_tree = _source(inputs.fast, allowed_link_root=primary)
+    fast_link_root = inputs.fast_link_root or primary
+    fast, fast_tree = _source(inputs.fast, allowed_link_root=fast_link_root)
     router, router_sha = _credential(inputs.router_credentials)
     gateway, gateway_sha = _credential(inputs.compatibility_gateway_credentials)
     shared, shared_sha = _credential(inputs.shared_credentials)
