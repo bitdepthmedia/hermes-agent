@@ -12,6 +12,12 @@ import stat
 
 import yaml
 
+from .credential_exec import (
+    CredentialExecError,
+    credential_key_allowed,
+    read_credential_assignments,
+    render_credential_assignments,
+)
 from .models import LifecycleBlockedError
 from .opaque_backup import OpaqueBackupError, _clone_permissions_clear, _tree_digest
 from .profile_candidate import _configure
@@ -112,6 +118,20 @@ def _credential(path: Path) -> tuple[Path, str]:
     ):
         raise LifecycleBlockedError("profile_bundle_credential_invalid", "opaque credential handle is invalid")
     return source, hashlib.sha256(source.read_bytes()).hexdigest()
+
+
+def _write_role_credentials(source: Path, destination: Path, *, policy: str) -> None:
+    try:
+        assignments = read_credential_assignments(source)
+        retained = {
+            key: value
+            for key, value in assignments.items()
+            if credential_key_allowed(key, policy=policy)
+        }
+    except CredentialExecError as exc:
+        raise LifecycleBlockedError("profile_bundle_credential_invalid", "opaque credential handle is invalid") from exc
+    destination.write_text(render_credential_assignments(retained), encoding="utf-8")
+    destination.chmod(0o600)
 
 
 _RUNTIME_CONTROL_ENV = frozenset(
@@ -262,11 +282,10 @@ def build_ernie_profile_bundle(inputs: ErnieProfileBundleInputs, destination: Pa
         _scrub_runtime_control_environment(staging / "primary")
         _scrub_runtime_control_environment(staging / "fast")
         (staging / "router").mkdir(mode=0o700)
-        shutil.copy2(router, staging / "router/.env")
-        _scrub_runtime_control_environment(staging / "router")
+        _write_role_credentials(router, staging / "router/.env", policy="router")
         (staging / "compatibility-gateway").mkdir(mode=0o700)
-        shutil.copy2(gateway, staging / "compatibility-gateway/.env")
-        shutil.copy2(shared, staging / "compatibility-gateway/shared-core.env")
+        _write_role_credentials(gateway, staging / "compatibility-gateway/.env", policy="compatibility")
+        _write_role_credentials(shared, staging / "compatibility-gateway/shared-core.env", policy="compatibility")
         for item in sorted(staging.rglob("*"), key=lambda value: len(value.parts), reverse=True):
             if item.is_symlink(): raise LifecycleBlockedError("profile_bundle_symlink", "profile bundle contains a symlink")
             os.chmod(item, 0o700 if item.is_dir() else 0o600)

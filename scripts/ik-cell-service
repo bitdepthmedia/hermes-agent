@@ -33,40 +33,67 @@ manifest="$release/runtime-manifest.json"
 
 export PYTHONPATH="$release/source"
 
-load_credentials() {
-    credential_file=$1
-    [ -n "$credential_file" ] || return 0
-    [ -f "$credential_file" ] && [ ! -L "$credential_file" ] || exit 78
-    set -a
-    . "$credential_file"
-    set +a
+run_loopback_only() {
+    [ -x /usr/bin/sandbox-exec ] || exit 85
+    policy='(version 1)
+(allow default)
+(deny network*)
+(allow network-bind (local ip))
+(allow network-inbound (local ip))
+(allow network-outbound (remote ip "localhost:*"))'
+    exec /usr/bin/sandbox-exec -p "$policy" "$@"
+}
+
+require_port() {
+    case "$1" in
+        ''|*[!0-9]*) exit 86 ;;
+    esac
+    [ "$1" -ge 1024 ] && [ "$1" -le 65535 ] || exit 86
 }
 
 case "$IK_CELL_SERVICE_ROLE" in
     model)
         model_runtime="$release/surfaces/model-runtime/ollama"
         [ -x "$model_runtime" ] || exit 79
-        exec "$model_runtime" serve
+        : "${OLLAMA_HOST:?OLLAMA_HOST is required}"
+        case "$OLLAMA_HOST" in
+            127.0.0.1:*) model_port=${OLLAMA_HOST#127.0.0.1:} ;;
+            *) exit 86 ;;
+        esac
+        require_port "$model_port"
+        run_loopback_only "$model_runtime" serve
         ;;
     router)
         : "${HERMES_HOME:?HERMES_HOME is required}"
         [ "$HERMES_HOME" = "$cell_root/current-profile/primary" ] || exit 80
-        load_credentials "${IK_CELL_CREDENTIAL_FILE:-}"
         : "${IK_SERVICE_HOST:=127.0.0.1}"
         : "${IK_SERVICE_PORT:?IK_SERVICE_PORT is required}"
+        [ "$IK_SERVICE_HOST" = "127.0.0.1" ] || exit 86
+        require_port "$IK_SERVICE_PORT"
+        : "${IK_CELL_CREDENTIAL_FILE:?IK_CELL_CREDENTIAL_FILE is required}"
+        [ "$IK_CELL_CREDENTIAL_FILE" = "$cell_root/current-profile/router/.env" ] || exit 87
         cd "$release/source"
-        exec "$python" -m uvicorn ik_extensions.model_workers.router_service:app --host "$IK_SERVICE_HOST" --port "$IK_SERVICE_PORT"
+        run_loopback_only "$python" -m ik_lifecycle.credential_exec \
+            --policy router \
+            --credential "$IK_CELL_CREDENTIAL_FILE" -- \
+            "$python" -m uvicorn ik_extensions.model_workers.router_service:app --host "$IK_SERVICE_HOST" --port "$IK_SERVICE_PORT"
         ;;
     compatibility-gateway)
         : "${HERMES_HOME:?HERMES_HOME is required}"
         [ "$HERMES_HOME" = "$cell_root/current-profile/primary" ] || exit 81
-        load_credentials "${IK_CELL_CREDENTIAL_FILE:-}"
-        load_credentials "${IK_CELL_SHARED_CREDENTIAL_FILE:-}"
+        : "${IK_CELL_CREDENTIAL_FILE:?IK_CELL_CREDENTIAL_FILE is required}"
+        : "${IK_CELL_SHARED_CREDENTIAL_FILE:?IK_CELL_SHARED_CREDENTIAL_FILE is required}"
+        [ "$IK_CELL_CREDENTIAL_FILE" = "$cell_root/current-profile/compatibility-gateway/.env" ] || exit 87
+        [ "$IK_CELL_SHARED_CREDENTIAL_FILE" = "$cell_root/current-profile/compatibility-gateway/shared-core.env" ] || exit 87
         : "${IK_SERVICE_HOST:=127.0.0.1}"
         : "${IK_SERVICE_PORT:?IK_SERVICE_PORT is required}"
         [ -r "$deployment/compatibility/app.py" ] || exit 82
         cd "$deployment/compatibility"
-        exec "$python" -m uvicorn app:app --host "$IK_SERVICE_HOST" --port "$IK_SERVICE_PORT"
+        exec "$python" -m ik_lifecycle.credential_exec \
+            --policy compatibility \
+            --credential "$IK_CELL_CREDENTIAL_FILE" \
+            --credential "$IK_CELL_SHARED_CREDENTIAL_FILE" -- \
+            "$python" -m uvicorn app:app --host "$IK_SERVICE_HOST" --port "$IK_SERVICE_PORT"
         ;;
     gateway)
         : "${HERMES_HOME:?HERMES_HOME is required}"

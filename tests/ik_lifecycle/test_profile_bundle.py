@@ -26,7 +26,7 @@ def _profile(root: Path, marker: str) -> None:
 def test_builds_one_atomic_profile_bundle_with_two_isolated_profiles_and_opaque_credentials(tmp_path: Path) -> None:
     primary = tmp_path / "primary"; fast = tmp_path / "fast"
     _profile(primary, "primary"); _profile(fast, "fast")
-    router = tmp_path / "router.env"; router.write_text("ROUTER_SECRET=red\n", encoding="utf-8"); router.chmod(0o600)
+    router = tmp_path / "router.env"; router.write_text("ERNIE_ROUTER_API_KEY=red\n", encoding="utf-8"); router.chmod(0o600)
     gateway = tmp_path / "gateway.env"; gateway.write_text("GATEWAY_SECRET=red\n", encoding="utf-8"); gateway.chmod(0o600)
     shared = tmp_path / "shared.env"; shared.write_text("SHARED_SECRET=red\n", encoding="utf-8"); shared.chmod(0o600)
 
@@ -56,7 +56,7 @@ def test_builds_one_atomic_profile_bundle_with_two_isolated_profiles_and_opaque_
             "host": "127.0.0.1",
             "port": expected_port,
         }
-    assert (result.root / "router/.env").read_text() == "ROUTER_SECRET=red\n"
+    assert (result.root / "router/.env").read_text() == "ERNIE_ROUTER_API_KEY=red\n"
     assert (result.root / "compatibility-gateway/.env").read_text() == "GATEWAY_SECRET=red\n"
     assert (result.root / "compatibility-gateway/shared-core.env").read_text() == "SHARED_SECRET=red\n"
     serialized = json.dumps(result.receipt, sort_keys=True)
