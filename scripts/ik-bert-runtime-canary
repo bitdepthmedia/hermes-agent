@@ -1,0 +1,147 @@
+#!/usr/bin/env python3
+"""Run the local-only Bert cloud-cell canary on the shared sealed bundle."""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import sys
+
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, os.fspath(REPO_ROOT))
+
+from ik_lifecycle.bert_canary import (  # noqa: E402
+    BertCanaryEngine,
+    BertCanaryError,
+    BertCanaryRequest,
+)
+
+
+RELEASE_ROOT = Path(
+    "/Volumes/HermesApprovalResealV1/platform/cells/ernie/candidates/"
+    "1e79082041b08781ca40/composed-candidate/releases/a1fcd08f66366be5327a"
+)
+CANDIDATE_PYTHON = Path(
+    "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/"
+    "1e79082041b08781ca40/dependency-audit/env/python/bin/python"
+)
+ARCHITECTURE = REPO_ROOT / "docs/architecture/bert-ernie-hermes-cell-architecture.md"
+ARCHITECTURE_EXECUTION = REPO_ROOT / "docs/planning-receipts/2026-08-21-hermes-architecture-complete-execution-outcome-v4.json"
+POST_TASK11 = REPO_ROOT / "docs/planning-receipts/2026-08-22-hermes-post-task11-local-prerequisites-v1.json"
+ERNIE_CANARY = REPO_ROOT / "docs/planning-receipts/2026-08-22-hermes-ernie-runtime-canary-v1.json"
+ERNIE_CLOSED_RUNTIME = REPO_ROOT / "docs/planning-receipts/2026-08-22-hermes-credential-bound-closed-runtime-outcome-v1.json"
+SELECTION = REPO_ROOT / "docs/planning-receipts/2026-08-22-hermes-qwen38-ernie-candidate-selection-v4.json"
+
+
+def _sha256(path: Path, code: str) -> str:
+    try:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+    except OSError as error:
+        raise BertCanaryError(code) from error
+
+
+def _load(path: Path, code: str) -> dict[str, object]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise BertCanaryError(code) from error
+    if not isinstance(value, dict):
+        raise BertCanaryError(code)
+    return value
+
+
+def _request() -> BertCanaryRequest:
+    manifest = RELEASE_ROOT / "release-manifest.json"
+    manifest_document = _load(manifest, "candidate_manifest_invalid")
+    post_task11 = _load(POST_TASK11, "post_task11_receipt_invalid")
+    ernie_canary = _load(ERNIE_CANARY, "ernie_canary_receipt_invalid")
+    ernie_closed = _load(ERNIE_CLOSED_RUNTIME, "ernie_closed_runtime_receipt_invalid")
+    selection = _load(SELECTION, "ernie_model_selection_receipt_invalid")
+    try:
+        identity = manifest_document["identity"]
+        supply_chain_sha = str(post_task11["supply_chain"]["receipt_sha256"])
+        closed_status = str(ernie_closed["receipt"]["status"])
+        selection_status = str(selection["receipt"]["status"])
+    except (KeyError, TypeError) as error:
+        raise BertCanaryError("prerequisite_receipt_invalid") from error
+    if (
+        manifest_document.get("status") != "SEALED_CODE_ONLY"
+        or ernie_canary.get("status") != "CLEAR_SAFE_LOCAL_CANARY"
+        or closed_status != "CLEAR_CLOSED_RUNTIME_ONLY"
+        or selection_status != "SELECTED_CANDIDATE_NOT_DEPLOYED"
+        or post_task11.get("status") != "CLEAR_SAFE_LOCAL_PREREQUISITES"
+    ):
+        raise BertCanaryError("prerequisite_receipt_invalid")
+    seed = "\0".join(
+        (
+            "task12-local-v1",
+            str(manifest_document["bundle_id"]),
+            _sha256(Path(__file__), "bert_canary_runner_unavailable"),
+            _sha256(REPO_ROOT / "ik_lifecycle/bert_canary.py", "bert_canary_adapter_unavailable"),
+        )
+    )
+    canary_id = "task12-local-" + hashlib.sha256(seed.encode()).hexdigest()[:20]
+    root = Path("/Volumes/HermesApprovalResealV1/platform/cells/bert/canaries") / canary_id
+    return BertCanaryRequest(
+        canary_root=root,
+        candidate_release_root=RELEASE_ROOT,
+        candidate_source_root=RELEASE_ROOT / "source",
+        candidate_manifest_path=manifest,
+        expected_candidate_manifest_sha256=_sha256(manifest, "candidate_manifest_invalid"),
+        candidate_python=CANDIDATE_PYTHON,
+        expected_candidate_python_sha256=_sha256(CANDIDATE_PYTHON.resolve(), "candidate_runtime_invalid"),
+        architecture_contract_sha256=_sha256(ARCHITECTURE, "architecture_contract_invalid"),
+        architecture_execution_receipt_sha256=_sha256(ARCHITECTURE_EXECUTION, "architecture_execution_receipt_invalid"),
+        supply_chain_receipt_sha256=supply_chain_sha,
+        ernie_canary_receipt_sha256=_sha256(ERNIE_CANARY, "ernie_canary_receipt_invalid"),
+        ernie_closed_runtime_receipt_sha256=_sha256(ERNIE_CLOSED_RUNTIME, "ernie_closed_runtime_receipt_invalid"),
+        shared_bundle_id=str(manifest_document["bundle_id"]),
+        official_target_tag=str(identity["target_tag"]),
+        official_target_sha=str(identity["target_commit_sha"]),
+        canary_id=canary_id,
+        denied_roots=(
+            REPO_ROOT,
+            Path.home() / "Library/Application Support/ik-agents",
+            Path.home() / "Documents/_IK_International/AI/_apps/nate-os",
+            Path.home() / "Documents/_IK_International/AI/_apps/bert-ernie-local-stack/shared-memory",
+            Path.home() / "Documents/_IK_International/AI/_apps/bert-ernie-local-stack/runtime/hermes-agent",
+        ),
+    )
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Run the isolated local Bert cloud-cell canary")
+    parser.add_argument("--execute", action="store_true", help="execute the exact local-only canary")
+    arguments = parser.parse_args(argv)
+    if not arguments.execute:
+        raise BertCanaryError("explicit_execute_required")
+    result = BertCanaryEngine().execute(_request())
+    print(json.dumps(result.receipt.to_dict(), sort_keys=True, separators=(",", ":")))
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except BertCanaryError as error:
+        print(
+            json.dumps(
+                {"schema_version": "ik.bert-runtime-canary-error.v1", "status": "BLOCKED", "code": str(error)},
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        )
+        raise SystemExit(2)
+    except Exception:
+        print(
+            json.dumps(
+                {"schema_version": "ik.bert-runtime-canary-error.v1", "status": "BLOCKED", "code": "unexpected_local_execution_failure"},
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+        )
+        raise SystemExit(2)

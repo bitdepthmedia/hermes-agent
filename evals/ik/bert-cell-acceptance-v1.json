@@ -1,0 +1,31 @@
+{
+  "schema_id": "ik.bert-cell-acceptance.v1",
+  "phase": "bert-local-cloud-cell-fixture",
+  "required_gates": [
+    "shared_release_bundle",
+    "sanitized_only",
+    "nate_os_read_only",
+    "codex_exactly_once",
+    "personal_and_mixed_routing",
+    "typed_approval_contract",
+    "offline_ernie_pending_handoff",
+    "independent_cell_state",
+    "network_denial",
+    "restart",
+    "rp2",
+    "rp3"
+  ],
+  "excluded_surfaces": [
+    "credentials",
+    "private_content",
+    "models",
+    "weights",
+    "schedules",
+    "automations",
+    "live_bert",
+    "live_ernie",
+    "promotion",
+    "deployment"
+  ],
+  "promotion_eligible": false
+}

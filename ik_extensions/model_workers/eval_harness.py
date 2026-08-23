@@ -9,7 +9,9 @@ from typing import Mapping
 
 
 _MODEL_EVAL_SCHEMA = "ik.hermes.model-eval-suite.v1"
-_EXPLICIT_NON_MODEL_SCHEMAS = frozenset({"ik.ernie-cell-acceptance.v1"})
+_EXPLICIT_NON_MODEL_SCHEMAS = frozenset(
+    {"ik.ernie-cell-acceptance.v1", "ik.bert-cell-acceptance.v1"}
+)
 
 
 @dataclass(frozen=True)

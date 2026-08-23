@@ -17,7 +17,9 @@ from .qwen38_adapter import adapt_qwen38_messages, qwen38_response_schema
 
 
 _SCHEMA = "ik.hermes.model-eval-suite.v1"
-_SKIP_SCHEMAS = frozenset({"ik.ernie-cell-acceptance.v1"})
+_SKIP_SCHEMAS = frozenset(
+    {"ik.ernie-cell-acceptance.v1", "ik.bert-cell-acceptance.v1"}
+)
 _GRADERS = frozenset({"json_subset", "tool_names", "privacy_canary", "contains_text"})
 
 

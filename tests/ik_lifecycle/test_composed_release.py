@@ -29,8 +29,10 @@ class ComposedReleaseTests(unittest.TestCase):
             "docs/architecture/",
         )
         exact_files = {
+            "scripts/ik-bert-runtime-canary",
             "scripts/ik-ernie-closed-runtime",
             "scripts/ik-ernie-runtime-canary",
+            "tests/e2e/test_ik_bert_cell_fixture.py",
             "tests/e2e/test_ik_ernie_cell_fixture.py",
             "docs/planning-receipts/2026-08-22-hermes-ernie-runtime-canary-v1.json",
         }
