@@ -6,6 +6,7 @@ from pathlib import Path
 import shutil
 import stat
 import sys
+from unittest.mock import patch
 
 import pytest
 
@@ -142,3 +143,34 @@ def test_runtime_seal_requires_every_deployment_surface_and_committed_lock(tmp_p
     bad_lock.unlink()
     with pytest.raises(LifecycleBlockedError, match="lock"):
         seal_deployable_runtime(inputs, tmp_path / "missing-lock", running_roots=())
+
+
+def test_casefold_collision_requires_case_sensitive_release_store(tmp_path: Path) -> None:
+    inputs = _inputs(tmp_path)
+    with patch("ik_lifecycle.deployable_runtime._casefold_collisions", return_value=("x",)), patch(
+        "ik_lifecycle.deployable_runtime._filesystem_case_sensitive", return_value=False
+    ):
+        with pytest.raises(LifecycleBlockedError, match="case-sensitive"):
+            seal_deployable_runtime(inputs, tmp_path / "releases", running_roots=())
+
+
+def test_failed_seal_retains_staging_evidence(tmp_path: Path) -> None:
+    inputs = _inputs(tmp_path)
+    original = shutil.copytree
+    calls = 0
+
+    def fail_second(source: Path, destination: Path, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            Path(destination).mkdir(parents=True)
+            (Path(destination) / "partial").write_text("retained", encoding="utf-8")
+            raise OSError("injected copy failure")
+        return original(source, destination, **kwargs)
+
+    with patch("ik_lifecycle.deployable_runtime.shutil.copytree", side_effect=fail_second):
+        with pytest.raises(OSError, match="injected"):
+            seal_deployable_runtime(inputs, tmp_path / "releases", running_roots=())
+    failures = tuple((tmp_path / "releases").glob("*.failed"))
+    assert len(failures) == 1
+    assert (failures[0] / "FAILURE").is_file()

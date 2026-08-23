@@ -11,6 +11,7 @@ import re
 import shutil
 import stat
 import subprocess
+import tempfile
 from typing import Iterable
 
 from .composed_source import tree_digest
@@ -89,12 +90,61 @@ def _materialized_tree_digest(root: Path) -> str:
     return digest.hexdigest()
 
 
+def _casefold_collisions(root: Path) -> tuple[str, ...]:
+    seen: dict[str, str] = {}
+    collisions: list[str] = []
+    base = Path(root)
+    for path in sorted(base.rglob("*"), key=lambda item: item.relative_to(base).as_posix()):
+        relative = path.relative_to(base).as_posix()
+        folded = relative.casefold()
+        prior = seen.setdefault(folded, relative)
+        if prior != relative:
+            collisions.append(folded)
+    return tuple(collisions)
+
+
+def _filesystem_case_sensitive(path: Path) -> bool:
+    ancestor = Path(path)
+    while not ancestor.exists():
+        ancestor = ancestor.parent
+    probe = Path(tempfile.mkdtemp(prefix=".ik-case-proof-", dir=ancestor))
+    lower = probe / "case-proof"
+    upper = probe / "CASE-PROOF"
+    try:
+        lower.write_bytes(b"lower")
+        if upper.exists():
+            return False
+        upper.write_bytes(b"upper")
+        return lower.read_bytes() != upper.read_bytes()
+    finally:
+        for item in (lower, upper):
+            try:
+                item.unlink()
+            except FileNotFoundError:
+                pass
+        probe.rmdir()
+
+
+def _make_writable(root: Path) -> None:
+    if not root.exists():
+        return
+    root.chmod(stat.S_IMODE(root.stat().st_mode) | 0o700)
+    for path in root.rglob("*"):
+        if not path.is_symlink():
+            path.chmod(stat.S_IMODE(path.stat().st_mode) | (0o700 if path.is_dir() else 0o600))
+
+
 def _validate_inputs(inputs: DeployableRuntimeInputs, output: Path, running_roots: Iterable[Path]) -> dict[str, object]:
     if not re.fullmatch(r"[0-9a-f]{40}", inputs.target_commit_sha):
         raise LifecycleBlockedError("runtime_target_invalid", "runtime target commit is invalid")
     source = Path(inputs.source)
     if source.is_symlink() or not source.is_dir():
         raise LifecycleBlockedError("runtime_source_invalid", "runtime source is missing or a symlink")
+    if _casefold_collisions(source) and not _filesystem_case_sensitive(output):
+        raise LifecycleBlockedError(
+            "runtime_case_sensitive_store_required",
+            "complete upstream source requires a case-sensitive release store",
+        )
     output_resolved = output.resolve(strict=False)
     for running in running_roots:
         running_resolved = Path(running).resolve(strict=False)
@@ -251,5 +301,11 @@ def seal_deployable_runtime(
         return SealedDeployableRuntime(release_id, root, root / "runtime-manifest.json")
     except Exception:
         if staging.exists():
-            shutil.rmtree(staging)
+            _make_writable(staging)
+            failure = releases / f"{release_id}.{os.getpid()}.failed"
+            try:
+                (staging / "FAILURE").write_text("deployable_runtime_seal_failed\n", encoding="utf-8")
+                os.replace(staging, failure)
+            except OSError:
+                pass
         raise
