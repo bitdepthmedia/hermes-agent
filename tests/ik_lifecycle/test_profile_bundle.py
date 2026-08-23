@@ -104,6 +104,47 @@ def test_profile_bundle_removes_only_runtime_control_env_keys(tmp_path: Path) ->
         assert set(config["platforms"]) == {"api_server"}
 
 
+def test_router_credential_bundle_cannot_override_sealed_runtime_route(tmp_path: Path) -> None:
+    primary = tmp_path / "primary"
+    fast = tmp_path / "fast"
+    _profile(primary, "primary")
+    _profile(fast, "fast")
+    router = tmp_path / "router.env"
+    router.write_text(
+        "ERNIE_ROUTER_API_KEY=keep-secret\n"
+        "OLLAMA_BASE_URL=http://stale.invalid:11434\n"
+        "ERNIE_ROUTER_MODEL_NAME=stale-model\n"
+        "TELEGRAM_BOT_TOKEN=must-not-enter-router\n",
+        encoding="utf-8",
+    )
+    router.chmod(0o600)
+    gateway = tmp_path / "gateway.env"
+    shared = tmp_path / "shared.env"
+    for path in (gateway, shared):
+        path.write_text("S=x\n", encoding="utf-8")
+        path.chmod(0o600)
+
+    result = build_ernie_profile_bundle(
+        ErnieProfileBundleInputs(
+            primary,
+            fast,
+            router,
+            gateway,
+            shared,
+            router_port=18423,
+            fast_port=18424,
+            primary_port=18425,
+        ),
+        tmp_path / "bundles/bundle",
+    )
+
+    environment = (result.root / "router/.env").read_text(encoding="utf-8")
+    assert "ERNIE_ROUTER_API_KEY=keep-secret" in environment
+    assert "OLLAMA_BASE_URL" not in environment
+    assert "ERNIE_ROUTER_MODEL_NAME" not in environment
+    assert "TELEGRAM_BOT_TOKEN" not in environment
+
+
 def test_profile_bundle_is_idempotent_and_tamper_fails_closed(tmp_path: Path) -> None:
     primary = tmp_path / "primary"; fast = tmp_path / "fast"
     _profile(primary, "primary"); _profile(fast, "fast")

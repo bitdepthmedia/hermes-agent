@@ -263,6 +263,7 @@ def build_ernie_profile_bundle(inputs: ErnieProfileBundleInputs, destination: Pa
         _scrub_runtime_control_environment(staging / "fast")
         (staging / "router").mkdir(mode=0o700)
         shutil.copy2(router, staging / "router/.env")
+        _scrub_runtime_control_environment(staging / "router")
         (staging / "compatibility-gateway").mkdir(mode=0o700)
         shutil.copy2(gateway, staging / "compatibility-gateway/.env")
         shutil.copy2(shared, staging / "compatibility-gateway/shared-core.env")
