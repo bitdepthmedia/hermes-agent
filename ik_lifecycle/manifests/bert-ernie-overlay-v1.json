@@ -6,7 +6,7 @@
     },
     "replay_manifest": "legacy-customization-replay-v1.json",
     "replay_manifest_sha256": "6353761fc90dba784548b5b6ab7c8e92c4487f356b830f3bf597f5a00140d632",
-    "overlay_source_sha256": "82c26df67ce1a89a6304a05d83ce015c0cf016f681d66e1d234daa5cc83421ed",
+    "overlay_source_sha256": "c354277cfb4d254f2fd60f0bc79929b785760de27fec33387754a882c84d5469",
     "supported_edges": [
         "plugin",
         "profile",

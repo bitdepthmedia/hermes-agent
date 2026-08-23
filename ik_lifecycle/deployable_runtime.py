@@ -252,8 +252,12 @@ def _validate_inputs(inputs: DeployableRuntimeInputs, output: Path, running_root
 def _read_only(root: Path) -> None:
     for path in sorted(root.rglob("*"), key=lambda item: len(item.parts), reverse=True):
         if not path.is_symlink():
-            path.chmod(stat.S_IMODE(path.stat().st_mode) & ~0o222)
-    root.chmod(stat.S_IMODE(root.stat().st_mode) & ~0o222)
+            mode = stat.S_IMODE(path.stat().st_mode)
+            if path.is_dir():
+                path.chmod(0o555)
+            else:
+                path.chmod(0o555 if mode & 0o111 else 0o444)
+    root.chmod(0o555)
 
 
 def validate_deployable_runtime(root: Path) -> RuntimeValidation:
@@ -278,8 +282,14 @@ def validate_deployable_runtime(root: Path) -> RuntimeValidation:
     for lock_id, expected in identity.get("lockfiles", {}).items():
         if _sha256(release / "config/locks" / f"{lock_id}.lock") != expected:
             raise LifecycleBlockedError("runtime_artifact_tampered", "runtime artifact lock digest changed")
-    if any(path.stat().st_mode & 0o222 for path in (release, *release.rglob("*")) if not path.is_symlink()):
-        raise LifecycleBlockedError("runtime_artifact_writable", "runtime artifact contains writable entries")
+    for path in (release, *release.rglob("*")):
+        if path.is_symlink():
+            continue
+        mode = stat.S_IMODE(path.stat().st_mode)
+        if mode & 0o222:
+            raise LifecycleBlockedError("runtime_artifact_writable", "runtime artifact contains writable entries")
+        if (path.is_dir() and mode & 0o055 != 0o055) or (path.is_file() and mode & 0o044 != 0o044):
+            raise LifecycleBlockedError("runtime_artifact_unreadable", "runtime artifact is not service-readable")
     expected_id = hashlib.sha256(json.dumps(identity, sort_keys=True, separators=(",", ":")).encode()).hexdigest()[:24]
     if document.get("release_id") != expected_id or release.name != expected_id:
         raise LifecycleBlockedError("runtime_identity_invalid", "runtime artifact identity does not match")

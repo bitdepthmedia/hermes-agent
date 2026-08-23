@@ -83,6 +83,9 @@ def test_deployable_seal_binds_runtime_router_services_and_model(tmp_path: Path)
     assert document["identity"]["router_config_sha256"]
     assert document["identity"]["model_manifest_sha256"]
     assert not (sealed.root.stat().st_mode & stat.S_IWUSR)
+    assert stat.S_IMODE(sealed.root.stat().st_mode) == 0o555
+    assert stat.S_IMODE((sealed.root / "runtime-manifest.json").stat().st_mode) == 0o444
+    assert stat.S_IMODE((sealed.root / "surfaces/python-runtime/bin/python").stat().st_mode) == 0o555
     assert validate_deployable_runtime(sealed.root).status == "CLEAR"
 
 
@@ -98,6 +101,14 @@ def test_runtime_seal_is_idempotent_and_tamper_fails_closed(tmp_path: Path) -> N
     runtime_file.chmod(0o555)
     with pytest.raises(LifecycleBlockedError, match="runtime artifact"):
         validate_deployable_runtime(first.root)
+
+
+def test_runtime_validation_rejects_owner_only_release_permissions(tmp_path: Path) -> None:
+    sealed = seal_deployable_runtime(_inputs(tmp_path), tmp_path / "releases", running_roots=())
+    sealed.root.chmod(0o500)
+
+    with pytest.raises(LifecycleBlockedError, match="service-readable"):
+        validate_deployable_runtime(sealed.root)
 
 
 def test_runtime_seal_rejects_running_root_symlink_and_non_executable_python(tmp_path: Path) -> None:
