@@ -50,6 +50,8 @@ def test_bert_topology_uses_one_stable_cell_launcher_without_local_model_service
     assert f"ReadWritePaths={profile}" in gateway
     assert f"ReadWritePaths={tmp_path / 'nate-state' / 'bert'}" in gateway
     assert f"ReadWritePaths={profile} {cell}" not in gateway
+    assert "TimeoutStopSec=210" in gateway
+    assert "TimeoutStopSec=210" in dashboard
     assert result.manifest["additional_writable_path_count"] == 1
     assert result.manifest["status"] == "CLEAR_EXACT_BERT_TOPOLOGY"
     assert result.manifest["start_order"] == ["gateway", "dashboard"]

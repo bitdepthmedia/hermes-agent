@@ -32,6 +32,15 @@ def test_bert_cell_launcher_preserves_separate_gateway_and_dashboard_roles() -> 
     assert "model)" not in source
 
 
+def test_bert_cell_launcher_requires_wal_safe_sqlite_and_uses_bound_library_surface() -> None:
+    source = SCRIPT.read_text(encoding="utf-8")
+
+    assert "surfaces/python-runtime/lib/sqlite-safe/libsqlite3.so.0" in source
+    assert "LD_LIBRARY_PATH" in source
+    assert "(3, 51, 3)" in source
+    assert "sqlite3.sqlite_version_info" in source
+
+
 def test_bert_cell_launcher_fails_closed_on_manifest_or_profile_drift(tmp_path: Path) -> None:
     cell = tmp_path / "cell"
     release = tmp_path / "releases/release-1"

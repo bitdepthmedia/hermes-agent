@@ -439,6 +439,7 @@ def render_bert_service_topology(
         f"ReadWritePaths={profile_root}",
         *(f"ReadWritePaths={path}" for path in writable_paths),
         f"ReadOnlyPaths={cell_root}",
+        "TimeoutStopSec=210",
         "Restart=on-failure",
         "RestartSec=5",
     )
