@@ -17,6 +17,7 @@ from .opaque_backup import OpaqueBackupError, _clone_permissions_clear, _tree_di
 
 _MODEL = "ik-qwen38-eval:31629f53165a"
 _PLUGIN = "ik-persona-orchestration"
+_CONTEXT_LENGTH = 65_536
 
 
 def _canonical(value: object) -> bytes:
@@ -39,6 +40,9 @@ def _configure(path: Path, model_port: int) -> None:
         "model": _MODEL,
         "base_url": f"http://127.0.0.1:{model_port}/v1",
         "api_mode": "chat_completions",
+        # Qwen3.8 advertises 262K, but 64K is the reviewed live operating cap:
+        # large enough for Hermes' agentic floor while retaining memory headroom.
+        "context_length": _CONTEXT_LENGTH,
     }
     agent = config.get("agent")
     if not isinstance(agent, dict):

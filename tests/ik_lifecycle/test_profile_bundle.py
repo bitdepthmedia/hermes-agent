@@ -52,6 +52,7 @@ def test_builds_one_atomic_profile_bundle_with_two_isolated_profiles_and_opaque_
         config = yaml.safe_load((result.root / alias / "config.yaml").read_text(encoding="utf-8"))
         assert config["model"]["default"] == "ik-qwen38-eval:31629f53165a"
         assert config["model"]["base_url"] == "http://127.0.0.1:18423/v1"
+        assert config["model"]["context_length"] == 65536
         assert config["smart_model_routing"]["enabled"] is False
         assert config["agent"]["reasoning_effort"] == "medium"
         assert "ik-persona-orchestration" in config["plugins"]["enabled"]

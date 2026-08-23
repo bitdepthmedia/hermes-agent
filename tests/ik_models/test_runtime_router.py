@@ -130,6 +130,7 @@ def test_committed_ernie_router_is_the_verified_qwen_primary() -> None:
     assert config.primary.capability.model_id == "qwen38-27b-q4km"
     assert config.primary.runtime_model == "ik-qwen38-eval:31629f53165a"
     assert config.primary.capability.supports_reasoning is True
+    assert config.primary.capability.max_validated_context == 65536
 
 
 def test_committed_model_manifest_binds_selected_qwen_artifacts() -> None:

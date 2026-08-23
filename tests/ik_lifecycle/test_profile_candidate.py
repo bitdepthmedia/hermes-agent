@@ -33,6 +33,7 @@ def test_builds_private_profile_with_exact_primary_and_supported_plugin(tmp_path
     assert config["model"] == {
         "api_mode": "chat_completions",
         "base_url": "http://127.0.0.1:18422/v1",
+        "context_length": 65536,
         "default": "ik-qwen38-eval:31629f53165a",
         "model": "ik-qwen38-eval:31629f53165a",
         "provider": "ik-ernie-local",

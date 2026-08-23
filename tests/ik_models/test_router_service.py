@@ -20,6 +20,7 @@ def test_proxy_defaults_to_qwen_primary_without_keyword_switching() -> None:
     assert prepared.upstream["model"] == "ik-qwen38-eval:31629f53165a"
     assert prepared.public_model == "ernie-local"
     assert prepared.selection_reason == "primary-generalist"
+    assert CONFIG.primary.capability.max_validated_context == 65536
 
 
 def test_proxy_routes_only_an_explicit_bounded_task_boundary() -> None:
