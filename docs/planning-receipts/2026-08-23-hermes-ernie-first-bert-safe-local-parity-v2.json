@@ -1,0 +1,108 @@
+{
+  "receipt": {
+    "schema_version": "ik.hermes.ernie-first-bert-safe-local-parity.v2",
+    "observed_at": "2026-08-23T00:53:10Z",
+    "status": "CLEAR_SAFE_LOCAL_STOPPED_AT_LIVE_PROMOTION_BOUNDARY",
+    "architecture": {
+      "shared_platform_bundle": "656625584b415e5edec9",
+      "bundle_manifest_sha256": "1461712442382e5ae981230cb9883e9682f6843ea502f4ff3c8064dbefc9036a",
+      "composed_source_tree_sha256": "ec11d0bc4c54be274b5af02226b3fbe40dce418bb1ae0c811b2129028558c5dd",
+      "official_target_tag": "v2026.8.18",
+      "official_target_commit": "e624e9fde561e1add9388384012b295fde669ade",
+      "zero_core_patches": true,
+      "cell_profiles_state_credentials_services_schedules_and_pointers_separate": true,
+      "ernie_private_state_exported_to_bert": false
+    },
+    "ernie": {
+      "order": "FIRST",
+      "current_live_local_primary": {
+        "router_route": "ernie-gemma4-ctx",
+        "materialized_model": "ernie-gemma4-ctx:latest",
+        "model_digest": "c6cb73f6b441ee4e776f6059e672594442c185b59c99d4ad335326aad9abad23",
+        "architecture": "gemma4",
+        "parameters": "25.8B",
+        "quantization": "Q4_K_M",
+        "artifact_bytes": 17987581232,
+        "candidate_deployed": false
+      },
+      "selected_candidate": {
+        "status": "SELECTED_CANDIDATE_NOT_DEPLOYED",
+        "model": "official-Qwen3.8-27B-Q4_K_M",
+        "model_sha256": "31629f53165ab6a7dad8c9847dcfd1fdf55829dac1e6e748f4a68581b0033d34",
+        "projector": "official-Qwen3.8-27B-Q8_0-projector",
+        "projector_sha256": "2e968a6af97ce35d8971890b257b9b7edabf20ad91450501fa53162a19ee33eb",
+        "redownloaded_or_substituted": false,
+        "selection_sha256": "9297d3c15b77a7b282dcb0f44e0331f8696b41faa9966dff6b762c2c8af9bf32",
+        "strict_eval": "12_OF_12_CLEAR",
+        "concurrency": "2_OF_2_CLEAR"
+      },
+      "completed_safe_local_evidence": {
+        "semantic_continuity": "CLEAR_ON_DISPOSABLE_LOCAL_CLONE",
+        "isolated_canary_restart_rp2_rp3": "CLEAR_RETAINED",
+        "credential_bound_closed_runtime": "CLEAR_ON_FINAL_SHARED_BUNDLE",
+        "credential_and_identity_leak_count": 0,
+        "private_model_prompt_count": 0,
+        "shared_bundle_reseal": "CLEAR"
+      },
+      "next_boundary": [
+        "fresh-final-encrypted-backup-and-final-delta",
+        "approval-pause-legacy-health-automation",
+        "live-model-profile-service-and-pointer-promotion"
+      ]
+    },
+    "bert": {
+      "order": "AFTER_ERNIE_SAFE_LOCAL_REQUIREMENTS",
+      "safe_local_status": "CLEAR_SAFE_LOCAL_BERT_CANARY",
+      "canary_receipt_sha256": "0fb9f653c341f4aae7c07aae33618854e570767b78e5101fe3d58007132f656d",
+      "shared_bundle_id": "656625584b415e5edec9",
+      "restart_counts": {
+        "startups": 2,
+        "heartbeats": 2,
+        "stops": 2
+      },
+      "architecture_behavior_gates": "8_OF_8_CLEAR",
+      "rollback": {
+        "rp2": "CLEAR",
+        "rp3_crash_recovery": "CLEAR",
+        "rp3_pretraffic": "CLEAR"
+      },
+      "credentials_private_content_models_live_services_and_automations_used": false,
+      "promotion_eligible": false
+    },
+    "shared_validation": {
+      "behavior_selection": {
+        "modules": 11,
+        "tests": 30,
+        "selection_sha256": "befa031de303e714083bf121df4251c27334f84b1e5e092adb586fdd2fe65bc9",
+        "status": "CLEAR_OS_DENY_EXTERNAL"
+      },
+      "owned_suite": {
+        "passed": 266,
+        "skipped": 1,
+        "status": "CLEAR"
+      },
+      "supply_chain": {
+        "status": "CLEAR",
+        "screened_surfaces": 19,
+        "forbidden_implementation_findings": 0,
+        "shared_bundle_receipt_sha256": "ab57ea1c7db268e5072992d87834a4deafa65a3033dc68a165c927fff267d282"
+      }
+    },
+    "retained_blockers": [
+      "selected-qwen-candidate-not-live",
+      "fresh-final-backup-and-delta-required",
+      "legacy-health-automation-active",
+      "live-ernie-promotion-not-authorized",
+      "live-bert-access-credentials-and-promotion-not-authorized"
+    ],
+    "skipped_surfaces": [
+      "private-prompts-and-model-processing",
+      "live-profile-or-model-change",
+      "service-restart-or-pointer-switch",
+      "schedule-or-automation-mutation",
+      "live-bert-or-ssh",
+      "deployment-or-push"
+    ]
+  },
+  "sha256": "4c00ece6d9671a48ab55044a06273afba23bd3d3cb3bb3afe31967545d2ce3f0"
+}

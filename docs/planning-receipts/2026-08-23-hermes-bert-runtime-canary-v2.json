@@ -1,0 +1,64 @@
+{
+  "receipt": {
+    "schema_version": "ik.bert-runtime-canary.v1",
+    "observed_at": "2026-08-23T00:52:32.891387Z",
+    "status": "CLEAR_SAFE_LOCAL_BERT_CANARY",
+    "canary_id": "task12-local-bb75bae5cced8c177858",
+    "cell_id": "bert",
+    "shared_bundle_id": "656625584b415e5edec9",
+    "official_target_tag": "v2026.8.18",
+    "official_target_sha": "e624e9fde561e1add9388384012b295fde669ade",
+    "candidate_manifest_sha256": "1461712442382e5ae981230cb9883e9682f6843ea502f4ff3c8064dbefc9036a",
+    "candidate_source_tree_sha256": "ec11d0bc4c54be274b5af02226b3fbe40dce418bb1ae0c811b2129028558c5dd",
+    "candidate_python_sha256": "c220ae7b6c2b9da2a4e498c09cdbc64b03b43db96dbbf9f64d26bfbbd698e2bd",
+    "architecture_contract_sha256": "9df9c21791f2308b26bfaeef7fc54a4e4a11ae46397270e7b1a770706683d567",
+    "architecture_execution_receipt_sha256": "14fee3329664d1cda50952bf5e797e5bc2ce5059d3ec105a85d7a8b1770b1713",
+    "ernie_canary_receipt_sha256": "6437b55d5b0521d8f28cf42940abc0c9efdd1d82701ab4aa2119fd7441f84547",
+    "ernie_closed_runtime_receipt_sha256": "6af16305940250801a3bfabe82474ba76857dda7d8dce2a70137e4677bdb714b",
+    "supply_chain_receipt_sha256": "e5a515ec66056d94decaaa7e5c1d48c415989bfbfbbcd6eb30270f3c99ea551c",
+    "lifecycle_adapter_sha256": "d2b8838bcd4300a873f94f8e1c0bd0b233edfabe291729219f61525e17a8d621",
+    "network_gate": "CLEAR_OS_BACKED_DENY_EXTERNAL",
+    "health_counts": {
+      "startups": 2,
+      "heartbeats": 2,
+      "stops": 2
+    },
+    "synthetic_evaluation": {
+      "passed": 8,
+      "total": 8,
+      "status": "CLEAR_MODEL_NEUTRAL_SYNTHETIC"
+    },
+    "behavior_gates": {
+      "codex_exactly_once": "CLEAR",
+      "independent_cell_state": "CLEAR",
+      "nate_os_read_only": "CLEAR",
+      "offline_ernie_pending_handoff": "CLEAR",
+      "personal_and_mixed_routing": "CLEAR",
+      "sanitized_only": "CLEAR",
+      "shared_release_bundle": "CLEAR",
+      "typed_approval_contract": "CLEAR"
+    },
+    "rollback_gates": {
+      "rp2": "CLEAR",
+      "rp3_crash_recovery": "CLEAR",
+      "rp3_pretraffic": "CLEAR"
+    },
+    "promotion_eligible": false,
+    "retained_blockers": [
+      "live-bert-access-not-authorized",
+      "bert-credentials-not-resolved",
+      "legacy-health-automation-active",
+      "live-service-profile-pointer-promotion-not-authorized"
+    ],
+    "skipped_surfaces": [
+      "credentials",
+      "private-content",
+      "models-and-weights",
+      "schedules-and-automations",
+      "live-ernie",
+      "live-bert-and-ssh",
+      "promotion-deployment-restart"
+    ]
+  },
+  "sha256": "0fb9f653c341f4aae7c07aae33618854e570767b78e5101fe3d58007132f656d"
+}
