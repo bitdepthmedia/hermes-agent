@@ -1,0 +1,4 @@
+name: ik-ernie-local
+kind: model-provider
+version: 1.0.0
+description: Ernie loopback Qwen3.8 provider adapter.

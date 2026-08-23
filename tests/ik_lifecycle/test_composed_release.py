@@ -22,6 +22,7 @@ class ComposedReleaseTests(unittest.TestCase):
             "ik_extensions/",
             "ik_cells/",
             "ik_lifecycle/",
+            "plugins/model-providers/ik-ernie-local/",
             "tests/ik_lifecycle/",
             "tests/ik_orchestration/",
             "tests/ik_models/",
@@ -30,10 +31,12 @@ class ComposedReleaseTests(unittest.TestCase):
         )
         exact_files = {
             "scripts/ik-bert-runtime-canary",
+            "scripts/ik-cell-service",
             "scripts/ik-ernie-closed-runtime",
             "scripts/ik-ernie-runtime-canary",
             "tests/e2e/test_ik_bert_cell_fixture.py",
             "tests/e2e/test_ik_ernie_cell_fixture.py",
+            "tests/e2e/test_ik_launchd_service_fixture.py",
             "docs/planning-receipts/2026-08-22-hermes-ernie-runtime-canary-v1.json",
         }
         self.assertTrue(

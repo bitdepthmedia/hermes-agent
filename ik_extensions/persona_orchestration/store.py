@@ -101,6 +101,11 @@ class HandoffStore:
         with self._connect() as db:
             return int(db.execute("SELECT count(*) FROM handoff WHERE status='pending'").fetchone()[0])
 
+    def by_idempotency_key(self, idempotency_key: str) -> StoredHandoff | None:
+        with self._connect() as db:
+            row = db.execute("SELECT * FROM handoff WHERE idempotency_key=?", (idempotency_key,)).fetchone()
+        return self._stored(row) if row is not None else None
+
     def next_attempt_at(self, task_id: str) -> datetime:
         with self._connect() as db:
             value = db.execute("SELECT next_attempt_at FROM handoff WHERE task_id=?", (task_id,)).fetchone()[0]

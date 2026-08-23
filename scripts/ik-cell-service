@@ -1,0 +1,24 @@
+#!/bin/sh
+set -eu
+
+: "${IK_CELL_ROOT:?IK_CELL_ROOT is required}"
+: "${HERMES_HOME:?HERMES_HOME is required}"
+
+cell_root=$IK_CELL_ROOT
+[ -L "$cell_root/current-release" ] || exit 72
+[ -L "$cell_root/current-profile" ] || exit 73
+[ "$HERMES_HOME" = "$cell_root/current-profile" ] || exit 74
+
+release=$(cd -P "$cell_root/current-release" && pwd)
+profile=$(cd -P "$cell_root/current-profile" && pwd)
+python="$release/surfaces/python-runtime/bin/python"
+manifest="$release/runtime-manifest.json"
+[ -x "$python" ] || exit 75
+[ -r "$manifest" ] || exit 76
+
+"$python" -c 'import json,sys; d=json.load(open(sys.argv[1], encoding="utf-8")); raise SystemExit(0 if d.get("status")=="SEALED_DEPLOYABLE_RUNTIME" else 77)' "$manifest"
+
+export HERMES_HOME=$profile
+export PYTHONPATH="$release/source"
+cd "$release/source"
+exec "$python" -m hermes_cli.main gateway run --replace
