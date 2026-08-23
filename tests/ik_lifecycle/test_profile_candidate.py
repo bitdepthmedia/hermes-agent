@@ -17,7 +17,7 @@ def _source(root: Path) -> Path:
     (source / "state.db").write_bytes(b"opaque-state")
     (source / ".env").write_text("SYNTHETIC_API_KEY=synthetic-secret-value\n", encoding="utf-8")
     (source / "config.yaml").write_text(
-        yaml.safe_dump({"model": {"provider": "legacy", "default": "legacy-model"}, "plugins": {"enabled": ["existing"]}}),
+        yaml.safe_dump({"agent": {"reasoning_effort": "none"}, "model": {"provider": "legacy", "default": "legacy-model"}, "plugins": {"enabled": ["existing"]}}),
         encoding="utf-8",
     )
     os.chmod(source, 0o700)
@@ -38,6 +38,7 @@ def test_builds_private_profile_with_exact_primary_and_supported_plugin(tmp_path
         "provider": "ik-ernie-local",
     }
     assert config["smart_model_routing"]["enabled"] is False
+    assert config["agent"]["reasoning_effort"] == "medium"
     assert config["plugins"]["enabled"] == ["existing", "ik-persona-orchestration"]
     assert receipt["status"] == "CLEAR_PROFILE_CANDIDATE"
     assert "synthetic-secret" not in json.dumps(receipt)

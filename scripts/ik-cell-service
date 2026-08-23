@@ -127,6 +127,14 @@ case "$IK_CELL_SERVICE_ROLE" in
             *) exit 83 ;;
         esac
         cd "$release/source"
+        if [ "$HERMES_HOME" = "$cell_root/current-profile/primary" ]; then
+            : "${IK_CELL_SHARED_CREDENTIAL_FILE:?IK_CELL_SHARED_CREDENTIAL_FILE is required}"
+            [ "$IK_CELL_SHARED_CREDENTIAL_FILE" = "$cell_root/current-profile/compatibility-gateway/shared-core.env" ] || exit 87
+            exec "$python" -m ik_lifecycle.credential_exec \
+                --policy compatibility \
+                --credential "$IK_CELL_SHARED_CREDENTIAL_FILE" -- \
+                "$python" -m hermes_cli.main gateway run --replace
+        fi
         exec "$python" -m hermes_cli.main gateway run --replace
         ;;
     *) exit 84 ;;

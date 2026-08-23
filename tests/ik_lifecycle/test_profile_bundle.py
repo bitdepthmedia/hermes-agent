@@ -16,7 +16,10 @@ from ik_lifecycle.profile_bundle import (
 
 def _profile(root: Path, marker: str) -> None:
     root.mkdir(parents=True)
-    (root / "config.yaml").write_text(yaml.safe_dump({"model": {"provider": "old", "default": "old"}}), encoding="utf-8")
+    (root / "config.yaml").write_text(
+        yaml.safe_dump({"agent": {"reasoning_effort": "none"}, "model": {"provider": "old", "default": "old"}}),
+        encoding="utf-8",
+    )
     (root / "state.db").write_text(marker, encoding="utf-8")
     (root / ".env").write_text(f"PRIVATE_{marker.upper()}=secret\n", encoding="utf-8")
     for item in root.rglob("*"): os.chmod(item, 0o700 if item.is_dir() else 0o600)
@@ -50,6 +53,7 @@ def test_builds_one_atomic_profile_bundle_with_two_isolated_profiles_and_opaque_
         assert config["model"]["default"] == "ik-qwen38-eval:31629f53165a"
         assert config["model"]["base_url"] == "http://127.0.0.1:18423/v1"
         assert config["smart_model_routing"]["enabled"] is False
+        assert config["agent"]["reasoning_effort"] == "medium"
         assert "ik-persona-orchestration" in config["plugins"]["enabled"]
         expected_port = 18425 if alias == "primary" else 18424
         assert config["platforms"]["api_server"]["extra"] == {

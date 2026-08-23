@@ -40,6 +40,14 @@ def _configure(path: Path, model_port: int) -> None:
         "base_url": f"http://127.0.0.1:{model_port}/v1",
         "api_mode": "chat_completions",
     }
+    agent = config.get("agent")
+    if not isinstance(agent, dict):
+        agent = {}
+    # The legacy router used ``none`` as a budget guardrail.  Qwen3.8 was
+    # validated with capability-aware reasoning, so the rebuilt cell makes
+    # that intent explicit instead of inheriting the stale profile value.
+    agent["reasoning_effort"] = "medium"
+    config["agent"] = agent
     routing = config.get("smart_model_routing")
     if not isinstance(routing, dict):
         routing = {}

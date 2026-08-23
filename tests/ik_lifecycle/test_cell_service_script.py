@@ -38,6 +38,12 @@ def test_cell_service_dispatches_the_declared_full_ernie_topology() -> None:
     assert '[ "$IK_CELL_SHARED_CREDENTIAL_FILE" = "$cell_root/current-profile/compatibility-gateway/shared-core.env" ] || exit 87' in source
     assert '--policy router' in source
     assert '--policy compatibility' in source
+    assert 'if [ "$HERMES_HOME" = "$cell_root/current-profile/primary" ]; then' in source
+    gateway = source.split('\n    gateway)', 1)[1].split('\n    *)', 1)[0]
+    assert 'exec "$python" -m ik_lifecycle.credential_exec' in gateway
+    assert '--policy compatibility' in gateway
+    assert '--credential "$IK_CELL_SHARED_CREDENTIAL_FILE" --' in gateway
+    assert '"$python" -m hermes_cli.main gateway run --replace' in gateway
 
 
 def test_cell_service_requires_a_real_mount_before_skipping_attach() -> None:
