@@ -22,6 +22,7 @@ class ComposedReleaseTests(unittest.TestCase):
             "ik_extensions/",
             "ik_cells/",
             "ik_lifecycle/",
+            "plugins/ik-persona-orchestration/",
             "plugins/model-providers/ik-ernie-local/",
             "tests/ik_lifecycle/",
             "tests/ik_orchestration/",

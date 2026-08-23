@@ -1,0 +1,12 @@
+name: ik-persona-orchestration
+version: 1.0.0
+description: "Nate OS governed Bert and Ernie routing contracts."
+kind: standalone
+platforms:
+  - linux
+  - macos
+provides_tools:
+  - ik_route_intake
+  - ik_select_model_worker
+hooks:
+  - pre_gateway_dispatch
