@@ -243,6 +243,10 @@ def test_ernie_topology_defines_model_router_two_hermes_profiles_and_compat_gate
     assert documents["primary"]["EnvironmentVariables"]["IK_CELL_SHARED_CREDENTIAL_FILE"].endswith(
         "current-profile/compatibility-gateway/shared-core.env"
     )
+    assert documents["primary"]["EnvironmentVariables"]["IK_CELL_ROUTER_CREDENTIAL_FILE"].endswith(
+        "current-profile/router/.env"
+    )
+    assert "IK_CELL_ROUTER_CREDENTIAL_FILE" not in documents["fast"]["EnvironmentVariables"]
     assert "IK_CELL_SHARED_CREDENTIAL_FILE" not in documents["fast"]["EnvironmentVariables"]
     assert documents["compatibility-gateway"]["EnvironmentVariables"]["IK_CELL_SERVICE_ROLE"] == "compatibility-gateway"
     assert result.manifest["start_order"] == ["model", "router", "fast", "primary", "compatibility-gateway"]

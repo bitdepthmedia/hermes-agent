@@ -28,6 +28,7 @@ ik_ernie_local = ErnieLocalProfile(
     name="ik-ernie-local",
     display_name="Ernie local verified model worker",
     description="Loopback Qwen3.8 worker with typed approval and tool-history normalization",
+    env_vars=("ERNIE_ROUTER_API_KEY",),
     base_url=_ENDPOINT,
     models_url=_ENDPOINT.removesuffix("/v1") + "/api/tags",
     supports_health_check=False,

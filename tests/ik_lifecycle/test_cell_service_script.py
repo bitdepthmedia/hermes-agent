@@ -29,6 +29,7 @@ def test_cell_service_dispatches_the_declared_full_ernie_topology() -> None:
     assert 'compatibility-gateway' in source
     assert 'run_loopback_only "$model_runtime" serve' in source
     assert 'IK_CELL_CREDENTIAL_FILE' in source
+    assert 'IK_CELL_ROUTER_CREDENTIAL_FILE' in source
     assert 'IK_CELL_SHARED_CREDENTIAL_FILE' in source
     assert 'eval' not in source
     assert '. "$credential_file"' not in source
@@ -36,13 +37,15 @@ def test_cell_service_dispatches_the_declared_full_ernie_topology() -> None:
     assert '[ "$IK_CELL_CREDENTIAL_FILE" = "$cell_root/current-profile/router/.env" ] || exit 87' in source
     assert '[ "$IK_CELL_CREDENTIAL_FILE" = "$cell_root/current-profile/compatibility-gateway/.env" ] || exit 87' in source
     assert '[ "$IK_CELL_SHARED_CREDENTIAL_FILE" = "$cell_root/current-profile/compatibility-gateway/shared-core.env" ] || exit 87' in source
+    assert '[ "$IK_CELL_ROUTER_CREDENTIAL_FILE" = "$cell_root/current-profile/router/.env" ] || exit 87' in source
     assert '--policy router' in source
     assert '--policy compatibility' in source
     assert 'if [ "$HERMES_HOME" = "$cell_root/current-profile/primary" ]; then' in source
     gateway = source.split('\n    gateway)', 1)[1].split('\n    *)', 1)[0]
     assert 'exec "$python" -m ik_lifecycle.credential_exec' in gateway
     assert '--policy compatibility' in gateway
-    assert '--credential "$IK_CELL_SHARED_CREDENTIAL_FILE" --' in gateway
+    assert '--credential "$IK_CELL_SHARED_CREDENTIAL_FILE"' in gateway
+    assert '--credential "$IK_CELL_ROUTER_CREDENTIAL_FILE" --' in gateway
     assert '"$python" -m hermes_cli.main gateway run --replace' in gateway
 
 
