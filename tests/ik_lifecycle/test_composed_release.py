@@ -31,6 +31,8 @@ class ComposedReleaseTests(unittest.TestCase):
             "docs/architecture/",
         )
         exact_files = {
+            "ik_lifecycle/manifests/bert-ernie-overlay-v1.json",
+            "scripts/ik-hermes-lifecycle",
             "scripts/ik-bert-runtime-canary",
             "scripts/ik-cell-service",
             "scripts/ik-ernie-closed-runtime",
@@ -40,6 +42,11 @@ class ComposedReleaseTests(unittest.TestCase):
             "tests/e2e/test_ik_ernie_cell_fixture.py",
             "tests/e2e/test_ik_launchd_service_fixture.py",
             "docs/planning-receipts/2026-08-22-hermes-ernie-runtime-canary-v1.json",
+            "docs/planning-receipts/2026-08-21-hermes-candidate-execution-plan.json",
+            "docs/planning-receipts/2026-08-21-hermes-candidate-next-approval-input.json",
+            "docs/planning-receipts/2026-08-21-hermes-composed-execution-approval-input.json",
+            "docs/planning-receipts/2026-08-21-hermes-composed-execution-plan-v2.json",
+            "docs/planning-receipts/2026-08-21-hermes-corrected-composed-execution-plan-v3.json",
         }
         self.assertTrue(
             all(source.startswith(allowed_roots) or source in exact_files for source, _ in manifest.entries)

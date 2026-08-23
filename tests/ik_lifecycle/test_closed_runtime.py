@@ -334,6 +334,7 @@ def test_closed_runtime_entrypoint_resolves_repo_imports_outside_repo_workdir(tm
     assert "--execute" in completed.stdout
 
 
+@pytest.mark.skipif(sys.platform != "darwin", reason="sandbox-exec is a macOS boundary")
 def test_non_python_executable_is_bound_to_a_fresh_python_network_proof(tmp_path: Path) -> None:
     executable = tmp_path / "worker"
     executable.write_bytes(b"worker-v1")

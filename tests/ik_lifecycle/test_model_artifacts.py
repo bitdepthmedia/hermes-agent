@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import sys
 import tempfile
 import unittest
 
@@ -88,6 +89,7 @@ class ModelArtifactGateTests(unittest.TestCase):
         with self.assertRaisesRegex(ModelArtifactError, "provenance_digest_invalid"):
             validate_artifact_spec(ArtifactSpec(**unbound_template))
 
+    @unittest.skipUnless(sys.platform == "darwin", "clonefile copy is a macOS boundary")
     def test_ollama_baseline_snapshot_is_content_bound_and_tamper_fails(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory).resolve()

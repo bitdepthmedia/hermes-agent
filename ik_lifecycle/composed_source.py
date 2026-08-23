@@ -89,6 +89,11 @@ def load_declared_overlay(repo_root: Path, manifest_path: Path) -> OverlayManife
     source_digest = digest.hexdigest()
     if document.get("overlay_source_sha256") != source_digest:
         raise LifecycleBlockedError("overlay_source_mismatch", "declared overlay source digest does not match reviewed content")
+    manifest_relative = path.relative_to(root).as_posix()
+    entries.append((manifest_relative, manifest_relative))
+    entries.sort()
+    if len({target_path for _, target_path in entries}) != len(entries):
+        raise LifecycleBlockedError("overlay_collision", "overlay target collision")
     return OverlayManifest(target["tag"], target["commit_sha"], tuple(entries), source_digest)
 
 
