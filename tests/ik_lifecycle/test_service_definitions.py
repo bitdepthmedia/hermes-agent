@@ -29,6 +29,7 @@ def test_renders_exact_launchd_and_systemd_definitions_from_cell_pointers(tmp_pa
     assert launchd["EnvironmentVariables"]["HERMES_HOME"] == str(cell / "current-profile")
     assert launchd["EnvironmentVariables"]["IK_CELL_ROOT"] == str(cell)
     assert launchd["EnvironmentVariables"]["IK_CELL_ID"] == "ernie"
+    assert launchd["EnvironmentVariables"]["IK_MODEL_BASE_URL"] == "http://127.0.0.1:18422/v1"
     systemd = result.systemd_unit.read_text(encoding="utf-8")
     assert f"ExecStart={cell}/current-release/source/scripts/ik-cell-service" in systemd
     assert f"Environment=HERMES_HOME={cell}/current-profile" in systemd

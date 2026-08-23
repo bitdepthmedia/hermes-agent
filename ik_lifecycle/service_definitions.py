@@ -77,6 +77,7 @@ def render_cell_service_definitions(
         "IK_CELL_ROOT": str(cell_root),
         "IK_CELL_ID": spec.cell_id,
         "IK_GATEWAY_PORT": str(spec.gateway_port),
+        "IK_MODEL_BASE_URL": f"http://127.0.0.1:{spec.model_port}/v1",
         "PYTHONDONTWRITEBYTECODE": "1",
     }
     launchd = {
@@ -106,6 +107,7 @@ def render_cell_service_definitions(
                 f"Environment=IK_CELL_ROOT={cell_root}",
                 f"Environment=IK_CELL_ID={spec.cell_id}",
                 f"Environment=IK_GATEWAY_PORT={spec.gateway_port}",
+                f"Environment=IK_MODEL_BASE_URL=http://127.0.0.1:{spec.model_port}/v1",
                 "Environment=PYTHONDONTWRITEBYTECODE=1",
                 f"ExecStart={executable}",
                 "Restart=on-failure",
