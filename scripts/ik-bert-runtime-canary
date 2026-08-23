@@ -98,7 +98,7 @@ def _request() -> BertCanaryRequest:
         )
     )
     canary_id = "task12-local-" + hashlib.sha256(seed.encode()).hexdigest()[:20]
-    root = Path("/Volumes/HermesApprovalResealV1/platform/cells/bert/canaries") / canary_id
+    root = Path("/Volumes/HermesBertParityV1/platform/cells/bert/canaries") / canary_id
     return BertCanaryRequest(
         canary_root=root,
         candidate_release_root=release_root,

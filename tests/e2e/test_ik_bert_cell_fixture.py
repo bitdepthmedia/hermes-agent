@@ -176,6 +176,12 @@ class BertCellFixtureTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 0, completed.stderr)
         self.assertIn("--execute", completed.stdout)
 
+    def test_entrypoint_uses_writable_isolated_bert_parity_root(self) -> None:
+        runner = Path(__file__).resolve().parents[2] / "scripts/ik-bert-runtime-canary"
+        source = runner.read_text(encoding="utf-8")
+        self.assertIn('/Volumes/HermesBertParityV1/platform/cells/bert/canaries', source)
+        self.assertNotIn('/Volumes/HermesApprovalResealV1/platform/cells/bert/canaries', source)
+
 
 if __name__ == "__main__":
     unittest.main()
