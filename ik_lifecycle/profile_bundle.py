@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import stat
 
 from .models import LifecycleBlockedError
 from .opaque_backup import OpaqueBackupError, _clone_permissions_clear, _tree_digest
@@ -39,14 +40,56 @@ def _canonical(value: object) -> bytes:
     return json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
 
 
-def _source(path: Path) -> tuple[Path, str]:
+def _source(path: Path, *, allowed_link_root: Path | None = None) -> tuple[Path, str]:
     root = Path(path).absolute()
-    try: clear = _clone_permissions_clear(root)
-    except OpaqueBackupError as exc:
-        raise LifecycleBlockedError("profile_bundle_source_invalid", "profile bundle source is invalid") from exc
-    if root.is_symlink() or not root.is_dir() or not clear:
+    if (
+        root.is_symlink()
+        or not root.is_dir()
+        or stat.S_IMODE(os.lstat(root).st_mode) != 0o700
+    ):
         raise LifecycleBlockedError("profile_bundle_source_invalid", "profile bundle source is invalid")
-    return root, _tree_digest(root)[0]
+    links = tuple(path for path in root.rglob("*") if path.is_symlink())
+    if not links:
+        try: clear = _clone_permissions_clear(root)
+        except OpaqueBackupError as exc:
+            raise LifecycleBlockedError("profile_bundle_source_invalid", "profile bundle source is invalid") from exc
+        if not clear:
+            raise LifecycleBlockedError("profile_bundle_source_invalid", "profile bundle source is invalid")
+        return root, _tree_digest(root)[0]
+    if allowed_link_root is None:
+        raise LifecycleBlockedError("profile_bundle_symlink_invalid", "profile bundle symlink is not permitted")
+    allowed = Path(allowed_link_root).resolve()
+    digest = hashlib.sha256()
+    for item in sorted(root.rglob("*"), key=lambda value: value.relative_to(root).as_posix()):
+        relative = item.relative_to(root).as_posix()
+        if item.is_symlink():
+            try:
+                resolved = item.resolve(strict=True)
+                resolved.relative_to(allowed)
+            except (OSError, ValueError) as exc:
+                raise LifecycleBlockedError(
+                    "profile_bundle_symlink_invalid",
+                    "profile bundle symlink target is not permitted",
+                ) from exc
+            if resolved.is_dir():
+                value = _tree_digest(resolved)[0]
+            elif resolved.is_file():
+                value = hashlib.sha256(resolved.read_bytes()).hexdigest()
+            else:
+                raise LifecycleBlockedError(
+                    "profile_bundle_symlink_invalid",
+                    "profile bundle symlink target is invalid",
+                )
+            digest.update(f"L\0{relative}\0{value}\0".encode())
+            continue
+        expected = 0o700 if item.is_dir() else 0o600
+        if stat.S_IMODE(os.lstat(item).st_mode) != expected:
+            raise LifecycleBlockedError("profile_bundle_source_invalid", "profile bundle source permissions are invalid")
+        if item.is_dir():
+            digest.update(f"D\0{relative}\0".encode())
+        else:
+            digest.update(f"F\0{relative}\0".encode() + item.read_bytes() + b"\0")
+    return root, digest.hexdigest()
 
 
 def _credential(path: Path) -> tuple[Path, str]:
@@ -85,7 +128,7 @@ def build_ernie_profile_bundle(inputs: ErnieProfileBundleInputs, destination: Pa
     if not 1024 <= inputs.router_port <= 65535:
         raise LifecycleBlockedError("profile_bundle_endpoint_invalid", "profile bundle router endpoint is invalid")
     primary, primary_tree = _source(inputs.primary)
-    fast, fast_tree = _source(inputs.fast)
+    fast, fast_tree = _source(inputs.fast, allowed_link_root=primary)
     router, router_sha = _credential(inputs.router_credentials)
     gateway, gateway_sha = _credential(inputs.compatibility_gateway_credentials)
     shared, shared_sha = _credential(inputs.shared_credentials)

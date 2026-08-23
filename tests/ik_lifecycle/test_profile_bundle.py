@@ -4,9 +4,14 @@ import json
 import os
 from pathlib import Path
 
+import pytest
 import yaml
 
-from ik_lifecycle.profile_bundle import ErnieProfileBundleInputs, build_ernie_profile_bundle, validate_ernie_profile_bundle
+from ik_lifecycle.profile_bundle import (
+    ErnieProfileBundleInputs,
+    build_ernie_profile_bundle,
+    validate_ernie_profile_bundle,
+)
 
 
 def _profile(root: Path, marker: str) -> None:
@@ -61,3 +66,36 @@ def test_profile_bundle_is_idempotent_and_tamper_fails_closed(tmp_path: Path) ->
         assert "tamper" in str(error).lower() or "changed" in str(error).lower()
     else:
         raise AssertionError("tampered bundle was accepted")
+
+
+def test_fast_profile_may_materialize_only_links_into_primary_profile(tmp_path: Path) -> None:
+    primary = tmp_path / "primary"; fast = tmp_path / "fast"
+    _profile(primary, "primary"); _profile(fast, "fast")
+    (fast / "shared-persona").symlink_to(primary / "config.yaml")
+    credentials = []
+    for name in ("router", "gateway", "shared"):
+        path = tmp_path / f"{name}.env"; path.write_text("S=x\n", encoding="utf-8"); path.chmod(0o600); credentials.append(path)
+
+    result = build_ernie_profile_bundle(
+        ErnieProfileBundleInputs(primary, fast, *credentials, router_port=18423),
+        tmp_path / "bundles/bundle",
+    )
+
+    assert (result.root / "fast/shared-persona").is_file()
+    assert not (result.root / "fast/shared-persona").is_symlink()
+
+
+def test_fast_profile_link_outside_primary_fails_closed(tmp_path: Path) -> None:
+    primary = tmp_path / "primary"; fast = tmp_path / "fast"
+    _profile(primary, "primary"); _profile(fast, "fast")
+    outside = tmp_path / "outside"; outside.write_text("private", encoding="utf-8")
+    (fast / "escape").symlink_to(outside)
+    credentials = []
+    for name in ("router", "gateway", "shared"):
+        path = tmp_path / f"{name}.env"; path.write_text("S=x\n", encoding="utf-8"); path.chmod(0o600); credentials.append(path)
+
+    with pytest.raises(Exception, match="symlink"):
+        build_ernie_profile_bundle(
+            ErnieProfileBundleInputs(primary, fast, *credentials, router_port=18423),
+            tmp_path / "bundles/bundle",
+        )
