@@ -21,9 +21,9 @@ from ik_lifecycle.bert_canary import (  # noqa: E402
 )
 
 
-RELEASE_ROOT = Path(
-    "/Volumes/HermesApprovalResealV1/platform/cells/ernie/candidates/"
-    "1e79082041b08781ca40/composed-candidate/releases/a1fcd08f66366be5327a"
+RELEASE_PARENT = Path(
+    "/Volumes/HermesBertParityV1/platform/shared/candidates/"
+    "1e79082041b08781ca40/composed-candidate/releases"
 )
 CANDIDATE_PYTHON = Path(
     "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/"
@@ -35,6 +35,7 @@ POST_TASK11 = REPO_ROOT / "docs/planning-receipts/2026-08-22-hermes-post-task11-
 ERNIE_CANARY = REPO_ROOT / "docs/planning-receipts/2026-08-22-hermes-ernie-runtime-canary-v1.json"
 ERNIE_CLOSED_RUNTIME = REPO_ROOT / "docs/planning-receipts/2026-08-22-hermes-credential-bound-closed-runtime-outcome-v1.json"
 SELECTION = REPO_ROOT / "docs/planning-receipts/2026-08-22-hermes-qwen38-ernie-candidate-selection-v4.json"
+SHARED_BUNDLE = REPO_ROOT / "docs/planning-receipts/2026-08-22-hermes-shared-bundle-reseal-v1.json"
 
 
 def _sha256(path: Path, code: str) -> str:
@@ -55,7 +56,19 @@ def _load(path: Path, code: str) -> dict[str, object]:
 
 
 def _request() -> BertCanaryRequest:
-    manifest = RELEASE_ROOT / "release-manifest.json"
+    shared_bundle = _load(SHARED_BUNDLE, "shared_bundle_receipt_invalid")
+    try:
+        shared_data = shared_bundle["receipt"]
+        bundle_id = str(shared_data["bundle_id"])
+        expected_manifest_sha256 = str(shared_data["bundle_manifest_sha256"])
+    except (KeyError, TypeError) as error:
+        raise BertCanaryError("shared_bundle_receipt_invalid") from error
+    if shared_data.get("status") != "CLEAR_SHARED_CODE_ONLY_RESEAL":
+        raise BertCanaryError("shared_bundle_receipt_invalid")
+    release_root = RELEASE_PARENT / bundle_id
+    manifest = release_root / "release-manifest.json"
+    if _sha256(manifest, "candidate_manifest_invalid") != expected_manifest_sha256:
+        raise BertCanaryError("shared_bundle_receipt_drift")
     manifest_document = _load(manifest, "candidate_manifest_invalid")
     post_task11 = _load(POST_TASK11, "post_task11_receipt_invalid")
     ernie_canary = _load(ERNIE_CANARY, "ernie_canary_receipt_invalid")
@@ -88,8 +101,8 @@ def _request() -> BertCanaryRequest:
     root = Path("/Volumes/HermesApprovalResealV1/platform/cells/bert/canaries") / canary_id
     return BertCanaryRequest(
         canary_root=root,
-        candidate_release_root=RELEASE_ROOT,
-        candidate_source_root=RELEASE_ROOT / "source",
+        candidate_release_root=release_root,
+        candidate_source_root=release_root / "source",
         candidate_manifest_path=manifest,
         expected_candidate_manifest_sha256=_sha256(manifest, "candidate_manifest_invalid"),
         candidate_python=CANDIDATE_PYTHON,
