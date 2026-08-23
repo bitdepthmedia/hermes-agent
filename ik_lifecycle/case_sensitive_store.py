@@ -6,6 +6,8 @@ from dataclasses import dataclass
 import hashlib
 from pathlib import Path
 import re
+import os
+import stat
 import subprocess
 from typing import Callable
 
@@ -43,6 +45,16 @@ def _inside(path: Path, root: Path) -> bool:
         return False
 
 
+def _harden_permissions(root: Path) -> None:
+    os.chmod(root, 0o700)
+    for path in root.rglob("*"):
+        if path.is_symlink():
+            raise LifecycleBlockedError("release_store_symlink", "release store contains a symlink")
+        os.chmod(path, 0o700 if path.is_dir() else 0o600)
+    if stat.S_IMODE(root.stat().st_mode) != 0o700:
+        raise LifecycleBlockedError("release_store_permissions", "release store permissions are not restrictive")
+
+
 class CaseSensitiveReleaseStore:
     def __init__(
         self,
@@ -53,6 +65,7 @@ class CaseSensitiveReleaseStore:
         runner: Callable[[tuple[str, ...]], StoreCommandResult] = _run,
         case_sensitive_probe: Callable[[Path], bool] = _filesystem_case_sensitive,
         materialized_probe: Callable[[Path, Path], bool] | None = None,
+        permission_hardener: Callable[[Path], None] = _harden_permissions,
     ) -> None:
         self.cell_root = Path(cell_root).resolve(strict=False)
         self.image_path = Path(image_path).resolve(strict=False)
@@ -64,6 +77,7 @@ class CaseSensitiveReleaseStore:
         self.runner = runner
         self.case_sensitive_probe = case_sensitive_probe
         self.materialized_probe = materialized_probe or (lambda image, mount: image.is_dir() and mount.is_dir())
+        self.permission_hardener = permission_hardener
 
     def create_and_mount(self, *, size_gib: int, volume_name: str) -> CaseSensitiveStoreReceipt:
         if not 4 <= size_gib <= 128 or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{2,63}", volume_name):
@@ -72,7 +86,7 @@ class CaseSensitiveReleaseStore:
             raise LifecycleBlockedError("release_store_exists", "release store target already exists")
         self.cell_root.mkdir(parents=True, exist_ok=True, mode=0o700)
         create = (
-            "/usr/bin/hdiutil", "create", "-type", "SPARSEBUNDLE", "-fs", "APFSX", "-size", f"{size_gib}g",
+            "/usr/bin/hdiutil", "create", "-type", "SPARSEBUNDLE", "-fs", "Case-sensitive APFS", "-size", f"{size_gib}g",
             "-volname", volume_name, str(self.image_path),
         )
         mount = (
@@ -85,6 +99,7 @@ class CaseSensitiveReleaseStore:
                 raise LifecycleBlockedError("release_store_command_failed", "release store command failed")
         if not self.materialized_probe(self.image_path, self.mount_path):
             raise LifecycleBlockedError("release_store_materialization_failed", "release store did not materialize")
+        self.permission_hardener(self.image_path)
         if not self.case_sensitive_probe(self.mount_path):
             raise LifecycleBlockedError("release_store_case_invalid", "release store is not case-sensitive")
         digest = hashlib.sha256("\0".join("\0".join(argv) for argv in commands).encode()).hexdigest()
