@@ -1,0 +1,125 @@
+{
+  "architecture": {
+    "bert_external_profile_managed_model": true,
+    "ernie_private_state_copied_to_bert": false,
+    "independent_cell_profiles_credentials_services_and_rollback": true,
+    "shared_source_tree_sha256": "bc70f875ce974f5f2b29603c7f51998dcd58073696b5736d4d87bccd269bf47f",
+    "status": "CLEAR_ONE_PLATFORM_TWO_CELLS"
+  },
+  "automation": {
+    "automation_id": "daily-bert-health-and-ops-repair",
+    "cadence": "daily_at_03_local",
+    "duplicate_replacement_count": 0,
+    "legacy_in_place_update_behavior": "RETIRED",
+    "name": "Daily Bert Hermes Lifecycle Audit",
+    "notification_policy": "failed_runs_only",
+    "prompt_sha256": "19b476cd06cbeddb483521732b9784ff2005b1f100fe594a36d57875a45807d7",
+    "promotion_capability": false,
+    "status": "ACTIVE_EXCEPTION_ONLY_AUDIT"
+  },
+  "bert": {
+    "backup": {
+      "aggregate_bytes": 10626514942,
+      "aggregate_entries": 438753,
+      "archive_sha256": "5595290b81cb80f2cb787ad7e73d6a71f61dd41fa91049836f410be474fd28d0",
+      "final_delta_archive_sha256": "30e2f38232c7c9ec9cadf4ba2eb9115e2a2c78dfd201263d73013b3dda271a6f",
+      "final_delta_v2_archive_sha256": "d8bc63ce9788e6465865bc4d3336a61e719ce6f472829f2460280d1691e1ffb4",
+      "online_sqlite_backup_counts": [
+        18,
+        2,
+        3
+      ],
+      "snapshot_id": "bert-75e7-20260823-v4",
+      "status": "CLEAR_ENCRYPTED_OPAQUE_BACKUP_PLUS_BOUNDED_DELTAS",
+      "tree_merkle_sha256": "98432070c366710a05cf7bcd6b49f0d592a3fbe7ef9014cf0e8f781c0de5b3b3"
+    },
+    "controlled_restart": "CLEAR",
+    "dashboard_health": "CLEAR",
+    "generation": 2,
+    "model_runtime_mode": "external-profile-managed",
+    "nate_os_child": "CLEAR",
+    "outbound_connection_observation": "CLEAR_TWO_CONSECUTIVE_PID_BOUND_SAMPLES",
+    "profile_pointer_unchanged": true,
+    "release_id": "701b9ce91cd54f7ab68c3806",
+    "runtime_manifest_sha256": "1dee99de2b8a668e4fa93c29e011ab93f97b8032bbe30e1ae3342502188d3c8a",
+    "sqlite_runtime": "3.51.3",
+    "status": "PROMOTED_CLEAR",
+    "sustained_observation": {
+      "duration_seconds": 120,
+      "samples": 8,
+      "status": "CLEAR"
+    },
+    "systemd_sha256": {
+      "dashboard": "a0ab3cc6aad21b03d0a45280feeef832aa7b41f668a166c3959c4fdc3910c116",
+      "gateway": "3d01b8b0adca6f78e30707b18fd5c16f89477c11bcde8779eea3108a5882c360"
+    },
+    "timeout_stop_seconds": 210
+  },
+  "ernie": {
+    "backup_snapshot_id": "18db55f4e0b2069b64fe8a0c",
+    "controlled_restart": "CLEAR",
+    "deployment_id": "a96edcb327c63aa71a2f060a",
+    "generation": 8,
+    "health_surface_count": 5,
+    "model_manifest_sha256": "5095e7c567f92ddeab2c03633e86a4156ca370c9917d4f7d53db065c790efafe",
+    "primary_model": "QWEN3_8_27B_Q4_K_M_VERIFIED",
+    "router_config_sha256": "74ebccdc3b82741aa1c5a653f9d9ffcf27d0d3f147ba02331a91941030f133c1",
+    "shared_release_id": "b0341047b612a21fe5af57ae",
+    "status": "PROMOTED_CLEAR"
+  },
+  "failed_evidence_retained": [
+    "remote_v12_executable_mode_failure",
+    "bert_pretraffic_log_visibility_gate_rollback",
+    "bert_backup_receipt_memory_boundary",
+    "bert_legacy_failed_state_stop_normalization",
+    "earlier_path_and_immediate_connection_gate_attempts"
+  ],
+  "implementation": {
+    "composition_id": "75e7c04ed9dc62bab2c363dd",
+    "implementation_commit": "896cb3be9e9310ee0d612da8f1a53110d26e99cd",
+    "overlay_source_sha256": "5023322aacf27a37a5f51669931ec76ae054dfcf7d9d32e3806c78dea259536f",
+    "status": "SEALED_DEPLOYABLE_RUNTIME"
+  },
+  "rollback": {
+    "bert_legacy_generation": 1,
+    "bert_legacy_pair_preserved": true,
+    "ernie_prior_generation": 7,
+    "ernie_prior_pair_preserved": true,
+    "failed_attempt_artifacts_preserved": true,
+    "status": "READY"
+  },
+  "schema_id": "ik.hermes.ernie-bert-deployment.v1",
+  "skipped_or_prohibited": [
+    "credential_disclosure_or_change",
+    "unrelated_private_content_analysis",
+    "ernie_private_state_transfer_to_bert",
+    "unrelated_service_or_automation_change",
+    "force_push"
+  ],
+  "status": "CLEAR_ERNIE_FIRST_THEN_BERT_DEPLOYED",
+  "supply_chain": {
+    "dependency_or_lock_refresh": false,
+    "forbidden_implementation_findings": 0,
+    "status": "CLEAR"
+  },
+  "target": {
+    "latest_commit_sha": "fcbd1076a93841fa88855acce810e342a5b78101",
+    "latest_tag": "v2026.8.19",
+    "policy": "exactly_one_published_stable_release_behind",
+    "selected_commit_sha": "e624e9fde561e1add9388384012b295fde669ade",
+    "selected_tag": "v2026.8.18"
+  },
+  "verification": {
+    "local": {
+      "passed": 389,
+      "skipped": 1
+    },
+    "remote": {
+      "passed": 374,
+      "platform_skipped": 16,
+      "subtests_passed": 24
+    },
+    "remote_private_network": true,
+    "status": "CLEAR"
+  }
+}
