@@ -119,7 +119,7 @@ def test_systemd_ssh_adapter_is_status_first_and_uses_no_shell_interpolation() -
         [
             CommandResult(0, "ActiveState=active\nSubState=running\nMainPID=88\n", ""),
             CommandResult(0, "", ""),
-            CommandResult(3, "ActiveState=inactive\nSubState=dead\nMainPID=0\n", ""),
+            CommandResult(0, "ActiveState=inactive\nSubState=dead\nMainPID=0\n", ""),
             CommandResult(0, "", ""),
         ]
     )
@@ -147,6 +147,89 @@ def test_systemd_ssh_adapter_is_status_first_and_uses_no_shell_interpolation() -
         "hermes-gateway.service",
         "--property=ActiveState,SubState,MainPID",
     )
+
+
+def test_systemd_ssh_adapter_supports_documented_system_service_scope() -> None:
+    unit_sha = "a" * 64
+    runner = ScriptedRunner([
+        CommandResult(
+            0,
+            "ActiveState=active\nSubState=running\nMainPID=88\nUser=bert\n"
+            "ExecStart={ path=/opt/ik/bert/bin/ik-bert-cell-service ; argv[]=/opt/ik/bert/bin/ik-bert-cell-service ; }\n"
+            "FragmentPath=/etc/systemd/system/hermes-gateway.service\n"
+            "DropInPaths=\n"
+            "Environment=HERMES_HOME=/opt/ik/bert/current-profile\n",
+            "",
+        ),
+        CommandResult(0, f"{unit_sha}  /etc/systemd/system/hermes-gateway.service\n", ""),
+    ])
+    adapter = SystemdSshServiceAdapter(
+        host="bert-live",
+        unit="hermes-gateway.service",
+        account="bert",
+        scope="system",
+        expected_program="/opt/ik/bert/bin/ik-bert-cell-service",
+        expected_profile="/opt/ik/bert/current-profile",
+        expected_unit_sha256=unit_sha,
+        runner=runner,
+    )
+
+    assert adapter.preflight().running
+    assert runner.argv == [
+        (
+            "/usr/bin/ssh",
+            "bert-live",
+            "sudo",
+            "-n",
+            "systemctl",
+            "show",
+            "hermes-gateway.service",
+            "--property=ActiveState,SubState,MainPID,User,ExecStart,FragmentPath,DropInPaths,Environment",
+        ),
+        (
+            "/usr/bin/ssh",
+            "bert-live",
+            "sudo",
+            "-n",
+            "sha256sum",
+            "/etc/systemd/system/hermes-gateway.service",
+        ),
+    ]
+
+
+def test_systemd_closed_requires_positive_inactive_state_not_transport_failure() -> None:
+    unit_sha = "a" * 64
+    adapter = SystemdSshServiceAdapter(
+        host="bert-live", unit="hermes-gateway.service", account="bert", scope="system",
+        expected_program="/opt/ik/bert/bin/ik-bert-cell-service",
+        expected_profile="/opt/ik/bert/current-profile", expected_unit_sha256=unit_sha,
+        runner=ScriptedRunner([CommandResult(255, "", "transport failed")]),
+    )
+
+    with pytest.raises(LifecycleBlockedError, match="state"):
+        adapter.closed()
+
+
+def test_systemd_system_scope_rejects_dropins_even_when_fragment_digest_matches() -> None:
+    unit_sha = "a" * 64
+    runner = ScriptedRunner([CommandResult(
+        0,
+        "ActiveState=active\nSubState=running\nMainPID=88\nUser=bert\n"
+        "ExecStart={ path=/opt/ik/bert/bin/ik-bert-cell-service ; argv[]=/opt/ik/bert/bin/ik-bert-cell-service ; }\n"
+        "FragmentPath=/etc/systemd/system/hermes-gateway.service\n"
+        "DropInPaths=/etc/systemd/system/hermes-gateway.service.d/override.conf\n"
+        "Environment=HERMES_HOME=/opt/ik/bert/current-profile\n",
+        "",
+    )])
+    adapter = SystemdSshServiceAdapter(
+        host="bert-live", unit="hermes-gateway.service", account="bert", scope="system",
+        expected_program="/opt/ik/bert/bin/ik-bert-cell-service",
+        expected_profile="/opt/ik/bert/current-profile", expected_unit_sha256=unit_sha,
+        runner=runner,
+    )
+
+    with pytest.raises(LifecycleBlockedError, match="definition"):
+        adapter.preflight()
 
 
 def test_failed_health_automatically_restores_pair_and_service(tmp_path: Path) -> None:

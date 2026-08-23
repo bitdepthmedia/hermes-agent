@@ -350,35 +350,78 @@ class LaunchdDefinitionTransaction:
 
 
 class SystemdSshServiceAdapter:
-    def __init__(self, *, host: str, unit: str, account: str, runner: CommandRunner = _run) -> None:
+    def __init__(
+        self,
+        *,
+        host: str,
+        unit: str,
+        account: str,
+        scope: str = "user",
+        expected_program: str | None = None,
+        expected_profile: str | None = None,
+        expected_unit_sha256: str | None = None,
+        runner: CommandRunner = _run,
+    ) -> None:
         token = re.compile(r"[A-Za-z0-9_.@-]+")
-        if not all(token.fullmatch(value) for value in (host, unit, account)):
+        if not all(token.fullmatch(value) for value in (host, unit, account)) or scope not in {"user", "system"}:
             raise LifecycleBlockedError("systemd_identity_invalid", "remote service identity is invalid")
+        safe_path = re.compile(r"/[A-Za-z0-9_./-]+")
+        if scope == "system" and (
+            expected_program is None
+            or expected_profile is None
+            or expected_unit_sha256 is None
+            or not safe_path.fullmatch(expected_program)
+            or not safe_path.fullmatch(expected_profile)
+            or not re.fullmatch(r"[0-9a-f]{64}", expected_unit_sha256)
+        ):
+            raise LifecycleBlockedError("systemd_binding_invalid", "system service binding is incomplete")
         self.host = host
         self.unit = unit
         self.account = account
+        self.scope = scope
+        self.expected_program = expected_program
+        self.expected_profile = expected_profile
+        self.expected_unit_sha256 = expected_unit_sha256
         self.runner = runner
 
     def _argv(self, action: str, *extra: str) -> tuple[str, ...]:
-        return (
-            "/usr/bin/ssh",
-            self.host,
-            "sudo",
-            "-n",
-            "-u",
-            self.account,
-            "systemctl",
-            "--user",
-            action,
-            self.unit,
-            *extra,
-        )
+        prefix = ("/usr/bin/ssh", self.host, "sudo", "-n")
+        if self.scope == "user":
+            prefix += ("-u", self.account, "systemctl", "--user")
+        else:
+            prefix += ("systemctl",)
+        return (*prefix, action, self.unit, *extra)
+
+    def _system_definition(self, stdout: str) -> None:
+        values = dict(line.split("=", 1) for line in stdout.splitlines() if "=" in line)
+        fragment = values.get("FragmentPath", "")
+        environment = values.get("Environment", "").split()
+        if (
+            values.get("User") != self.account
+            or not re.search(rf"(?:^|[; ])path={re.escape(str(self.expected_program))}(?:[ ;]|$)", values.get("ExecStart", ""))
+            or f"HERMES_HOME={self.expected_profile}" not in environment
+            or not re.fullmatch(r"/etc/systemd/system/[A-Za-z0-9_.@-]+\.service", fragment)
+            or Path(fragment).name != self.unit
+            or values.get("DropInPaths", "")
+        ):
+            raise LifecycleBlockedError("systemd_definition_mismatch", "remote system service definition does not match")
+        digest = self.runner(("/usr/bin/ssh", self.host, "sudo", "-n", "sha256sum", fragment))
+        if digest.returncode != 0 or not digest.stdout.startswith(f"{self.expected_unit_sha256}  {fragment}"):
+            raise LifecycleBlockedError("systemd_definition_digest_mismatch", "remote system service digest does not match")
 
     def preflight(self) -> ServicePreflight:
-        result = self.runner(self._argv("show", "--property=ActiveState,SubState,MainPID"))
-        running = result.returncode == 0 and "ActiveState=active" in result.stdout and "SubState=running" in result.stdout
-        if result.returncode == 0 and not running:
-            raise LifecycleBlockedError("systemd_state_ambiguous", "remote service state is not running")
+        properties = "ActiveState,SubState,MainPID"
+        if self.scope == "system":
+            properties += ",User,ExecStart,FragmentPath,DropInPaths,Environment"
+        result = self.runner(self._argv("show", f"--property={properties}"))
+        if result.returncode != 0:
+            raise LifecycleBlockedError("systemd_state_unavailable", "remote service state cannot be proven")
+        running = "ActiveState=active" in result.stdout and "SubState=running" in result.stdout
+        inactive = "ActiveState=inactive" in result.stdout and "MainPID=0" in result.stdout
+        if not running and not inactive:
+            raise LifecycleBlockedError("systemd_state_ambiguous", "remote service state is ambiguous")
+        if self.scope == "system":
+            self._system_definition(result.stdout)
         return ServicePreflight(running, "running" if running else "inactive")
 
     def close(self) -> None:
@@ -387,9 +430,17 @@ class SystemdSshServiceAdapter:
 
     def closed(self) -> bool:
         result = self.runner(self._argv("show", "--property=ActiveState,SubState,MainPID"))
-        return result.returncode != 0 or "ActiveState=inactive" in result.stdout
+        if result.returncode != 0:
+            raise LifecycleBlockedError("systemd_state_unavailable", "remote service stopped state cannot be proven")
+        return "ActiveState=inactive" in result.stdout and "MainPID=0" in result.stdout
 
     def open(self) -> None:
+        if self.scope == "system":
+            properties = "ActiveState,SubState,MainPID,User,ExecStart,FragmentPath,DropInPaths,Environment"
+            result = self.runner(self._argv("show", f"--property={properties}"))
+            if result.returncode != 0 or "ActiveState=inactive" not in result.stdout or "MainPID=0" not in result.stdout:
+                raise LifecycleBlockedError("systemd_state_ambiguous", "remote service is not proven inactive before start")
+            self._system_definition(result.stdout)
         if self.runner(self._argv("start")).returncode != 0:
             raise LifecycleBlockedError("systemd_open_failed", "remote service failed to open")
 

@@ -35,6 +35,8 @@ class ComposedReleaseTests(unittest.TestCase):
             "scripts/ik-hermes-lifecycle",
             "scripts/ik-bert-runtime-canary",
             "scripts/ik-cell-service",
+            "scripts/ik-bert-cell-service",
+            "scripts/ik-bert-runtime-verify",
             "scripts/ik-ernie-closed-runtime",
             "scripts/ik-ernie-runtime-canary",
             "scripts/ik-offline-model-eval",

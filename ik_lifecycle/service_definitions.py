@@ -55,6 +55,25 @@ class RenderedErnieServiceTopology:
     manifest: dict[str, object]
 
 
+@dataclass(frozen=True)
+class BertServiceTopologySpec:
+    cell_root: Path
+    profile_root: Path
+    account: str
+    gateway_unit: str
+    dashboard_unit: str
+    dashboard_port: int
+    runtime_manifest_sha256: str
+    runtime_verifier_sha256: str
+
+
+@dataclass(frozen=True)
+class RenderedBertServiceTopology:
+    systemd_units: dict[str, Path]
+    manifest_path: Path
+    manifest: dict[str, object]
+
+
 def _within(path: Path, root: Path) -> bool:
     try:
         path.relative_to(root)
@@ -346,3 +365,107 @@ def render_ernie_service_topology(
     manifest_path = output / "service-manifest.json"
     manifest_path.write_text(json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
     return RenderedErnieServiceTopology(launchd_plists, manifest_path, manifest)
+
+
+def render_bert_service_topology(
+    spec: BertServiceTopologySpec,
+    output_root: Path,
+    *,
+    forbidden_roots: tuple[Path, ...] = (),
+) -> RenderedBertServiceTopology:
+    """Render the cloud Bert cell as a paired systemd service group."""
+
+    cell_root = Path(spec.cell_root).resolve(strict=False)
+    profile_root = Path(spec.profile_root).resolve(strict=False)
+    output = Path(output_root).resolve(strict=False)
+    unit_name = re.compile(r"[A-Za-z0-9_.@-]+\.service")
+    if (
+        not re.fullmatch(r"[A-Za-z0-9_.-]+", spec.account)
+        or not unit_name.fullmatch(spec.gateway_unit)
+        or not unit_name.fullmatch(spec.dashboard_unit)
+        or spec.gateway_unit == spec.dashboard_unit
+        or not 1024 <= spec.dashboard_port <= 65535
+        or not re.fullmatch(r"[0-9a-f]{64}", spec.runtime_manifest_sha256)
+        or not re.fullmatch(r"[0-9a-f]{64}", spec.runtime_verifier_sha256)
+        or profile_root == cell_root
+        or not all(re.fullmatch(r"/[A-Za-z0-9_./-]+", str(path)) for path in (cell_root, profile_root, output))
+    ):
+        raise LifecycleBlockedError("bert_service_spec_invalid", "Bert service topology specification is invalid")
+    for forbidden in forbidden_roots:
+        root = Path(forbidden).resolve(strict=False)
+        if _within(cell_root, root) or _within(root, cell_root):
+            raise LifecycleBlockedError("service_cell_root_forbidden", "cell root overlaps a mutable checkout")
+    if output.exists() or output.is_symlink():
+        raise LifecycleBlockedError("service_output_exists", "service definition output must be new")
+    output.mkdir(parents=True, mode=0o700)
+
+    launcher = cell_root / "bin/ik-bert-cell-service"
+    profile_pointer = cell_root / "current-profile"
+    common = (
+        f"User={spec.account}",
+        f"WorkingDirectory={cell_root}",
+        f"Environment=HOME={profile_root.parent}",
+        f"Environment=HERMES_HOME={profile_pointer}",
+        f"Environment=IK_PROFILE_ROOT={profile_root}",
+        f"Environment=IK_RUNTIME_MANIFEST_SHA256={spec.runtime_manifest_sha256}",
+        f"Environment=IK_RUNTIME_VERIFIER_SHA256={spec.runtime_verifier_sha256}",
+        f"Environment=IK_CELL_ROOT={cell_root}",
+        "Environment=PYTHONDONTWRITEBYTECODE=1",
+        "NoNewPrivileges=true",
+        "PrivateTmp=true",
+        "ProtectSystem=strict",
+        f"ReadWritePaths={profile_root}",
+        f"ReadOnlyPaths={cell_root}",
+        "Restart=on-failure",
+        "RestartSec=5",
+    )
+    roles = {
+        "gateway": (spec.gateway_unit, "gateway"),
+        "dashboard": (spec.dashboard_unit, "dashboard"),
+    }
+    units: dict[str, Path] = {}
+    for role, (unit, service_role) in roles.items():
+        dependencies = "After=network-online.target" if role == "gateway" else f"After={spec.gateway_unit}"
+        wants = "Wants=network-online.target" if role == "gateway" else f"Requires={spec.gateway_unit}"
+        environment = [f"Environment=IK_CELL_SERVICE_ROLE={service_role}"]
+        if role == "dashboard":
+            environment.append(f"Environment=IK_DASHBOARD_PORT={spec.dashboard_port}")
+        path = output / unit
+        path.write_text(
+            "\n".join(
+                (
+                    "[Unit]",
+                    f"Description=Hermes Bert {role}",
+                    dependencies,
+                    wants,
+                    "",
+                    "[Service]",
+                    *common,
+                    *environment,
+                    f"ExecStart={launcher}",
+                    "",
+                    "[Install]",
+                    "WantedBy=multi-user.target",
+                    "",
+                )
+            ),
+            encoding="utf-8",
+        )
+        units[role] = path
+    manifest = {
+        "schema_id": "ik.hermes.bert-service-topology.v1",
+        "status": "CLEAR_EXACT_BERT_TOPOLOGY",
+        "cell_id": "bert",
+        "account": spec.account,
+        "cell_root_sha256": hashlib.sha256(str(cell_root).encode()).hexdigest(),
+        "profile_root_sha256": hashlib.sha256(str(profile_root).encode()).hexdigest(),
+        "dashboard_port": spec.dashboard_port,
+        "runtime_manifest_sha256": spec.runtime_manifest_sha256,
+        "runtime_verifier_sha256": spec.runtime_verifier_sha256,
+        "start_order": ["gateway", "dashboard"],
+        "stop_order": ["dashboard", "gateway"],
+        "systemd_sha256": {role: _sha(path) for role, path in units.items()},
+    }
+    manifest_path = output / "service-manifest.json"
+    manifest_path.write_text(json.dumps(manifest, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
+    return RenderedBertServiceTopology(units, manifest_path, manifest)

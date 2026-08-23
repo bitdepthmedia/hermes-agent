@@ -7,11 +7,83 @@ import pytest
 
 from ik_lifecycle.models import LifecycleBlockedError
 from ik_lifecycle.service_definitions import (
+    BertServiceTopologySpec,
     CellServiceSpec,
     ErnieServiceTopologySpec,
     render_cell_service_definitions,
+    render_bert_service_topology,
     render_ernie_service_topology,
 )
+
+
+def test_bert_topology_uses_one_stable_cell_launcher_without_local_model_service(tmp_path: Path) -> None:
+    cell = tmp_path / "bert-cell"
+    profile = tmp_path / "bert-profile"
+    result = render_bert_service_topology(
+        BertServiceTopologySpec(
+            cell_root=cell,
+            profile_root=profile,
+            account="bert",
+            gateway_unit="hermes-gateway.service",
+            dashboard_unit="hermes-dashboard-bert.service",
+            dashboard_port=7611,
+            runtime_manifest_sha256="a" * 64,
+            runtime_verifier_sha256="c" * 64,
+        ),
+        tmp_path / "bert-definitions",
+        forbidden_roots=(Path.cwd(),),
+    )
+
+    gateway = result.systemd_units["gateway"].read_text(encoding="utf-8")
+    dashboard = result.systemd_units["dashboard"].read_text(encoding="utf-8")
+    launcher = cell / "bin/ik-bert-cell-service"
+    assert f"ExecStart={launcher}" in gateway
+    assert f"ExecStart={launcher}" in dashboard
+    assert f"Environment=HERMES_HOME={cell}/current-profile" in gateway
+    assert "Environment=IK_RUNTIME_MANIFEST_SHA256=" + "a" * 64 in gateway
+    assert "Environment=IK_RUNTIME_VERIFIER_SHA256=" + "c" * 64 in gateway
+    assert "Environment=IK_CELL_SERVICE_ROLE=gateway" in gateway
+    assert "Environment=IK_CELL_SERVICE_ROLE=dashboard" in dashboard
+    assert "--host 127.0.0.1 --port 7611 --no-open" not in dashboard
+    assert "model" not in result.systemd_units
+    assert f"ReadWritePaths={profile}" in gateway
+    assert f"ReadWritePaths={profile} {cell}" not in gateway
+    assert result.manifest["status"] == "CLEAR_EXACT_BERT_TOPOLOGY"
+    assert result.manifest["start_order"] == ["gateway", "dashboard"]
+    assert result.manifest["stop_order"] == ["dashboard", "gateway"]
+
+
+def test_bert_topology_allows_cell_local_profile_and_rejects_unsafe_unit_paths(tmp_path: Path) -> None:
+    cell = tmp_path / "bert-cell"
+    result = render_bert_service_topology(
+        BertServiceTopologySpec(
+            cell_root=cell,
+            profile_root=cell / "profiles/live",
+            account="bert",
+            gateway_unit="hermes-gateway.service",
+            dashboard_unit="hermes-dashboard-bert.service",
+            dashboard_port=7611,
+            runtime_manifest_sha256="b" * 64,
+            runtime_verifier_sha256="c" * 64,
+        ),
+        tmp_path / "definitions",
+    )
+    assert result.manifest["status"] == "CLEAR_EXACT_BERT_TOPOLOGY"
+
+    with pytest.raises(LifecycleBlockedError, match="invalid"):
+        render_bert_service_topology(
+            BertServiceTopologySpec(
+                cell_root=tmp_path / "unsafe cell",
+                profile_root=tmp_path / "profile",
+                account="bert",
+                gateway_unit="hermes-gateway.service",
+                dashboard_unit="hermes-dashboard-bert.service",
+                dashboard_port=7611,
+                runtime_manifest_sha256="b" * 64,
+                runtime_verifier_sha256="c" * 64,
+            ),
+            tmp_path / "unsafe-definitions",
+        )
 
 
 def test_renders_exact_launchd_and_systemd_definitions_from_cell_pointers(tmp_path: Path) -> None:

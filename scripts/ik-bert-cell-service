@@ -1,0 +1,58 @@
+#!/bin/sh
+set -eu
+
+: "${IK_CELL_ROOT:?IK_CELL_ROOT is required}"
+: "${IK_CELL_SERVICE_ROLE:?IK_CELL_SERVICE_ROLE is required}"
+: "${HERMES_HOME:?HERMES_HOME is required}"
+: "${IK_PROFILE_ROOT:?IK_PROFILE_ROOT is required}"
+: "${IK_RUNTIME_MANIFEST_SHA256:?IK_RUNTIME_MANIFEST_SHA256 is required}"
+: "${IK_RUNTIME_VERIFIER_SHA256:?IK_RUNTIME_VERIFIER_SHA256 is required}"
+
+cell_root=$IK_CELL_ROOT
+[ -L "$cell_root/current-release" ] || exit 70
+[ -L "$cell_root/current-profile" ] || exit 71
+[ "$HERMES_HOME" = "$cell_root/current-profile" ] || exit 72
+
+release=$(cd -P "$cell_root/current-release" && pwd)
+profile=$(cd -P "$cell_root/current-profile" && pwd)
+[ "$profile" = "$(cd -P "$IK_PROFILE_ROOT" && pwd)" ] || exit 79
+manifest="$release/runtime-manifest.json"
+python="$release/surfaces/python-runtime/bin/python"
+[ -d "$profile" ] || exit 73
+[ -r "$manifest" ] || exit 74
+[ -x "$python" ] || exit 75
+case "$IK_RUNTIME_MANIFEST_SHA256" in *[!0-9a-f]*|'') exit 80 ;; esac
+[ "${#IK_RUNTIME_MANIFEST_SHA256}" -eq 64 ] || exit 80
+if [ -x /usr/bin/sha256sum ]; then
+    observed_manifest_sha=$(/usr/bin/sha256sum "$manifest" | /usr/bin/cut -d ' ' -f 1)
+elif [ -x /usr/bin/shasum ]; then
+    observed_manifest_sha=$(/usr/bin/shasum -a 256 "$manifest" | /usr/bin/cut -d ' ' -f 1)
+else
+    exit 80
+fi
+[ "$observed_manifest_sha" = "$IK_RUNTIME_MANIFEST_SHA256" ] || exit 80
+
+verifier="$cell_root/bin/ik-bert-runtime-verify"
+[ -f "$verifier" ] || exit 81
+/usr/bin/python3 "$verifier" --release "$release" \
+    --manifest-sha "$IK_RUNTIME_MANIFEST_SHA256" \
+    --self-sha "$IK_RUNTIME_VERIFIER_SHA256" || exit 81
+
+"$python" -c 'import json,os,sys; p=sys.argv[1]; d=json.load(open(p, encoding="utf-8")); raise SystemExit(0 if d.get("status")=="SEALED_DEPLOYABLE_RUNTIME" and d.get("release_id")==os.path.basename(os.path.dirname(p)) else 76)' "$manifest"
+
+export PYTHONPATH="$release/source"
+export HERMES_WEB_DIST="$release/surfaces/built-assets/dashboard-web-dist"
+cd "$release/source"
+
+case "$IK_CELL_SERVICE_ROLE" in
+    gateway)
+        exec "$python" -m hermes_cli.main gateway run --replace
+        ;;
+    dashboard)
+        : "${IK_DASHBOARD_PORT:?IK_DASHBOARD_PORT is required}"
+        case "$IK_DASHBOARD_PORT" in ''|*[!0-9]*) exit 77 ;; esac
+        [ "$IK_DASHBOARD_PORT" -ge 1024 ] && [ "$IK_DASHBOARD_PORT" -le 65535 ] || exit 77
+        exec "$python" -m hermes_cli.main dashboard --host 127.0.0.1 --port "$IK_DASHBOARD_PORT" --no-open --skip-build
+        ;;
+    *) exit 78 ;;
+esac
