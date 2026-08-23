@@ -137,7 +137,7 @@ def render_cell_service_definitions(
         encoding="utf-8",
     )
     model_label = f"{spec.service_label}.model"
-    model_executable = cell_root / "bin/ollama"
+    model_executable = cell_root / "current-release/surfaces/model-runtime/ollama"
     model_environment = {
         "HOME": str(cell_root / "model-home"),
         "OLLAMA_HOST": f"127.0.0.1:{spec.model_port}",

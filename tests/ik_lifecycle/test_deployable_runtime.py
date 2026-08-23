@@ -45,6 +45,7 @@ def _inputs(root: Path) -> DeployableRuntimeInputs:
     _write(services / "com.ik.hermes-ernie.plist", b"fixture-service")
     _write(services / "service-manifest.json", b'{"status":"CLEAR_EXACT_SERVICE_DEFINITIONS"}\n')
     _write(model_runtime / "ollama", b"#!/bin/sh\nexit 0\n", 0o755)
+    _write(model_runtime / "llama-server", b"#!/bin/sh\nexit 0\n", 0o755)
     uv_lock = source / "uv.lock"; _write(uv_lock, b"version = 1\n")
     package_lock = source / "package-lock.json"; _write(package_lock, b'{"lockfileVersion":3}\n')
     _write(model, b'{"model_sha256":"31629f","projector_sha256":"2e968a"}\n')
@@ -143,6 +144,13 @@ def test_runtime_seal_requires_every_deployment_surface_and_committed_lock(tmp_p
     bad_lock.unlink()
     with pytest.raises(LifecycleBlockedError, match="lock"):
         seal_deployable_runtime(inputs, tmp_path / "missing-lock", running_roots=())
+
+
+def test_runtime_seal_requires_model_server_companion(tmp_path: Path) -> None:
+    inputs = _inputs(tmp_path)
+    (inputs.surfaces[-1].path / "llama-server").unlink()
+    with pytest.raises(LifecycleBlockedError, match="model runtime"):
+        seal_deployable_runtime(inputs, tmp_path / "missing-model-server", running_roots=())
 
 
 def test_casefold_collision_requires_case_sensitive_release_store(tmp_path: Path) -> None:

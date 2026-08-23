@@ -46,10 +46,10 @@ def test_renders_exact_launchd_and_systemd_definitions_from_cell_pointers(tmp_pa
     assert "Restart=on-failure" in systemd
     model_launchd = plistlib.loads(result.model_launchd_plist.read_bytes())
     assert model_launchd["Label"] == "com.ik.hermes-ernie-v2.model"
-    assert model_launchd["ProgramArguments"] == [str(cell / "bin/ollama"), "serve"]
+    assert model_launchd["ProgramArguments"] == [str(cell / "current-release/surfaces/model-runtime/ollama"), "serve"]
     assert model_launchd["EnvironmentVariables"]["OLLAMA_HOST"] == "127.0.0.1:18422"
     assert model_launchd["EnvironmentVariables"]["OLLAMA_MODELS"] == str(cell / "model-store")
-    assert "ExecStart=" + str(cell / "bin/ollama") + " serve" in result.model_systemd_unit.read_text()
+    assert "ExecStart=" + str(cell / "current-release/surfaces/model-runtime/ollama") + " serve" in result.model_systemd_unit.read_text()
     assert result.manifest["status"] == "CLEAR_EXACT_SERVICE_DEFINITIONS"
     assert result.manifest["release_image_path_sha256"]
     assert result.manifest["release_mount_path_sha256"]

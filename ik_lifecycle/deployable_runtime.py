@@ -188,8 +188,14 @@ def _validate_inputs(inputs: DeployableRuntimeInputs, output: Path, running_root
         raise LifecycleBlockedError("runtime_metadata_missing", "installed runtime metadata is missing")
     model_runtime = next(Path(item.path).resolve() for item in inputs.surfaces if item.surface_id == "model-runtime")
     model_executable = model_runtime / "ollama"
-    if not model_executable.is_file() or not os.access(model_executable, os.X_OK):
-        raise LifecycleBlockedError("runtime_model_executable_missing", "model runtime executable is missing")
+    model_server = model_runtime / "llama-server"
+    if (
+        not model_executable.is_file()
+        or not os.access(model_executable, os.X_OK)
+        or not model_server.is_file()
+        or not os.access(model_server, os.X_OK)
+    ):
+        raise LifecycleBlockedError("runtime_model_executable_missing", "model runtime executable or model server is missing")
     lockfiles: dict[str, str] = {}
     for binding in inputs.lockfiles:
         if not re.fullmatch(r"[a-z0-9][a-z0-9-]{1,63}", binding.lock_id) or binding.lock_id in lockfiles:
@@ -219,6 +225,7 @@ def _validate_inputs(inputs: DeployableRuntimeInputs, output: Path, running_root
             "executable_sha256": _sha256(python),
         },
         "model_runtime_executable_sha256": _sha256(model_executable),
+        "model_runtime_server_sha256": _sha256(model_server),
     }
 
 
