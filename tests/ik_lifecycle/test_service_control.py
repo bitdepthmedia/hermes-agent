@@ -13,9 +13,11 @@ from ik_lifecycle.service_control import (
     CommandResult,
     LaunchdServiceAdapter,
     PairedSymlinks,
+    LaunchdDefinitionTransaction,
     ServiceGroupAdapter,
     SystemdSshServiceAdapter,
     promote_with_service,
+    transition_with_service,
 )
 
 
@@ -220,6 +222,48 @@ def test_paired_symlinks_reject_targets_outside_cell_roots(tmp_path: Path) -> No
         pointers.initialize(tmp_path / "outside", valid_profile, 1)
 
 
+def test_paired_symlinks_allow_declared_legacy_rollback_roots(tmp_path: Path) -> None:
+    legacy_release = tmp_path / "legacy-release"; legacy_release.mkdir()
+    legacy_profile = tmp_path / "legacy-profile"; legacy_profile.mkdir()
+    release_root = tmp_path / "cell/releases"; release_root.mkdir(parents=True)
+    profile_root = tmp_path / "cell/profiles"; profile_root.mkdir(parents=True)
+    pointers = PairedSymlinks(
+        tmp_path / "cell/current", tmp_path / "cell/current-profile", tmp_path / "cell/journal.json",
+        allowed_release_roots=(release_root, legacy_release),
+        allowed_profile_roots=(profile_root, legacy_profile),
+    )
+    pointers.initialize(legacy_release, legacy_profile, 1)
+    assert pointers.read_pair() == (str(legacy_release), str(legacy_profile), 1)
+
+
+def test_launchd_definition_transaction_installs_exact_file_and_can_restore(tmp_path: Path) -> None:
+    source = tmp_path / "sealed.plist"
+    destination = tmp_path / "LaunchAgents/candidate.plist"
+    source.write_bytes(b"sealed-definition")
+    transaction = LaunchdDefinitionTransaction(source, destination)
+
+    transaction.prepare()
+    assert destination.read_bytes() == b"sealed-definition"
+    transaction.rollback()
+    assert not destination.exists()
+
+
+def test_launchd_definition_transaction_rejects_destination_drift(tmp_path: Path) -> None:
+    source = tmp_path / "sealed.plist"; source.write_bytes(b"sealed-definition")
+    destination = tmp_path / "candidate.plist"; destination.write_bytes(b"other")
+    transaction = LaunchdDefinitionTransaction(source, destination)
+    with pytest.raises(LifecycleBlockedError, match="definition"):
+        transaction.prepare()
+
+
+def test_launchd_definition_transaction_rejects_symlink_source(tmp_path: Path) -> None:
+    real = tmp_path / "real.plist"; real.write_bytes(b"sealed-definition")
+    source = tmp_path / "sealed.plist"; source.symlink_to(real)
+    transaction = LaunchdDefinitionTransaction(source, tmp_path / "candidate.plist")
+    with pytest.raises(LifecycleBlockedError, match="definition"):
+        transaction.prepare()
+
+
 def test_failed_health_restores_real_symlink_pair(tmp_path: Path) -> None:
     old_release = tmp_path / "releases/old"; old_release.mkdir(parents=True)
     new_release = tmp_path / "releases/new"; new_release.mkdir()
@@ -269,3 +313,71 @@ def test_service_group_starts_model_before_gateway_and_stops_in_reverse() -> Non
     group.close(); assert group.closed()
     group.open(); assert group.preflight().running
     assert events == ["close:gateway", "close:model", "open:model", "open:gateway"]
+
+
+def test_service_transition_stops_legacy_switches_pair_and_starts_candidate(tmp_path: Path) -> None:
+    old_release = tmp_path / "legacy/release"; old_release.mkdir(parents=True)
+    old_profile = tmp_path / "legacy/profile"; old_profile.mkdir(parents=True)
+    new_release = tmp_path / "cell/releases/new"; new_release.mkdir(parents=True)
+    new_profile = tmp_path / "cell/profiles/new"; new_profile.mkdir(parents=True)
+    pointers = PairedSymlinks(
+        tmp_path / "cell/current", tmp_path / "cell/current-profile", tmp_path / "cell/journal.json",
+        allowed_release_roots=(tmp_path / "cell/releases", old_release),
+        allowed_profile_roots=(tmp_path / "cell/profiles", old_profile),
+    )
+    pointers.initialize(old_release, old_profile, 1)
+    events: list[str] = []
+
+    class Fake:
+        def __init__(self, name: str, running: bool) -> None: self.name=name; self.running=running
+        def preflight(self):
+            from ik_lifecycle.service_control import ServicePreflight
+            return ServicePreflight(self.running, "running" if self.running else "unloaded")
+        def close(self): events.append(f"close:{self.name}"); self.running=False
+        def closed(self): return not self.running
+        def open(self): events.append(f"open:{self.name}"); self.running=True
+
+    legacy, candidate = Fake("legacy", True), Fake("candidate", False)
+    approval = ApprovalReceipt("ernie", "new-id", datetime.now(timezone.utc) + timedelta(minutes=5), "d" * 64)
+    result = transition_with_service(
+        pointers=pointers, legacy_adapter=legacy, candidate_adapter=candidate,
+        release=str(new_release), profile=str(new_profile), generation=2,
+        approval=approval, release_id="new-id", health=lambda: True,
+        observation_timeout_seconds=0.01,
+    )
+    assert result.status == "PROMOTED_CLEAR"
+    assert events == ["close:legacy", "open:candidate"]
+    assert pointers.read_pair() == (str(new_release), str(new_profile), 2)
+
+
+def test_failed_service_transition_restores_legacy_pair_and_service(tmp_path: Path) -> None:
+    old_release = tmp_path / "legacy/release"; old_release.mkdir(parents=True)
+    old_profile = tmp_path / "legacy/profile"; old_profile.mkdir(parents=True)
+    new_release = tmp_path / "cell/releases/new"; new_release.mkdir(parents=True)
+    new_profile = tmp_path / "cell/profiles/new"; new_profile.mkdir(parents=True)
+    pointers = PairedSymlinks(
+        tmp_path / "cell/current", tmp_path / "cell/current-profile", tmp_path / "cell/journal.json",
+        allowed_release_roots=(tmp_path / "cell/releases", old_release),
+        allowed_profile_roots=(tmp_path / "cell/profiles", old_profile),
+    )
+    pointers.initialize(old_release, old_profile, 1)
+    events: list[str] = []
+    class Fake:
+        def __init__(self, name: str, running: bool) -> None: self.name=name; self.running=running
+        def preflight(self):
+            from ik_lifecycle.service_control import ServicePreflight
+            return ServicePreflight(self.running, "running" if self.running else "unloaded")
+        def close(self): events.append(f"close:{self.name}"); self.running=False
+        def closed(self): return not self.running
+        def open(self): events.append(f"open:{self.name}"); self.running=True
+    legacy, candidate = Fake("legacy", True), Fake("candidate", False)
+    approval = ApprovalReceipt("ernie", "new-id", datetime.now(timezone.utc) + timedelta(minutes=5), "d" * 64)
+    result = transition_with_service(
+        pointers=pointers, legacy_adapter=legacy, candidate_adapter=candidate,
+        release=str(new_release), profile=str(new_profile), generation=2,
+        approval=approval, release_id="new-id", health=lambda: False,
+        observation_timeout_seconds=0.01,
+    )
+    assert result.status == "ROLLED_BACK_PRE_TRAFFIC"
+    assert events == ["close:legacy", "open:candidate", "close:candidate", "open:legacy"]
+    assert pointers.read_pair() == (str(old_release), str(old_profile), 1)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -96,14 +97,20 @@ class PairedSymlinks:
         profile_path: Path,
         journal_path: Path,
         *,
-        allowed_release_root: Path,
-        allowed_profile_root: Path,
+        allowed_release_root: Path | None = None,
+        allowed_profile_root: Path | None = None,
+        allowed_release_roots: tuple[Path, ...] | None = None,
+        allowed_profile_roots: tuple[Path, ...] | None = None,
     ) -> None:
         self.release_path = Path(release_path).absolute()
         self.profile_path = Path(profile_path).absolute()
         self.journal_path = Path(journal_path).absolute()
-        self.allowed_release_root = Path(allowed_release_root).resolve()
-        self.allowed_profile_root = Path(allowed_profile_root).resolve()
+        release_roots = allowed_release_roots or (() if allowed_release_root is None else (allowed_release_root,))
+        profile_roots = allowed_profile_roots or (() if allowed_profile_root is None else (allowed_profile_root,))
+        if not release_roots or not profile_roots:
+            raise LifecycleBlockedError("pointer_roots_missing", "cell pointer roots are not declared")
+        self.allowed_release_roots = tuple(Path(root).resolve() for root in release_roots)
+        self.allowed_profile_roots = tuple(Path(root).resolve() for root in profile_roots)
 
     @staticmethod
     def _inside(target: Path, root: Path) -> bool:
@@ -119,9 +126,13 @@ class PairedSymlinks:
             resolved_profile = Path(profile).resolve(strict=True)
         except OSError as exc:
             raise LifecycleBlockedError("pointer_target_missing", "cell pointer target is unavailable") from exc
-        if not resolved_release.is_dir() or not self._inside(resolved_release, self.allowed_release_root):
+        if not resolved_release.is_dir() or not any(
+            self._inside(resolved_release, root) for root in self.allowed_release_roots
+        ):
             raise LifecycleBlockedError("release_target_invalid", "release pointer target is outside its cell root")
-        if not resolved_profile.is_dir() or not self._inside(resolved_profile, self.allowed_profile_root):
+        if not resolved_profile.is_dir() or not any(
+            self._inside(resolved_profile, root) for root in self.allowed_profile_roots
+        ):
             raise LifecycleBlockedError("profile_target_invalid", "profile pointer target is outside its cell root")
         return resolved_release, resolved_profile
 
@@ -264,6 +275,57 @@ class LaunchdServiceAdapter:
             raise LifecycleBlockedError("launchd_open_failed", "launchd service failed to open")
 
 
+class LaunchdDefinitionTransaction:
+    """Atomically stage one reviewed launchd definition without overwriting drift."""
+
+    def __init__(self, source: Path, destination: Path, *, expected_sha256: str | None = None) -> None:
+        self.source = Path(source).absolute()
+        self.destination = Path(destination).absolute()
+        self.expected_sha256 = expected_sha256
+        self._created = False
+
+    @staticmethod
+    def _digest(path: Path) -> str:
+        return hashlib.sha256(path.read_bytes()).hexdigest()
+
+    def prepare(self) -> None:
+        if self.source.is_symlink() or not self.source.is_file():
+            raise LifecycleBlockedError("launchd_definition_invalid", "sealed launchd definition is unavailable")
+        source_digest = self._digest(self.source)
+        if self.expected_sha256 and source_digest != self.expected_sha256:
+            raise LifecycleBlockedError("launchd_definition_digest_drift", "sealed launchd definition digest changed")
+        if self.destination.is_symlink():
+            raise LifecycleBlockedError("launchd_definition_invalid", "launchd definition destination is a symlink")
+        if self.destination.exists():
+            if not self.destination.is_file() or self._digest(self.destination) != source_digest:
+                raise LifecycleBlockedError("launchd_definition_drift", "existing launchd definition differs")
+            return
+        self.destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        if self.destination.parent.resolve() != self.destination.parent:
+            raise LifecycleBlockedError("launchd_definition_invalid", "launchd definition parent uses a symlink")
+        temporary = self.destination.with_name(f".{self.destination.name}.{os.getpid()}.tmp")
+        try:
+            with self.source.open("rb") as src, temporary.open("xb") as dst:
+                while chunk := src.read(1024 * 1024):
+                    dst.write(chunk)
+                dst.flush()
+                os.fsync(dst.fileno())
+            os.chmod(temporary, 0o600)
+            os.replace(temporary, self.destination)
+            self._created = True
+        finally:
+            if temporary.exists():
+                temporary.unlink()
+
+    def rollback(self) -> None:
+        if self._created and self.destination.exists() and not self.destination.is_symlink():
+            self.destination.unlink()
+            self._created = False
+
+    def commit(self) -> None:
+        self._created = False
+
+
 class SystemdSshServiceAdapter:
     def __init__(self, *, host: str, unit: str, account: str, runner: CommandRunner = _run) -> None:
         token = re.compile(r"[A-Za-z0-9_.@-]+")
@@ -385,3 +447,97 @@ def promote_with_service(
     if not recovered:
         raise LifecycleBlockedError("rollback_service_failed", "service did not recover after rollback")
     return ServicePromotionResult("ROLLED_BACK_PRE_TRAFFIC")
+
+
+def transition_with_service(
+    *,
+    pointers: PairedSymlinks,
+    legacy_adapter: ServiceAdapter,
+    candidate_adapter: ServiceAdapter,
+    release: str,
+    profile: str,
+    generation: int,
+    approval: ApprovalReceipt,
+    release_id: str,
+    health: Callable[[], bool],
+    definition_transaction: LaunchdDefinitionTransaction | None = None,
+    observation_timeout_seconds: float = 15.0,
+) -> ServicePromotionResult:
+    """Replace a legacy service with a candidate unit and roll back pre-traffic failures."""
+    if (
+        approval.expires_at <= datetime.now(timezone.utc)
+        or not approval.digest
+        or approval.bundle_id != release_id
+    ):
+        raise LifecycleBlockedError("promotion_approval_invalid", "promotion approval does not bind the release")
+    if not legacy_adapter.preflight().running:
+        raise LifecycleBlockedError("legacy_service_not_running", "legacy service is not running")
+    if definition_transaction is not None:
+        definition_transaction.prepare()
+    try:
+        candidate_running = candidate_adapter.preflight().running
+    except Exception:
+        if definition_transaction is not None:
+            definition_transaction.rollback()
+        raise
+    if candidate_running:
+        if definition_transaction is not None:
+            definition_transaction.rollback()
+        raise LifecycleBlockedError("candidate_service_already_running", "candidate service is already running")
+
+    try:
+        previous = pointers.read_pair()
+    except Exception:
+        if definition_transaction is not None:
+            definition_transaction.rollback()
+        raise
+    switched = False
+    candidate_opened = False
+    legacy_closed = False
+    try:
+        legacy_adapter.close()
+        if not legacy_adapter.closed():
+            raise LifecycleBlockedError("legacy_service_not_closed", "legacy service remained running")
+        legacy_closed = True
+        pointers.switch(Path(release), Path(profile), generation, service_closed=True)
+        switched = True
+        candidate_adapter.open()
+        candidate_opened = True
+        deadline = time.monotonic() + observation_timeout_seconds
+        while time.monotonic() < deadline:
+            try:
+                if candidate_adapter.preflight().running and health():
+                    if definition_transaction is not None:
+                        definition_transaction.commit()
+                    return ServicePromotionResult("PROMOTED_CLEAR")
+            except LifecycleBlockedError:
+                pass
+            time.sleep(0.1)
+    except Exception:
+        # The rollback path below handles both expected gate failures and errors.
+        pass
+
+    if not legacy_closed:
+        if definition_transaction is not None:
+            definition_transaction.rollback()
+        raise LifecycleBlockedError("transition_close_failed", "legacy service could not be safely closed")
+    if candidate_opened or not candidate_adapter.closed():
+        candidate_adapter.close()
+        if not candidate_adapter.closed():
+            raise LifecycleBlockedError("rollback_candidate_not_closed", "candidate service remained running")
+    if switched:
+        pointers.switch(Path(previous[0]), Path(previous[1]), previous[2], service_closed=True)
+    else:
+        pointers.recover(service_closed=True)
+    legacy_adapter.open()
+    deadline = time.monotonic() + observation_timeout_seconds
+    while time.monotonic() < deadline:
+        try:
+            if legacy_adapter.preflight().running:
+                if definition_transaction is not None:
+                    definition_transaction.rollback()
+                return ServicePromotionResult("ROLLED_BACK_PRE_TRAFFIC")
+        except LifecycleBlockedError:
+            pass
+        time.sleep(0.1)
+    raise LifecycleBlockedError("rollback_legacy_service_failed", "legacy service did not recover after rollback")
