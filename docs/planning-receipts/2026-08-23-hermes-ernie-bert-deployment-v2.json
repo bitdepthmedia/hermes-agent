@@ -1,0 +1,123 @@
+{
+  "architecture": {
+    "bert_ernie_shared_source_tree_sha256": "41617114ae73a04783ce68b42a5b0ebbeed9022f8e5fe6ad348af1edd51354f4",
+    "cells_remain_independent": true,
+    "ernie_private_state_copied_to_bert": false,
+    "status": "CLEAR_ONE_PLATFORM_TWO_CELLS"
+  },
+  "automation": {
+    "automation_id": "daily-bert-health-and-ops-repair",
+    "duplicate_count": 0,
+    "legacy_in_place_update_behavior": "RETIRED",
+    "notification_policy": "failed_runs_only",
+    "prompt_sha256": "00447c359302f63c062340b46fb6b835383413ff088f9a6350b5f111b013cd16",
+    "status": "ACTIVE_EXCEPTION_ONLY_AUDIT",
+    "transport_blocker_monitored": true
+  },
+  "bert": {
+    "control_backup_id": "bert-4161-20260823-v1",
+    "generation": 3,
+    "health": {
+      "controlled_restart": "CLEAR",
+      "dashboard_http": 200,
+      "gateway_http": 200,
+      "services_active": 2,
+      "telegram_connected": true
+    },
+    "model_runtime_mode": "external-profile-managed",
+    "profile_pointer_unchanged": true,
+    "release_id": "278850ecde1dcc8d4776ac39",
+    "rollback_generation": 2,
+    "runtime_manifest_sha256": "b0925206935f051a4d7a8dda8f669c7cbf2bccd08b71399e3d96f14f818d3f4d",
+    "source_tree_sha256": "41617114ae73a04783ce68b42a5b0ebbeed9022f8e5fe6ad348af1edd51354f4",
+    "status": "PROMOTED_CLEAR",
+    "verification": {
+      "failed_transfer_stages_retained": 2,
+      "passed": 355,
+      "platform_skipped": 12,
+      "subtests_passed": 24
+    }
+  },
+  "ernie": {
+    "backup": {
+      "aggregate_bytes": 125649837,
+      "aggregate_file_count": 2371,
+      "archive_sha256": "4a9b7ee22e2075ebeb8bbef48db6e9e20c7483f8348bbe1a7192688b69f6994c",
+      "delta_sha256": "5f7086bbd42be535a902f4773e8ab988aae9b8a8a3e1916a15c5b62de3279b5b",
+      "snapshot_id": "7ef7963242f2336298418d99",
+      "status": "CLEAR_ENCRYPTED_OPAQUE_BACKUP_PLUS_BOUNDED_DELTA"
+    },
+    "deployment_id": "24ecdad9c3fa349f17f5ab03",
+    "generation": 9,
+    "health": {
+      "controlled_restart": "CLEAR",
+      "health_surface_count": 5,
+      "primary_established_tcp_count": 2,
+      "telegram_post_restart_error_count": 0,
+      "telegram_post_restart_ready_event_count": 5
+    },
+    "model": {
+      "artifact_sha256": "31629f53165ab6a7dad8c9847dcfd1fdf55829dac1e6e748f4a68581b0033d34",
+      "concurrency": "2/2",
+      "concurrency_receipt_sha256": "e232e660f10344c9c544d758e4d08d7a574970412108f27cfef50f71e93c6d1e",
+      "effective_reasoning_effort": "medium",
+      "evaluation": "12/12",
+      "evaluation_receipt_sha256": "ad8330aeb9e913a9b3f36bddda261dfeba21c085f353473c3c1a9c25f77ee28f",
+      "maximum_runtime_rss_bytes": 55834574848,
+      "observed_aggregate_rss_bytes": 36466098176,
+      "primary": "QWEN3_8_27B_Q4_K_M_VERIFIED",
+      "projector_sha256": "2e968a6af97ce35d8971890b257b9b7edabf20ad91450501fa53162a19ee33eb",
+      "warm_latency_max_seconds": 24.44,
+      "warm_latency_p50_seconds": 2.66
+    },
+    "profile_receipt_sha256": "7782ac538efb8bb367878eff5c7a0a57c88a11992216a2746ee0ebad3bd3a3d3",
+    "rollback_generation": 8,
+    "shared_release_id": "abba2cb1fc523058417fa195",
+    "status": "PROMOTED_CLEAR",
+    "telegram": {
+      "allowed_chat_and_session_configuration_preserved": true,
+      "credential_binding": "CLEAR_OPAQUE",
+      "end_to_end_message_sent": false,
+      "gateway_service": "CLEAR"
+    }
+  },
+  "implementation": {
+    "composition_id": "113c4474e523cb59dfe83450",
+    "implementation_commit": "df1ce1486ffb5df89fc4de9f89579e16388bde62",
+    "official_source_plus_declared_overlay": true,
+    "source_tree_sha256": "41617114ae73a04783ce68b42a5b0ebbeed9022f8e5fe6ad348af1edd51354f4",
+    "status": "SEALED_DEPLOYABLE_RUNTIME"
+  },
+  "remaining_blocker": {
+    "code": "production_cross_host_codex_transport_missing",
+    "evidence": "The deployed overlay has durable cell-local queues, CAS, acknowledgements, replay rejection, and deterministic loopback transport only. It has no production authenticated cross-host or Codex delivery adapter.",
+    "impact": "Live cross-cell and work-to-Codex exactly-once delivery cannot be claimed from synthetic loopback evidence.",
+    "requires_security_sensitive_design": true,
+    "status": "BLOCKED"
+  },
+  "rollback": {
+    "bert_previous_pair_preserved": true,
+    "ernie_previous_pair_preserved": true,
+    "failed_attempt_evidence_preserved": true,
+    "status": "READY"
+  },
+  "schema_id": "ik.hermes.ernie-bert-deployment.v2",
+  "skipped_or_unverified": [
+    "telegram_end_to_end_message_send",
+    "production_cross_host_handoff_delivery",
+    "production_codex_acceptance_and_completion_acknowledgement"
+  ],
+  "status": "DEPLOYED_WITH_TRANSPORT_BLOCKER",
+  "supply_chain": {
+    "dependency_or_lock_refresh": false,
+    "forbidden_implementation_findings": 0,
+    "status": "CLEAR"
+  },
+  "target": {
+    "latest_commit_sha": "fcbd1076a93841fa88855acce810e342a5b78101",
+    "latest_tag": "v2026.8.19",
+    "policy": "exactly_one_published_stable_release_behind",
+    "selected_commit_sha": "e624e9fde561e1add9388384012b295fde669ade",
+    "selected_tag": "v2026.8.18"
+  }
+}
