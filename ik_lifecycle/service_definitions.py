@@ -20,6 +20,8 @@ class CellServiceSpec:
     account: str
     gateway_port: int
     model_port: int
+    release_image: Path
+    release_mount: Path
 
 
 @dataclass(frozen=True)
@@ -61,29 +63,35 @@ def render_cell_service_definitions(
     ):
         raise LifecycleBlockedError("service_spec_invalid", "cell service specification is invalid")
     cell_root = Path(spec.cell_root).resolve(strict=False)
+    release_image = Path(spec.release_image).resolve(strict=False)
+    release_mount = Path(spec.release_mount).resolve(strict=False)
     output = Path(output_root).resolve(strict=False)
     for forbidden in forbidden_roots:
         root = Path(forbidden).resolve(strict=False)
         if _within(cell_root, root) or _within(root, cell_root):
             raise LifecycleBlockedError("service_cell_root_forbidden", "cell root overlaps a mutable checkout")
+    if not _within(release_image, cell_root) or not _within(release_mount, cell_root):
+        raise LifecycleBlockedError("service_release_store_invalid", "release image and mount must remain inside the cell root")
     if output.exists() or output.is_symlink():
         raise LifecycleBlockedError("service_output_exists", "service definition output must be new")
     output.mkdir(parents=True, mode=0o700)
     release_source = cell_root / "current-release/source"
     profile = cell_root / "current-profile"
-    executable = release_source / "scripts/ik-cell-service"
+    executable = cell_root / "bin/ik-cell-service"
     environment = {
         "HERMES_HOME": str(profile),
         "IK_CELL_ROOT": str(cell_root),
         "IK_CELL_ID": spec.cell_id,
         "IK_GATEWAY_PORT": str(spec.gateway_port),
         "IK_MODEL_BASE_URL": f"http://127.0.0.1:{spec.model_port}/v1",
+        "IK_RELEASE_IMAGE": str(release_image),
+        "IK_RELEASE_MOUNT": str(release_mount),
         "PYTHONDONTWRITEBYTECODE": "1",
     }
     launchd = {
         "Label": spec.service_label,
         "ProgramArguments": [str(executable)],
-        "WorkingDirectory": str(release_source),
+        "WorkingDirectory": str(cell_root),
         "EnvironmentVariables": environment,
         "RunAtLoad": True,
         "KeepAlive": {"SuccessfulExit": False},
@@ -102,12 +110,14 @@ def render_cell_service_definitions(
                 "[Service]",
                 "Type=simple",
                 f"User={spec.account}",
-                f"WorkingDirectory={release_source}",
+                f"WorkingDirectory={cell_root}",
                 f"Environment=HERMES_HOME={profile}",
                 f"Environment=IK_CELL_ROOT={cell_root}",
                 f"Environment=IK_CELL_ID={spec.cell_id}",
                 f"Environment=IK_GATEWAY_PORT={spec.gateway_port}",
                 f"Environment=IK_MODEL_BASE_URL=http://127.0.0.1:{spec.model_port}/v1",
+                f"Environment=IK_RELEASE_IMAGE={release_image}",
+                f"Environment=IK_RELEASE_MOUNT={release_mount}",
                 "Environment=PYTHONDONTWRITEBYTECODE=1",
                 f"ExecStart={executable}",
                 "Restart=on-failure",
@@ -123,7 +133,7 @@ def render_cell_service_definitions(
         encoding="utf-8",
     )
     model_label = f"{spec.service_label}.model"
-    model_executable = cell_root / "current-release/surfaces/model-runtime/ollama"
+    model_executable = cell_root / "bin/ollama"
     model_environment = {
         "HOME": str(cell_root / "model-home"),
         "OLLAMA_HOST": f"127.0.0.1:{spec.model_port}",
@@ -179,6 +189,8 @@ def render_cell_service_definitions(
         "status": "CLEAR_EXACT_SERVICE_DEFINITIONS",
         "cell_id": spec.cell_id,
         "cell_root_sha256": hashlib.sha256(str(cell_root).encode()).hexdigest(),
+        "release_image_path_sha256": hashlib.sha256(str(release_image).encode()).hexdigest(),
+        "release_mount_path_sha256": hashlib.sha256(str(release_mount).encode()).hexdigest(),
         "service_label": spec.service_label,
         "gateway_port": spec.gateway_port,
         "model_port": spec.model_port,

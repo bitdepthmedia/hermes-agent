@@ -13,6 +13,8 @@ def test_cell_service_uses_only_paired_cell_pointers_and_frozen_runtime() -> Non
     assert '"$cell_root/current-release"' in source
     assert '"$cell_root/current-profile"' in source
     assert 'surfaces/python-runtime/bin/python' in source
+    assert '/usr/bin/hdiutil attach -nobrowse -mountpoint' in source
+    assert '"$IK_RELEASE_IMAGE"' in source
     assert "hermes_cli.main gateway run --replace" in source
     assert "~/.hermes" not in source
     assert "pip " not in source and "npm " not in source and "uv " not in source
