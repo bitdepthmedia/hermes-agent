@@ -14,6 +14,7 @@ import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 
+from .history import normalize_tool_history
 from .runtime_router import RouterRequest, RuntimeRouterConfig, load_router_config, prepare_worker_request
 
 
@@ -53,7 +54,10 @@ def prepare_proxy_payload(payload: Mapping[str, Any], config: RuntimeRouterConfi
     )
     public_model = str(upstream.get("model") or os.getenv("ERNIE_ROUTER_MODEL_NAME", "ernie-local"))
     upstream["model"] = prepared.runtime_model
-    upstream["messages"] = list(prepared.messages)
+    # The Qwen adapter keeps parsed argument mappings internally, but this
+    # service speaks the OpenAI wire protocol to Ollama.  Ollama requires
+    # function.arguments to be a JSON string in historical tool calls.
+    upstream["messages"] = list(normalize_tool_history(prepared.messages, dialect="openai"))
     if prepared.reasoning_enabled:
         effective = reasoning_effort if reasoning_effort in {"low", "medium", "high"} else "medium"
         upstream["reasoning_effort"] = effective
@@ -118,13 +122,55 @@ def create_app(*, config_path: Path | None = None, upstream_base_url: str | None
         target = f"{upstream_url}/v1/chat/completions"
         client_timeout = httpx.Timeout(timeout)
         if prepared.upstream.get("stream"):
+            client = httpx.AsyncClient(timeout=client_timeout)
+            stream_context = client.stream("POST", target, json=prepared.upstream)
+            try:
+                response = await stream_context.__aenter__()
+            except httpx.HTTPError as exc:
+                await client.aclose()
+                logger.exception("model worker stream request failed")
+                raise HTTPException(status_code=502, detail="Model worker unavailable") from exc
+
+            if response.status_code >= 400:
+                try:
+                    body = await response.aread()
+                finally:
+                    await stream_context.__aexit__(None, None, None)
+                    await client.aclose()
+                return Response(
+                    body,
+                    status_code=response.status_code,
+                    media_type=response.headers.get("content-type", "application/json"),
+                )
+
+            chunks = response.aiter_bytes()
+            first_chunk = None
+            try:
+                async for chunk in chunks:
+                    if chunk:
+                        first_chunk = chunk
+                        break
+            except httpx.HTTPError as exc:
+                await stream_context.__aexit__(type(exc), exc, exc.__traceback__)
+                await client.aclose()
+                logger.exception("model worker stream failed before first chunk")
+                raise HTTPException(status_code=502, detail="Model worker unavailable") from exc
+
+            if first_chunk is None:
+                await stream_context.__aexit__(None, None, None)
+                await client.aclose()
+                raise HTTPException(status_code=502, detail="Model worker returned an empty stream")
+
             async def events():
-                async with httpx.AsyncClient(timeout=client_timeout) as client:
-                    async with client.stream("POST", target, json=prepared.upstream) as response:
-                        if response.status_code >= 400:
-                            raise HTTPException(status_code=response.status_code, detail="Model worker request failed")
-                        async for chunk in response.aiter_bytes():
-                            if chunk: yield chunk
+                try:
+                    yield first_chunk
+                    async for chunk in chunks:
+                        if chunk:
+                            yield chunk
+                finally:
+                    await stream_context.__aexit__(None, None, None)
+                    await client.aclose()
+
             return StreamingResponse(events(), media_type="text/event-stream")
         try:
             async with httpx.AsyncClient(timeout=client_timeout) as client:
