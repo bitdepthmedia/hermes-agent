@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 import hashlib
+import os
+from pathlib import Path
 import re
 from typing import Callable
 from uuid import NAMESPACE_URL, uuid5
@@ -15,6 +17,7 @@ from .store import HandoffStore
 
 _WORK = re.compile(r"\b(?:implement|build|develop|deploy|debug|repository|repo|code|automate|fix\s+(?:the\s+)?(?:bug|workflow|system))\b", re.I)
 _PERSONAL = re.compile(r"\b(?:calendar|schedule|appointment|reminder|household|dentist|doctor|personal\s+follow[- ]?up)\b", re.I)
+_TELEGRAM_GROUP_BOT_MESSAGE_MODES = frozenset({"none", "mentions_only", "all"})
 
 
 def classify_ingress_text(text: str) -> tuple[str, ...]:
@@ -24,6 +27,166 @@ def classify_ingress_text(text: str) -> tuple[str, ...]:
     if _PERSONAL.search(text):
         domains.append("personal")
     return tuple(domains)
+
+
+def _platform_name(value: object) -> str:
+    return str(getattr(value, "value", value) or "").strip().lower()
+
+
+def _telegram_runtime_part(gateway: object, attribute: str) -> object | None:
+    values = getattr(gateway, attribute, None)
+    if not isinstance(values, dict):
+        return None
+    for key, value in values.items():
+        if _platform_name(key) == "telegram":
+            return value
+    return None
+
+
+def _telegram_extra(gateway: object) -> dict[str, object]:
+    config = getattr(gateway, "config", None)
+    platform_config = _telegram_runtime_part(config, "platforms")
+    extra = getattr(platform_config, "extra", None)
+    return extra if isinstance(extra, dict) else {}
+
+
+def _telegram_adapter(gateway: object) -> object | None:
+    return _telegram_runtime_part(gateway, "adapters")
+
+
+def _telegram_group_bot_message_mode(gateway: object) -> str:
+    """Read the policy from runtime extras or the active profile YAML.
+
+    Hermes v2026.8.18 preserves ``mention_patterns`` in ``PlatformConfig`` but
+    drops the sibling ``group_bot_messages`` key. Reading the active profile is
+    the compatibility path until that upstream config bridge exists.
+    """
+    runtime_value = _telegram_extra(gateway).get("group_bot_messages")
+    if runtime_value is not None:
+        return str(runtime_value).strip().lower()
+    home = os.environ.get("HERMES_HOME", "").strip()
+    if not home:
+        return "none"
+    try:
+        import yaml
+
+        document = yaml.safe_load((Path(home) / "config.yaml").read_text(encoding="utf-8"))
+    except Exception:
+        return "none"
+    if not isinstance(document, dict):
+        return "none"
+    candidates = [document.get("telegram")]
+    platforms = document.get("platforms")
+    if isinstance(platforms, dict):
+        candidates.append(platforms.get("telegram"))
+    gateway_config = document.get("gateway")
+    if isinstance(gateway_config, dict):
+        nested_platforms = gateway_config.get("platforms")
+        if isinstance(nested_platforms, dict):
+            candidates.append(nested_platforms.get("telegram"))
+    for candidate in candidates:
+        if isinstance(candidate, dict) and candidate.get("group_bot_messages") is not None:
+            return str(candidate["group_bot_messages"]).strip().lower()
+    return "none"
+
+
+def _telegram_message_text(event: object) -> str:
+    raw = getattr(event, "raw_message", None)
+    for value in (
+        getattr(raw, "text", None),
+        getattr(raw, "caption", None),
+        getattr(event, "text", None),
+    ):
+        if isinstance(value, str) and value:
+            return value
+    return ""
+
+
+def _telegram_own_bot_identity(gateway: object) -> tuple[object | None, str]:
+    adapter = _telegram_adapter(gateway)
+    bot = getattr(adapter, "_bot", None)
+    bot_id = getattr(bot, "id", None)
+    username = ""
+    current_username = getattr(adapter, "_current_bot_username", None)
+    if callable(current_username):
+        try:
+            username = str(current_username() or "")
+        except Exception:
+            username = ""
+    if not username:
+        username = str(getattr(bot, "username", "") or "")
+    return bot_id, username.lstrip("@").lower()
+
+
+def _telegram_bot_explicitly_mentions_this_cell(event: object, gateway: object) -> bool:
+    text = _telegram_message_text(event)
+    if not text:
+        return False
+    _bot_id, username = _telegram_own_bot_identity(gateway)
+    if username and re.search(rf"(?i)(?<![A-Za-z0-9_])@{re.escape(username)}\b", text):
+        return True
+    patterns = _telegram_extra(gateway).get("mention_patterns", ())
+    if not isinstance(patterns, (list, tuple)):
+        return False
+    for pattern in patterns:
+        candidate = str(pattern)
+        if "@" not in candidate:
+            continue
+        try:
+            if re.search(candidate, text, re.I):
+                return True
+        except re.error:
+            continue
+    return False
+
+
+def _telegram_bot_replies_to_this_cell(event: object, gateway: object) -> bool:
+    raw = getattr(event, "raw_message", None)
+    reply = getattr(raw, "reply_to_message", None)
+    if reply is None:
+        return False
+    reply_user = getattr(reply, "from_user", None)
+    bot_id, username = _telegram_own_bot_identity(gateway)
+    reply_user_id = getattr(reply_user, "id", None)
+    if bot_id is not None and reply_user_id is not None:
+        return bot_id == reply_user_id
+    reply_username = str(getattr(reply_user, "username", "") or "").lstrip("@").lower()
+    if username and reply_username:
+        return username == reply_username
+    # Missing identity must not reopen a bot reply chain.
+    return getattr(event, "reply_to_message_id", None) is not None
+
+
+def guard_telegram_group_bot_message(event: object, gateway: object) -> dict[str, str] | None:
+    """Enforce the configured Telegram bot-to-bot group ingress contract.
+
+    ``mentions_only`` permits one explicitly addressed top-level bot message.
+    A reply from another bot to this cell is always the end of that exchange,
+    even when it repeats the mention, so Telegram replies cannot recurse.
+    """
+    source = getattr(event, "source", None)
+    if (
+        _platform_name(getattr(source, "platform", None)) != "telegram"
+        or getattr(source, "chat_type", None) not in {"group", "supergroup", "thread"}
+        or not bool(getattr(source, "is_bot", False))
+    ):
+        return None
+
+    mode = _telegram_group_bot_message_mode(gateway)
+    if mode not in _TELEGRAM_GROUP_BOT_MESSAGE_MODES:
+        return {"action": "skip", "reason": "telegram_group_bot_messages_invalid_policy"}
+    if mode == "none":
+        return {"action": "skip", "reason": "telegram_group_bot_messages_disabled"}
+    if mode == "all":
+        return None
+    if _telegram_bot_replies_to_this_cell(event, gateway):
+        return {"action": "skip", "reason": "telegram_bot_reply_chain"}
+    if not _telegram_bot_explicitly_mentions_this_cell(event, gateway):
+        return {
+            "action": "skip",
+            "reason": "telegram_group_bot_message_not_explicitly_addressed",
+        }
+    return None
 
 
 @dataclass

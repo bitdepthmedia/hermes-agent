@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 
 from .envelope import Owner
-from .ingress import IngressCoordinator
+from .ingress import IngressCoordinator, guard_telegram_group_bot_message
 from .store import HandoffStore
 from ik_extensions.model_workers.runtime_router import RouterRequest, load_router_config, prepare_worker_request
 
@@ -70,6 +70,9 @@ def register(ctx: object) -> None:
         )
 
     def ingress_hook(*, event: object, gateway: object, **_: object) -> dict[str, str]:
+        group_bot_guard = guard_telegram_group_bot_message(event, gateway)
+        if group_bot_guard is not None:
+            return group_bot_guard
         active = configured()
         if active is None:
             return {"action": "rewrite", "text": "Cell ingress configuration is missing; no task was executed."}

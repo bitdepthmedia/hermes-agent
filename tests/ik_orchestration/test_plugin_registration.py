@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -63,6 +64,43 @@ class PluginRegistrationTests(unittest.TestCase):
         matched = [item for item in manifests if item.name == "ik-persona-orchestration"]
         self.assertEqual(len(matched), 1)
         self.assertEqual(Path(str(matched[0].path)), root / "ik-persona-orchestration")
+
+    def test_ingress_hook_stops_unaddressed_group_bot_messages_before_dispatch(self) -> None:
+        ctx = FakeContext()
+        register(ctx)
+        event = SimpleNamespace(
+            text="model retry 3/5",
+            source=SimpleNamespace(
+                platform=SimpleNamespace(value="telegram"),
+                chat_type="group",
+                is_bot=True,
+            ),
+            raw_message=SimpleNamespace(
+                text="model retry 3/5",
+                caption=None,
+                reply_to_message=None,
+            ),
+        )
+        gateway = SimpleNamespace(
+            config=SimpleNamespace(
+                platforms={
+                    "telegram": SimpleNamespace(
+                        extra={"group_bot_messages": "mentions_only"}
+                    )
+                }
+            ),
+            adapters={},
+        )
+
+        result = ctx.hooks["pre_gateway_dispatch"](event=event, gateway=gateway)
+
+        self.assertEqual(
+            result,
+            {
+                "action": "skip",
+                "reason": "telegram_group_bot_message_not_explicitly_addressed",
+            },
+        )
 
 
 if __name__ == "__main__":
