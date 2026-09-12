@@ -26,6 +26,12 @@ def reset_tool_preview_max_len():
 class TestBuildToolPreview:
     """Tests for build_tool_preview defensive handling and normal operation."""
 
+    def test_build_tool_label_remains_importable_for_tool_callers(self):
+        """Older runtimes must satisfy callers using the newer display API."""
+        from agent.display import build_tool_label
+
+        assert build_tool_label("terminal", {"command": "pwd"}) == "pwd"
+
     def test_none_args_returns_none(self):
         """PR #453: None args should not crash, should return None."""
         assert build_tool_preview("terminal", None) is None

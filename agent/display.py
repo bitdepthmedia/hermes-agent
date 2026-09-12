@@ -262,6 +262,11 @@ def build_tool_preview(tool_name: str, args: dict, max_len: int | None = None) -
     return preview
 
 
+def build_tool_label(tool_name: str, args: dict, max_len: int | None = None) -> str | None:
+    """Compatibility name for tool callers expecting the label API."""
+    return build_tool_preview(tool_name, args, max_len=max_len)
+
+
 # =========================================================================
 # Inline diff previews for write actions
 # =========================================================================
