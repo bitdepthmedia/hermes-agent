@@ -3,7 +3,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
-import sys
+import psutil
 import time
 import pytest
 
@@ -21,7 +21,8 @@ def test_host_health_rejects_stale_or_wrong_process_evidence(tmp_path):
     (profile / "state").mkdir(parents=True)
     python = source.parent / "surfaces/python-runtime/bin/python"
     python.parent.mkdir(parents=True)
-    python.symlink_to(sys.executable)
+    runtime_python = psutil.Process().exe()
+    python.symlink_to(runtime_python)
     package = source / "hermes_cli"
     package.mkdir()
     (package / "__init__.py").touch()
@@ -29,7 +30,7 @@ def test_host_health_rejects_stale_or_wrong_process_evidence(tmp_path):
         "import time; from pathlib import Path; Path('ready').touch(); time.sleep(30)\n"
     )
     process = subprocess.Popen(
-        [sys.executable, "-m", "hermes_cli.main", "gateway", "run"],
+        [runtime_python, "-m", "hermes_cli.main", "gateway", "run"],
         cwd=source,
         env={**os.environ, "PYTHONPATH": str(source), "HERMES_HOME": str(profile)},
     )
@@ -62,6 +63,11 @@ def test_host_health_rejects_stale_or_wrong_process_evidence(tmp_path):
             "owned process did not finish interpreter startup"
         )
         evidence(process.pid)
+        owned = psutil.Process(process.pid)
+        assert Path(owned.exe()).resolve() == python.resolve()
+        assert Path(owned.cwd()).resolve() == source.resolve()
+        assert Path(owned.environ()["HERMES_HOME"]).resolve() == profile.resolve()
+        assert Path(owned.environ()["PYTHONPATH"]).resolve() == source.resolve()
         assert observe_host(
             source.parent, profile, started, set(), spec, Service()
         ) == {process.pid}
@@ -72,7 +78,7 @@ def test_host_health_rejects_stale_or_wrong_process_evidence(tmp_path):
             is None
         )
         python.unlink()
-        python.symlink_to(sys.executable)
+        python.symlink_to(runtime_python)
         assert (
             observe_host(
                 source.parent, profile, time.time() + 1, set(), spec, Service()
