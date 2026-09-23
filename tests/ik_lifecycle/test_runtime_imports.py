@@ -7,11 +7,29 @@ from ik_lifecycle.models import LifecycleBlockedError
 from ik_lifecycle.runtime_imports import validate_runtime_imports
 
 
+def test_runtime_tool_gate_rejects_importable_but_broken_dispatch(tmp_path: Path):
+    from ik_lifecycle import runtime_imports
+
+    validator = getattr(runtime_imports, "validate_runtime_tools", None)
+    assert validator is not None, "sealed artifact must exercise real tool dispatch"
+    (tmp_path / "model_tools.py").write_text(
+        "def get_tool_definitions(**kw): return [{'function': {'name': n}} for n in ('terminal','read_file')]\n"
+        'def handle_function_call(*args, **kw): return \'{"error": "broken"}\'\n'
+    )
+    with pytest.raises(LifecycleBlockedError, match="runtime tool"):
+        validator(Path(sys.executable), tmp_path)
+
+
 def test_runtime_imports_reject_mixed_display_and_executor(tmp_path: Path):
     for package in ("agent", "gateway", "hermes_cli"):
         (tmp_path / package).mkdir()
         (tmp_path / package / "__init__.py").touch()
-    for module in ("run_agent.py", "model_tools.py", "gateway/run.py", "hermes_cli/web_server.py"):
+    for module in (
+        "run_agent.py",
+        "model_tools.py",
+        "gateway/run.py",
+        "hermes_cli/web_server.py",
+    ):
         (tmp_path / module).touch()
     (tmp_path / "agent/display.py").write_text("", encoding="utf-8")
     (tmp_path / "agent/tool_executor.py").write_text(
@@ -26,11 +44,18 @@ def test_runtime_imports_reject_mixed_display_and_executor(tmp_path: Path):
     validate_runtime_imports(Path(sys.executable), tmp_path)
 
 
-def test_runtime_imports_do_not_use_operator_profile_or_credentials(tmp_path: Path, monkeypatch):
+def test_runtime_imports_do_not_use_operator_profile_or_credentials(
+    tmp_path: Path, monkeypatch
+):
     for package in ("agent", "gateway", "hermes_cli"):
         (tmp_path / package).mkdir()
         (tmp_path / package / "__init__.py").touch()
-    for module in ("agent/tool_executor.py", "model_tools.py", "gateway/run.py", "hermes_cli/web_server.py"):
+    for module in (
+        "agent/tool_executor.py",
+        "model_tools.py",
+        "gateway/run.py",
+        "hermes_cli/web_server.py",
+    ):
         (tmp_path / module).touch()
     (tmp_path / "run_agent.py").write_text(
         "import os, pathlib\n"

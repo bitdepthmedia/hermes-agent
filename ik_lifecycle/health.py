@@ -6,7 +6,21 @@ from typing import Mapping
 
 @dataclass(frozen=True)
 class HealthEvidence:
-    REQUIRED = ("receipt_digest", "profile_generation", "endpoint", "heartbeat", "tool_task", "router_disclosure", "kanban", "cron", "profile_isolation", "nate_os", "messaging", "restart", "backup")
+    REQUIRED = (
+        "receipt_digest",
+        "profile_generation",
+        "endpoint",
+        "heartbeat",
+        "tool_task",
+        "router_disclosure",
+        "kanban",
+        "cron",
+        "profile_isolation",
+        "nate_os",
+        "messaging",
+        "restart",
+        "backup",
+    )
     gates: Mapping[str, str]
     runtime_sha: str
     code_sha: str
@@ -20,7 +34,26 @@ class HealthGateSet:
 
 
 def verify_cell(evidence: HealthEvidence) -> HealthGateSet:
-    blockers = [name for name in HealthEvidence.REQUIRED if evidence.gates.get(name) != "CLEAR"]
-    if evidence.runtime_sha != evidence.code_sha: blockers.append("runtime-code-parity")
-    if evidence.legacy_automation_status != "PAUSED": blockers.append("legacy-automation-pause-approval")
+    blockers = [
+        name for name in HealthEvidence.REQUIRED if evidence.gates.get(name) != "CLEAR"
+    ]
+    if evidence.runtime_sha != evidence.code_sha:
+        blockers.append("runtime-code-parity")
+    if evidence.legacy_automation_status != "PAUSED":
+        blockers.append("legacy-automation-pause-approval")
     return HealthGateSet("BLOCKED" if blockers else "CLEAR", tuple(blockers))
+
+
+def classify_release_drift(
+    *, integrity: str, deployed_target: str, required_target: str, provenance: bool
+) -> str:
+    if integrity == "BLOCKED":
+        return "SOURCE_DIVERGENCE"
+    if (
+        integrity != "CLEAR"
+        or not provenance
+        or not deployed_target
+        or not required_target
+    ):
+        return "UNVERIFIED"
+    return "CLEAR" if deployed_target == required_target else "UPGRADE_PENDING_APPROVAL"
