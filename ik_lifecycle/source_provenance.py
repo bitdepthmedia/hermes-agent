@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 import hashlib
 import io
+import json
 from pathlib import Path
 import re
 import subprocess
@@ -118,6 +119,37 @@ def _tree(repository: Path, commit: str) -> dict[str, tuple[str, str]]:
     return result
 
 
+def verify_upstream_bindings(expected, official, patches):
+    allowed = {".github/workflows/contributor-check.yml"}
+    if not isinstance(patches, dict) or set(patches) - allowed:
+        raise LifecycleBlockedError(
+            "source_ci_patch_scope", "only the reviewed attribution workflow may differ"
+        )
+    for name, patch in patches.items():
+        before, after = official.get(name), expected.get(name)
+        if (
+            not isinstance(patch, dict)
+            or not patch.get("authority")
+            or before is None
+            or after is None
+            or before[0] != after[0]
+            or before[1] != patch.get("upstream_blob")
+            or after[1] != patch.get("implementation_blob")
+            or before == after
+        ):
+            raise LifecycleBlockedError(
+                "source_ci_patch_binding", "reviewed CI patch blob bindings differ"
+            )
+    if any(
+        expected.get(name) != binding and name not in patches
+        for name, binding in official.items()
+    ):
+        raise LifecycleBlockedError(
+            "source_core_replacement",
+            "source provenance rejects upstream core replacement or deletion",
+        )
+
+
 def verify_source_provenance(
     source: Path, upstream: str, tag: str, provenance: SourceProvenance | None
 ) -> dict[str, str]:
@@ -127,11 +159,22 @@ def verify_source_provenance(
         )
     expected = _tree(provenance.repository, provenance.implementation_commit)
     official = _tree(provenance.repository, upstream)
-    if any(expected.get(name) != binding for name, binding in official.items()):
-        raise LifecycleBlockedError(
-            "source_core_replacement",
-            "source provenance rejects upstream core replacement or deletion",
+    patches = {}
+    if provenance.overlay_manifest:
+        relative = Path(provenance.overlay_manifest)
+        if relative.is_absolute() or ".." in relative.parts:
+            raise LifecycleBlockedError(
+                "source_overlay_missing", "source overlay path is invalid"
+            )
+        manifest = json.loads(
+            _git(
+                provenance.repository,
+                "show",
+                f"{provenance.implementation_commit}:{relative.as_posix()}",
+            )
         )
+        patches = manifest.get("non_runtime_patches", {})
+    verify_upstream_bindings(expected, official, patches)
     observed = {}
     for path in Path(source).rglob("*"):
         if path.is_symlink() or not (path.is_file() or path.is_dir()):

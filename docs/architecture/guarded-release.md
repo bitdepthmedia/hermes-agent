@@ -48,7 +48,12 @@ directory), `lockfiles` (name to path), `router_config`, `model_manifest`, and
 `expected_python` (major/minor). Prepare these in isolation with separately
 reviewed tools. Source must be the exact committed implementation export, without
 `.git`, caches, or untracked files. Every upstream tracked file must remain
-byte/mode identical; additions must exactly match the declared overlay. Copying
+byte/mode identical except the explicitly reviewed contributor-check workflow;
+its upstream and implementation Git blob IDs and authority are bound in
+`non_runtime_patches`. This exact-path exception permits no runtime module,
+other workflow, deletion or mode change. Use guarded raw-object export for this
+implementation; the older additive composer still refuses upstream collisions.
+Additions must exactly match the declared overlay. Copying
 an older core file into a newer release is rejected before interpreter execution.
 
 Sealing rechecks imports and real terminal/file dispatch at the final immutable
