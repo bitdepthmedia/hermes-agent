@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ik.hermes.approval-result.v1",
+  "type": "object",
+  "required": ["schema_version", "approval_state", "executed"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "approval_state": {"enum": ["required", "approved", "denied", "not_required"]},
+    "executed": {"type": "boolean"}
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"approval_state": {"enum": ["required", "denied"]}},
+        "required": ["approval_state"]
+      },
+      "then": {"properties": {"executed": {"const": false}}}
+    }
+  ],
+  "additionalProperties": false
+}

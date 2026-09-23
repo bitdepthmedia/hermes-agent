@@ -1,0 +1,424 @@
+{
+  "artifact_layout": {
+    "logs": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/artifacts/85500d41b3165a9d2c9a957c/logs",
+    "receipts": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/artifacts/85500d41b3165a9d2c9a957c/receipts",
+    "root": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/artifacts/85500d41b3165a9d2c9a957c"
+  },
+  "authorization": {
+    "approval_scope": "exact_composed_candidate_batch",
+    "executable": false,
+    "separate_approval_required": true
+  },
+  "batches": [
+    {
+      "approval_boundary": "scripts_enabled_build_approval",
+      "batch_id": "required-runtime-assets",
+      "classification": "required_candidate_runtime",
+      "commands": [
+        {
+          "argv": [
+            "/Volumes/HermesCaseBuilderV1/runtime/node-v24.19.0-npm-v11.17.0/bin/npm",
+            "run",
+            "build",
+            "--workspace",
+            "ui-tui",
+            "--ignore-scripts",
+            "--offline",
+            "--no-audit",
+            "--no-fund"
+          ],
+          "command_id": "build-ui-tui",
+          "command_sha256": "83c1509979705e92b7a524f01819466395abcb95dab4f8460346153b9d8ada25",
+          "env": {
+            "CI": "1",
+            "HOME": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/home",
+            "LANG": "C.UTF-8",
+            "NPM_CONFIG_AUDIT": "false",
+            "NPM_CONFIG_CACHE": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/cache/npm-root",
+            "NPM_CONFIG_FUND": "false",
+            "NPM_CONFIG_GLOBALCONFIG": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/config/npm-global.npmrc",
+            "NPM_CONFIG_IGNORE_SCRIPTS": "true",
+            "NPM_CONFIG_OFFLINE": "true",
+            "NPM_CONFIG_UPDATE_NOTIFIER": "false",
+            "NPM_CONFIG_USERCONFIG": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/config/npm-user.npmrc",
+            "PATH": "/Volumes/HermesCaseBuilderV1/runtime/node-v24.19.0-npm-v11.17.0/bin:/usr/bin:/bin",
+            "TZ": "UTC"
+          },
+          "environment_mode": "replace",
+          "expected_artifacts": [
+            "ui-tui/dist/entry.js",
+            "ui-tui/packages/hermes-ink/dist/entry-exports.js"
+          ],
+          "failure_retention": "retain_outputs_and_logs",
+          "mutates": [
+            "ui-tui/dist",
+            "ui-tui/packages/hermes-ink/dist"
+          ],
+          "network": "denied",
+          "status": "PLANNED",
+          "timeout_seconds": 900,
+          "workdir": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/85500d41b3165a9d2c9a957c/worktree"
+        },
+        {
+          "argv": [
+            "/Volumes/HermesCaseBuilderV1/runtime/node-v24.19.0-npm-v11.17.0/bin/npm",
+            "run",
+            "build",
+            "--workspace",
+            "web",
+            "--ignore-scripts",
+            "--offline",
+            "--no-audit",
+            "--no-fund"
+          ],
+          "command_id": "build-dashboard-web",
+          "command_sha256": "f39b6216b06c723d26bf080210eeac4db9cc1d0344ab96b0106e882e23c6969f",
+          "env": {
+            "CI": "1",
+            "HOME": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/home",
+            "LANG": "C.UTF-8",
+            "NPM_CONFIG_AUDIT": "false",
+            "NPM_CONFIG_CACHE": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/cache/npm-root",
+            "NPM_CONFIG_FUND": "false",
+            "NPM_CONFIG_GLOBALCONFIG": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/config/npm-global.npmrc",
+            "NPM_CONFIG_IGNORE_SCRIPTS": "true",
+            "NPM_CONFIG_OFFLINE": "true",
+            "NPM_CONFIG_UPDATE_NOTIFIER": "false",
+            "NPM_CONFIG_USERCONFIG": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/config/npm-user.npmrc",
+            "PATH": "/Volumes/HermesCaseBuilderV1/runtime/node-v24.19.0-npm-v11.17.0/bin:/usr/bin:/bin",
+            "TZ": "UTC"
+          },
+          "environment_mode": "replace",
+          "expected_artifacts": [
+            "hermes_cli/web_dist/index.html",
+            "hermes_cli/web_dist/assets"
+          ],
+          "failure_retention": "retain_outputs_and_logs",
+          "mutates": [
+            "hermes_cli/web_dist"
+          ],
+          "network": "denied",
+          "status": "PLANNED",
+          "timeout_seconds": 1200,
+          "workdir": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/85500d41b3165a9d2c9a957c/worktree"
+        }
+      ],
+      "status": "APPROVAL_REQUIRED"
+    },
+    {
+      "approval_boundary": "scripts_enabled_test_approval",
+      "batch_id": "required-javascript-validation",
+      "classification": "required_validation",
+      "commands": [
+        {
+          "argv": [
+            "/Volumes/HermesCaseBuilderV1/runtime/node-v24.19.0-npm-v11.17.0/bin/npm",
+            "run",
+            "check",
+            "--workspace",
+            "ui-tui",
+            "--ignore-scripts",
+            "--offline",
+            "--no-audit",
+            "--no-fund"
+          ],
+          "command_id": "check-ui-tui",
+          "command_sha256": "437ad728958e1c30cf7c712dd318cbf77bf2fe055ace672798e16807ccdf77ea",
+          "env": {
+            "CI": "1",
+            "HOME": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/home",
+            "LANG": "C.UTF-8",
+            "NPM_CONFIG_AUDIT": "false",
+            "NPM_CONFIG_CACHE": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/cache/npm-root",
+            "NPM_CONFIG_FUND": "false",
+            "NPM_CONFIG_GLOBALCONFIG": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/config/npm-global.npmrc",
+            "NPM_CONFIG_IGNORE_SCRIPTS": "true",
+            "NPM_CONFIG_OFFLINE": "true",
+            "NPM_CONFIG_UPDATE_NOTIFIER": "false",
+            "NPM_CONFIG_USERCONFIG": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/config/npm-user.npmrc",
+            "PATH": "/Volumes/HermesCaseBuilderV1/runtime/node-v24.19.0-npm-v11.17.0/bin:/usr/bin:/bin",
+            "TZ": "UTC"
+          },
+          "environment_mode": "replace",
+          "expected_artifacts": [
+            "ui-tui-check-receipt.json"
+          ],
+          "failure_retention": "retain_outputs_and_logs",
+          "mutates": [
+            "ui-tui/packages/hermes-ink/dist"
+          ],
+          "network": "denied",
+          "status": "PLANNED",
+          "timeout_seconds": 1800,
+          "workdir": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/85500d41b3165a9d2c9a957c/worktree"
+        },
+        {
+          "argv": [
+            "/Volumes/HermesCaseBuilderV1/runtime/node-v24.19.0-npm-v11.17.0/bin/npm",
+            "run",
+            "check",
+            "--workspace",
+            "web",
+            "--ignore-scripts",
+            "--offline",
+            "--no-audit",
+            "--no-fund"
+          ],
+          "command_id": "check-dashboard-web",
+          "command_sha256": "e2af3c023424df160fbd89939ac318e2ba8aa77caa95b84e4fa1e41ffe6048bc",
+          "env": {
+            "CI": "1",
+            "HOME": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/home",
+            "LANG": "C.UTF-8",
+            "NPM_CONFIG_AUDIT": "false",
+            "NPM_CONFIG_CACHE": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/cache/npm-root",
+            "NPM_CONFIG_FUND": "false",
+            "NPM_CONFIG_GLOBALCONFIG": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/config/npm-global.npmrc",
+            "NPM_CONFIG_IGNORE_SCRIPTS": "true",
+            "NPM_CONFIG_OFFLINE": "true",
+            "NPM_CONFIG_UPDATE_NOTIFIER": "false",
+            "NPM_CONFIG_USERCONFIG": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/config/npm-user.npmrc",
+            "PATH": "/Volumes/HermesCaseBuilderV1/runtime/node-v24.19.0-npm-v11.17.0/bin:/usr/bin:/bin",
+            "TZ": "UTC"
+          },
+          "environment_mode": "replace",
+          "expected_artifacts": [
+            "web-check-receipt.json"
+          ],
+          "failure_retention": "retain_logs",
+          "mutates": [],
+          "network": "denied",
+          "status": "PLANNED",
+          "timeout_seconds": 1800,
+          "workdir": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/85500d41b3165a9d2c9a957c/worktree"
+        },
+        {
+          "argv": [
+            "/Volumes/HermesCaseBuilderV1/runtime/node-v24.19.0-npm-v11.17.0/bin/npm",
+            "run",
+            "check",
+            "--workspace",
+            "@hermes/shared",
+            "--ignore-scripts",
+            "--offline",
+            "--no-audit",
+            "--no-fund"
+          ],
+          "command_id": "check-shared-dashboard-source",
+          "command_sha256": "008fa2a43e1daf604444073b63ace866cbcb8e9729759cabd467f42c632d79fa",
+          "env": {
+            "CI": "1",
+            "HOME": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/home",
+            "LANG": "C.UTF-8",
+            "NPM_CONFIG_AUDIT": "false",
+            "NPM_CONFIG_CACHE": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/cache/npm-root",
+            "NPM_CONFIG_FUND": "false",
+            "NPM_CONFIG_GLOBALCONFIG": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/config/npm-global.npmrc",
+            "NPM_CONFIG_IGNORE_SCRIPTS": "true",
+            "NPM_CONFIG_OFFLINE": "true",
+            "NPM_CONFIG_UPDATE_NOTIFIER": "false",
+            "NPM_CONFIG_USERCONFIG": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/config/npm-user.npmrc",
+            "PATH": "/Volumes/HermesCaseBuilderV1/runtime/node-v24.19.0-npm-v11.17.0/bin:/usr/bin:/bin",
+            "TZ": "UTC"
+          },
+          "environment_mode": "replace",
+          "expected_artifacts": [
+            "shared-check-receipt.json"
+          ],
+          "failure_retention": "retain_logs",
+          "mutates": [],
+          "network": "denied",
+          "status": "PLANNED",
+          "timeout_seconds": 900,
+          "workdir": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/85500d41b3165a9d2c9a957c/worktree"
+        },
+        {
+          "argv": [
+            "/Volumes/HermesCaseBuilderV1/runtime/node-v24.19.0-npm-v11.17.0/bin/npm",
+            "run",
+            "check",
+            "--workspace",
+            "@hermes/root-tests",
+            "--ignore-scripts",
+            "--offline",
+            "--no-audit",
+            "--no-fund"
+          ],
+          "command_id": "check-root-javascript-tests",
+          "command_sha256": "e6090a7079f05f5b0754c12904b346839bc06eafb483e421b90f6514954e6b1e",
+          "env": {
+            "CI": "1",
+            "HOME": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/home",
+            "LANG": "C.UTF-8",
+            "NPM_CONFIG_AUDIT": "false",
+            "NPM_CONFIG_CACHE": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/cache/npm-root",
+            "NPM_CONFIG_FUND": "false",
+            "NPM_CONFIG_GLOBALCONFIG": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/config/npm-global.npmrc",
+            "NPM_CONFIG_IGNORE_SCRIPTS": "true",
+            "NPM_CONFIG_OFFLINE": "true",
+            "NPM_CONFIG_UPDATE_NOTIFIER": "false",
+            "NPM_CONFIG_USERCONFIG": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/config/npm-user.npmrc",
+            "PATH": "/Volumes/HermesCaseBuilderV1/runtime/node-v24.19.0-npm-v11.17.0/bin:/usr/bin:/bin",
+            "TZ": "UTC"
+          },
+          "environment_mode": "replace",
+          "expected_artifacts": [
+            "root-js-check-receipt.json"
+          ],
+          "failure_retention": "retain_logs",
+          "mutates": [],
+          "network": "denied",
+          "status": "PLANNED",
+          "timeout_seconds": 1800,
+          "workdir": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/85500d41b3165a9d2c9a957c/worktree"
+        }
+      ],
+      "status": "APPROVAL_REQUIRED"
+    },
+    {
+      "batch_id": "focused-lifecycle-validation",
+      "classification": "required_validation",
+      "commands": [
+        {
+          "argv": [
+            "/Library/Frameworks/Python.framework/Versions/3.11/bin/python3",
+            "-m",
+            "unittest",
+            "tests.ik_lifecycle.test_audited_dependency_copy",
+            "tests.ik_lifecycle.test_cells_health_rollback",
+            "tests.ik_lifecycle.test_composed_candidate",
+            "tests.ik_lifecycle.test_composed_execution_authority",
+            "tests.ik_lifecycle.test_composed_release",
+            "tests.ik_lifecycle.test_continuity_migration",
+            "tests.ik_lifecycle.test_execution_plan",
+            "tests.ik_lifecycle.test_macos_network_guard",
+            "tests.ik_lifecycle.test_sealing_split"
+          ],
+          "command_id": "run-focused-lifecycle-unittest",
+          "command_sha256": "f76604414997a17e5203e38ce53161be30d45971cd7c06187f810607cb4b7903",
+          "env": {
+            "CI": "1",
+            "HERMES_HOME": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/fixtures/hermes-home",
+            "HOME": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/dependency-audit/home",
+            "LANG": "C.UTF-8",
+            "PATH": "/usr/bin:/bin",
+            "PYTHONHASHSEED": "0",
+            "TZ": "UTC"
+          },
+          "environment_mode": "replace",
+          "expected_artifacts": [],
+          "failure_retention": "retain_outputs_logs_and_caches",
+          "mutates": [],
+          "network": "denied",
+          "status": "PLANNED",
+          "timeout_seconds": 900,
+          "workdir": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/85500d41b3165a9d2c9a957c/worktree"
+        }
+      ],
+      "status": "APPROVAL_REQUIRED"
+    }
+  ],
+  "bindings": {
+    "automation_migration_checklist_sha256": "8a88e0279b63893c30d26fb10a6b4d660be28aad2185f42c688ae9a82706b2f1",
+    "dependency_copy_sha256": "6238ba0bb3d5ad9eafc16e525833f8088203b8e0ad368ac907c83f2ff6415a6b",
+    "dependency_install_result_file_sha256": "234683de200ecb3016cf56e0dec938a3a6a506f4b78a5fb700accc9384cec9bd",
+    "dependency_surfaces": [
+      [
+        "node_modules",
+        "f853501204dfa2098226e116967152f2584cc6fe0ec5854b64284a007da50657"
+      ],
+      [
+        "ui-tui/node_modules",
+        "db55e8f14b787890ffbe01722b49cc3af95e6757082149fb58652b3eaa375187"
+      ],
+      [
+        "tests-js/node_modules",
+        "f8f591938dfb309077ecf5c1bda8774ba56fc38a379daf4038b7f8ea3ac52c76"
+      ]
+    ],
+    "hook_inventory_sha256": "6eb96636c7af719cc1dbac40702cf9a7432fd0274795f83064d352bc6e4afaef",
+    "latest_stable_commit_sha": "fcbd1076a93841fa88855acce810e342a5b78101",
+    "latest_stable_tag": "v2026.8.19",
+    "overlay_manifest_file_sha256": "0ed05ea9c931516c99b7393acbe70d750f91410d0446656289889e07428e149b",
+    "overlay_source_sha256": "5740bef01c4f5e013bdfaf49c385038d64bd9d285ae17108569256a8d1749653",
+    "replay_manifest_sha256": "6353761fc90dba784548b5b6ab7c8e92c4487f356b830f3bf597f5a00140d632",
+    "target_policy": "immediately_previous_published_stable_release"
+  },
+  "blockers": [],
+  "candidate": {
+    "candidate_id": "1e79082041b08781ca40",
+    "cell_id": "ernie",
+    "execution_root": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40",
+    "immutable_source": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/compositions/85500d41b3165a9d2c9a957c/source",
+    "source_tree_sha256": "d146de1593a89f1fb9b71c1dc98bd77c554c5d589435f97023635b3da0907b83",
+    "target_commit_sha": "e624e9fde561e1add9388384012b295fde669ade",
+    "target_tag": "v2026.8.18"
+  },
+  "command_count": 7,
+  "commands_sha256": "8fb06a1ec9ac9975e08507dd729dce2d8929cbf069a26fdf128aff2d96043589",
+  "composition": {
+    "build_root": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/build-roots/85500d41b3165a9d2c9a957c/worktree",
+    "build_root_pristine_sha256": "d5fabb55cfb3727e09ba9fe37e61362ec27d99836ca872b3656e5fef65e08f80",
+    "composed_tree_sha256": "d5fabb55cfb3727e09ba9fe37e61362ec27d99836ca872b3656e5fef65e08f80",
+    "composition_id": "85500d41b3165a9d2c9a957c",
+    "immutable_source": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/compositions/85500d41b3165a9d2c9a957c/source",
+    "manifest_path": "/Volumes/HermesCaseBuilderV1/platform/cells/ernie/candidates/1e79082041b08781ca40/composed-candidate/compositions/85500d41b3165a9d2c9a957c/manifest.json"
+  },
+  "excluded_surfaces": [
+    "dependency_install_or_resolution",
+    "website",
+    "whatsapp_bridge",
+    "photon_sidecar",
+    "desktop",
+    "profile_or_history_migration",
+    "models",
+    "services",
+    "automations",
+    "live_bert",
+    "promotion",
+    "deployment"
+  ],
+  "implementation_commit": "bc4d69f15b10ed98aaedb029a4f2416f422ef5f1",
+  "network_isolation": {
+    "adapter_id": "macos-sandbox-exec-deny-network-v1",
+    "adapter_sha256": "6fdf49544e2c57d69f7a7f4a892e062265aa292cc31f2ee43a42a0e1673e5a4f",
+    "policy": "(version 1)\n(allow default)\n(deny network*)\n",
+    "policy_sha256": "5c358b8d847211333e7ba22df82d84f796b5f30a41a2682209a949d783adbd08",
+    "proof_requirement": "fresh_receipt_before_each_execution_start",
+    "proof_ttl_seconds": 300,
+    "runtime": "/Library/Frameworks/Python.framework/Versions/3.11/bin/python3",
+    "runtime_sha256": "c220ae7b6c2b9da2a4e498c09cdbc64b03b43db96dbbf9f64d26bfbbd698e2bd",
+    "sandbox_exec_sha256": "8290e4be7387a0df83cd1559e86afd880464f269450573d012795761fe298f16"
+  },
+  "plan_sha256": "11385283fa7dcd7755a37f77dca56ecd19818aaafd68bc7d6815add0e56fdc43",
+  "promotion_blockers": [
+    "active_legacy_bert_health_automation_must_be_approval_paused",
+    "computer_history_heartbeat_path_adaptation_requires_separate_approval",
+    "rollback_pair_and_profile_migration_not_yet_rehearsed"
+  ],
+  "protected_paths": [
+    "/Users/react/Documents/_IK_International/AI/_apps/bert-ernie-local-stack/runtime/hermes-agent",
+    "/Users/react/.hermes",
+    "/Users/react/.hermes-ernie"
+  ],
+  "purpose": "network-denied scripts-enabled build and focused validation of the official-source plus declared-overlay Ernie candidate",
+  "runtimes": {
+    "node": {
+      "path": "/Volumes/HermesCaseBuilderV1/runtime/node-v24.19.0-npm-v11.17.0/bin/node",
+      "sha256": "27db838bb204ef7c21df2931f5656e4c8fb32e6e947f363a402b49714d32b5b1",
+      "version": "24.19.0"
+    },
+    "npm": {
+      "path": "/Volumes/HermesCaseBuilderV1/runtime/node-v24.19.0-npm-v11.17.0/bin/npm",
+      "sha256": "8e5f6f3429f8cdbe693cdc29904e9d5a7b127a494bd15c804bd54c7403bfcbe7",
+      "version": "11.17.0"
+    },
+    "python": {
+      "path": "/Library/Frameworks/Python.framework/Versions/3.11/bin/python3",
+      "sha256": "c220ae7b6c2b9da2a4e498c09cdbc64b03b43db96dbbf9f64d26bfbbd698e2bd",
+      "version": "3.11.3"
+    }
+  },
+  "schema_id": "ik.hermes.composed-execution-plan.v2",
+  "status": "APPROVAL_REQUIRED"
+}
