@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ik.hermes.transport-ack.v1",
+  "type": "object",
+  "required": ["schema_version", "task_id", "sequence", "envelope_digest", "recipient", "status"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "task_id": {"type": "string", "format": "uuid"},
+    "sequence": {"type": "integer", "minimum": 1},
+    "envelope_digest": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "recipient": {"enum": ["bert", "ernie", "codex"]},
+    "status": {"enum": ["accepted", "duplicate", "rejected"]}
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ik.hermes.candidate-build-manifest.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_id",
+    "candidate_id",
+    "status",
+    "cell",
+    "release_selection",
+    "source",
+    "replay",
+    "supply_chain",
+    "dependency_phase",
+    "promotion_blockers",
+    "external_approval_gates"
+  ],
+  "properties": {
+    "schema_id": {"const": "ik.hermes.candidate-build-manifest.v1"},
+    "candidate_id": {"type": "string", "pattern": "^[a-f0-9]{20}$"},
+    "status": {"enum": ["BUILDING", "STATIC_PREPARED", "FAILED", "SEALED"]},
+    "cell": {"type": "object"},
+    "release_selection": {"type": "object"},
+    "source": {"type": "object"},
+    "replay": {"type": "object"},
+    "supply_chain": {"type": "object"},
+    "dependency_phase": {"type": "object"},
+    "promotion_blockers": {"type": "array", "items": {"type": "string"}},
+    "external_approval_gates": {"type": "object"},
+    "failure": {"type": "object"},
+    "sealed_release": {"type": "object"}
+  }
+}

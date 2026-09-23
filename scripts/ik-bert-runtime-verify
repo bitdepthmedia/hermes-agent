@@ -1,0 +1,91 @@
+#!/usr/bin/env python3
+"""Dependency-free verifier for an immutable Bert runtime release."""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+from pathlib import Path
+import re
+import stat
+import sys
+
+
+def sha(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def tree_digest(root: Path) -> str:
+    digest = hashlib.sha256()
+    for path in sorted(root.rglob("*"), key=lambda item: item.relative_to(root).as_posix()):
+        relative = path.relative_to(root).as_posix()
+        if path.is_symlink():
+            raise ValueError("symlink")
+        if path.is_file():
+            digest.update(f"F\0{relative}\0".encode())
+            digest.update(path.read_bytes())
+            digest.update(b"\0")
+        elif path.is_dir():
+            digest.update(f"D\0{relative}\0".encode())
+    return digest.hexdigest()
+
+
+def verify(release_arg: str, manifest_sha: str, self_sha: str) -> bool:
+    if not re.fullmatch(r"[0-9a-f]{64}", manifest_sha) or not re.fullmatch(r"[0-9a-f]{64}", self_sha):
+        return False
+    script = Path(__file__).resolve()
+    if sha(script) != self_sha:
+        return False
+    release_path = Path(release_arg)
+    if not release_path.is_absolute() or release_path.is_symlink():
+        return False
+    release = release_path.resolve(strict=True)
+    manifest = release / "runtime-manifest.json"
+    if manifest.is_symlink() or sha(manifest) != manifest_sha:
+        return False
+    document = json.loads(manifest.read_text(encoding="utf-8"))
+    identity = document.get("identity", {})
+    if (
+        document.get("status") != "SEALED_DEPLOYABLE_RUNTIME"
+        or document.get("release_id") != release.name
+        or tree_digest(release / "source") != identity.get("source_tree_sha256")
+    ):
+        return False
+    surfaces = identity.get("surfaces", {})
+    if set(surfaces) != {"python-runtime", "built-assets", "service-definitions", "model-runtime"}:
+        return False
+    for surface_id, binding in surfaces.items():
+        if tree_digest(release / "surfaces" / surface_id) != binding.get("tree_sha256"):
+            return False
+    if sha(release / "config/router.json") != identity.get("router_config_sha256"):
+        return False
+    if sha(release / "config/model.json") != identity.get("model_manifest_sha256"):
+        return False
+    lockfiles = identity.get("lockfiles", {})
+    if not isinstance(lockfiles, dict) or not lockfiles:
+        return False
+    for lock_id, expected in lockfiles.items():
+        if not re.fullmatch(r"[a-z0-9][a-z0-9-]{1,63}", lock_id) or sha(release / "config/locks" / f"{lock_id}.lock") != expected:
+            return False
+    return not any(
+        stat.S_IMODE(path.stat().st_mode) & 0o222
+        for path in (release, *release.rglob("*"))
+        if not path.is_symlink()
+    )
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--release", required=True)
+    parser.add_argument("--manifest-sha", required=True)
+    parser.add_argument("--self-sha", required=True)
+    args = parser.parse_args()
+    try:
+        return 0 if verify(args.release, args.manifest_sha, args.self_sha) else 1
+    except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

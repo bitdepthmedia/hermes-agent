@@ -1,0 +1,317 @@
+"""Atomic Ernie primary/fast profile bundle with opaque local credentials."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+import hashlib
+import json
+import os
+from pathlib import Path
+import shutil
+import stat
+
+import yaml
+
+from .credential_exec import (
+    CredentialExecError,
+    credential_key_allowed,
+    read_credential_assignments,
+    render_credential_assignments,
+)
+from .models import LifecycleBlockedError
+from .opaque_backup import OpaqueBackupError, _clone_permissions_clear, _tree_digest
+from .profile_candidate import _configure
+
+
+@dataclass(frozen=True)
+class ErnieProfileBundleInputs:
+    primary: Path
+    fast: Path
+    router_credentials: Path
+    compatibility_gateway_credentials: Path
+    shared_credentials: Path
+    router_port: int
+    fast_link_root: Path | None = None
+    fast_port: int = 8644
+    primary_port: int = 8645
+
+
+@dataclass(frozen=True)
+class ErnieProfileBundle:
+    root: Path
+    receipt: dict[str, object]
+
+
+@dataclass(frozen=True)
+class ProfileBundleValidation:
+    status: str
+
+
+def _canonical(value: object) -> bytes:
+    return json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
+
+
+def _source(path: Path, *, allowed_link_root: Path | None = None) -> tuple[Path, str]:
+    root = Path(path).absolute()
+    if (
+        root.is_symlink()
+        or not root.is_dir()
+        or stat.S_IMODE(os.lstat(root).st_mode) != 0o700
+    ):
+        raise LifecycleBlockedError("profile_bundle_source_invalid", "profile bundle source is invalid")
+    links = tuple(path for path in root.rglob("*") if path.is_symlink())
+    if links and allowed_link_root is None:
+        raise LifecycleBlockedError("profile_bundle_symlink_invalid", "profile bundle symlink is not permitted")
+    allowed = Path(allowed_link_root).resolve() if allowed_link_root is not None else None
+    digest = hashlib.sha256()
+    for item in sorted(root.rglob("*"), key=lambda value: value.relative_to(root).as_posix()):
+        relative = item.relative_to(root).as_posix()
+        if item.is_symlink():
+            assert allowed is not None
+            try:
+                resolved = item.resolve(strict=True)
+                resolved.relative_to(allowed)
+            except (OSError, ValueError) as exc:
+                raise LifecycleBlockedError(
+                    "profile_bundle_symlink_invalid",
+                    "profile bundle symlink target is not permitted",
+                ) from exc
+            if resolved.is_dir():
+                value = _tree_digest(resolved)[0]
+            elif resolved.is_file():
+                value = hashlib.sha256(resolved.read_bytes()).hexdigest()
+            else:
+                raise LifecycleBlockedError(
+                    "profile_bundle_symlink_invalid",
+                    "profile bundle symlink target is invalid",
+                )
+            digest.update(f"L\0{relative}\0{value}\0".encode())
+            continue
+        metadata = os.lstat(item)
+        mode = stat.S_IMODE(metadata.st_mode)
+        if (
+            metadata.st_uid != os.getuid()
+            or mode & 0o022
+            or not (stat.S_ISDIR(metadata.st_mode) or stat.S_ISREG(metadata.st_mode))
+        ):
+            raise LifecycleBlockedError("profile_bundle_source_invalid", "profile bundle source permissions are invalid")
+        if item.is_dir():
+            digest.update(f"D\0{relative}\0".encode())
+        else:
+            digest.update(f"F\0{relative}\0".encode() + item.read_bytes() + b"\0")
+    return root, digest.hexdigest()
+
+
+def _credential(path: Path) -> tuple[Path, str]:
+    source = Path(path).absolute()
+    try:
+        metadata = os.lstat(source)
+    except OSError as exc:
+        raise LifecycleBlockedError("profile_bundle_credential_invalid", "opaque credential handle is invalid") from exc
+    mode = stat.S_IMODE(metadata.st_mode)
+    if (
+        stat.S_ISLNK(metadata.st_mode)
+        or not stat.S_ISREG(metadata.st_mode)
+        or mode & 0o022
+        or not mode & 0o400
+        or metadata.st_uid != os.getuid()
+    ):
+        raise LifecycleBlockedError("profile_bundle_credential_invalid", "opaque credential handle is invalid")
+    return source, hashlib.sha256(source.read_bytes()).hexdigest()
+
+
+def _write_role_credentials(source: Path, destination: Path, *, policy: str) -> None:
+    try:
+        assignments = read_credential_assignments(source)
+        retained = {
+            key: value
+            for key, value in assignments.items()
+            if credential_key_allowed(key, policy=policy)
+        }
+    except CredentialExecError as exc:
+        raise LifecycleBlockedError("profile_bundle_credential_invalid", "opaque credential handle is invalid") from exc
+    destination.write_text(render_credential_assignments(retained), encoding="utf-8")
+    destination.chmod(0o600)
+
+
+_RUNTIME_CONTROL_ENV = frozenset(
+    {
+        "API_SERVER_ENABLED",
+        "API_SERVER_HOST",
+        "API_SERVER_PORT",
+        "API_SERVER_MODEL_NAME",
+        "IK_MODEL_BASE_URL",
+        "OLLAMA_BASE_URL",
+        "OLLAMA_MODEL",
+        "ERNIE_ROUTER_MODEL_NAME",
+        "LLM_MODEL",
+        "OPENAI_MODEL",
+        "OPENAI_BASE_URL",
+    }
+)
+_EXTERNAL_PLATFORM_ENV_PREFIXES = (
+    "BLUEBUBBLES_",
+    "DINGTALK_",
+    "DISCORD_",
+    "EMAIL_",
+    "FEISHU_",
+    "HOMEASSISTANT_",
+    "MATTERMOST_",
+    "MATRIX_",
+    "QQ_",
+    "SIGNAL_",
+    "SLACK_",
+    "SMS_",
+    "TELEGRAM_",
+    "WHATSAPP_",
+    "WECOM_",
+    "WEIXIN_",
+    "WEBHOOK_",
+)
+
+
+def _scrub_runtime_control_environment(profile: Path) -> None:
+    environment = profile / ".env"
+    if not environment.is_file() or environment.is_symlink():
+        return
+    try:
+        lines = environment.read_text(encoding="utf-8").splitlines(keepends=True)
+    except (OSError, UnicodeError) as exc:
+        raise LifecycleBlockedError("profile_environment_invalid", "profile environment is invalid") from exc
+    retained: list[str] = []
+    for raw in lines:
+        candidate = raw.strip()
+        if candidate.startswith("export "):
+            candidate = candidate[7:].lstrip()
+        key = candidate.split("=", 1)[0].strip() if "=" in candidate else ""
+        if key in _RUNTIME_CONTROL_ENV or key.startswith(_EXTERNAL_PLATFORM_ENV_PREFIXES):
+            continue
+        retained.append(raw)
+    temporary = environment.with_name(f".{environment.name}.{os.getpid()}.tmp")
+    temporary.write_text("".join(retained), encoding="utf-8")
+    temporary.chmod(0o600)
+    os.replace(temporary, environment)
+
+
+def _configure_api_server(profile: Path, port: int) -> None:
+    if not 1024 <= port <= 65535:
+        raise LifecycleBlockedError("profile_api_endpoint_invalid", "profile API endpoint is invalid")
+    config_path = profile / "config.yaml"
+    try:
+        config = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    except (OSError, UnicodeError, yaml.YAMLError) as exc:
+        raise LifecycleBlockedError("profile_config_invalid", "profile configuration is invalid") from exc
+    if not isinstance(config, dict):
+        raise LifecycleBlockedError("profile_config_invalid", "profile configuration is invalid")
+    config["platforms"] = {
+        "api_server": {
+            "enabled": True,
+            "extra": {"host": "127.0.0.1", "port": port},
+        }
+    }
+    temporary = config_path.with_name(f".{config_path.name}.{os.getpid()}.tmp")
+    temporary.write_text(yaml.safe_dump(config, sort_keys=True), encoding="utf-8")
+    temporary.chmod(0o600)
+    os.replace(temporary, config_path)
+
+
+def validate_ernie_profile_bundle(root: Path, receipt: dict[str, object]) -> ProfileBundleValidation:
+    path = Path(root).absolute()
+    try: clear = _clone_permissions_clear(path)
+    except OpaqueBackupError as exc:
+        raise LifecycleBlockedError("profile_bundle_invalid", "profile bundle changed") from exc
+    body = {key: value for key, value in receipt.items() if key != "receipt_sha256"}
+    tree, count, total = _tree_digest(path)
+    if (
+        path.is_symlink()
+        or not path.is_dir()
+        or not clear
+        or receipt.get("schema_id") != "ik.hermes.ernie-profile-bundle.v1"
+        or receipt.get("status") != "CLEAR_PROFILE_BUNDLE"
+        or receipt.get("bundle_tree_sha256") != tree
+        or receipt.get("aggregate_file_count") != count
+        or receipt.get("aggregate_bytes") != total
+        or receipt.get("receipt_sha256") != hashlib.sha256(_canonical(body)).hexdigest()
+    ):
+        raise LifecycleBlockedError("profile_bundle_tampered", "profile bundle changed or was tampered")
+    return ProfileBundleValidation("CLEAR")
+
+
+def build_ernie_profile_bundle(inputs: ErnieProfileBundleInputs, destination: Path) -> ErnieProfileBundle:
+    ports = (inputs.router_port, inputs.fast_port, inputs.primary_port)
+    if len(set(ports)) != len(ports) or any(not 1024 <= port <= 65535 for port in ports):
+        raise LifecycleBlockedError("profile_bundle_endpoint_invalid", "profile bundle router endpoint is invalid")
+    primary, primary_tree = _source(inputs.primary)
+    fast_link_root = inputs.fast_link_root or primary
+    fast, fast_tree = _source(inputs.fast, allowed_link_root=fast_link_root)
+    router, router_sha = _credential(inputs.router_credentials)
+    gateway, gateway_sha = _credential(inputs.compatibility_gateway_credentials)
+    shared, shared_sha = _credential(inputs.shared_credentials)
+    target = Path(destination).absolute()
+    receipt_path = target.parent / f".{target.name}.receipt.json"
+    source_binding = {
+        "primary_tree_sha256": primary_tree,
+        "fast_tree_sha256": fast_tree,
+        "router_credential_sha256": router_sha,
+        "compatibility_gateway_credential_sha256": gateway_sha,
+        "shared_credential_sha256": shared_sha,
+        "router_port": inputs.router_port,
+        "fast_port": inputs.fast_port,
+        "primary_port": inputs.primary_port,
+    }
+    if target.exists() or target.is_symlink():
+        try: receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise LifecycleBlockedError("profile_bundle_exists", "profile bundle already exists without a valid receipt") from exc
+        validate_ernie_profile_bundle(target, receipt)
+        if receipt.get("source_binding") != source_binding:
+            raise LifecycleBlockedError("profile_bundle_source_drift", "profile bundle source binding changed")
+        return ErnieProfileBundle(target, receipt)
+    if target.parent.is_symlink():
+        raise LifecycleBlockedError("profile_bundle_parent_invalid", "profile bundle parent is a symlink")
+    target.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    staging = target.with_name(f".{target.name}.{os.getpid()}.staging")
+    try:
+        staging.mkdir(mode=0o700)
+        shutil.copytree(primary, staging / "primary", symlinks=False)
+        shutil.copytree(fast, staging / "fast", symlinks=False)
+        _configure(staging / "primary", inputs.router_port)
+        _configure(staging / "fast", inputs.router_port)
+        _configure_api_server(staging / "primary", inputs.primary_port)
+        _configure_api_server(staging / "fast", inputs.fast_port)
+        _scrub_runtime_control_environment(staging / "primary")
+        _scrub_runtime_control_environment(staging / "fast")
+        (staging / "router").mkdir(mode=0o700)
+        _write_role_credentials(router, staging / "router/.env", policy="router")
+        (staging / "compatibility-gateway").mkdir(mode=0o700)
+        _write_role_credentials(gateway, staging / "compatibility-gateway/.env", policy="compatibility")
+        _write_role_credentials(shared, staging / "compatibility-gateway/shared-core.env", policy="compatibility")
+        for item in sorted(staging.rglob("*"), key=lambda value: len(value.parts), reverse=True):
+            if item.is_symlink(): raise LifecycleBlockedError("profile_bundle_symlink", "profile bundle contains a symlink")
+            os.chmod(item, 0o700 if item.is_dir() else 0o600)
+        tree, count, total = _tree_digest(staging)
+        body = {
+            "schema_id": "ik.hermes.ernie-profile-bundle.v1",
+            "status": "CLEAR_PROFILE_BUNDLE",
+            "source_binding": source_binding,
+            "bundle_tree_sha256": tree,
+            "aggregate_file_count": count,
+            "aggregate_bytes": total,
+            "profiles": ["primary", "fast"],
+            "credential_classes": ["router", "compatibility-gateway", "shared-core"],
+            "model": "ik-qwen38-eval:31629f53165a",
+            "provider": "ik-ernie-local",
+            "keyword_routing": False,
+        }
+        receipt = {**body, "receipt_sha256": hashlib.sha256(_canonical(body)).hexdigest()}
+        os.replace(staging, target)
+        receipt_path.write_text(json.dumps(receipt, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
+        os.chmod(receipt_path, 0o600)
+        validate_ernie_profile_bundle(target, receipt)
+        return ErnieProfileBundle(target, receipt)
+    except Exception:
+        if staging.exists():
+            failed = staging.with_name(staging.name + ".failed")
+            try: os.replace(staging, failed)
+            except OSError: pass
+        raise

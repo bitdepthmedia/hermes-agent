@@ -1,0 +1,1 @@
+{"name":"ik-persona-orchestration","version":"1.0.0","kind":"plugin","entrypoint":"ik_extensions.persona_orchestration.plugin:register","default_enabled":false,"policy_authority":"nate-os"}

@@ -1,0 +1,1 @@
+{"cell_id":"bert","trust_zone":"sanitized-cloud","state_root_key":"BERT_STATE_ROOT","profile_root_key":"BERT_PROFILE_ROOT","release_root_key":"BERT_RELEASE_ROOT","nate_os_write_allowed":false,"transport_role":"sanitized-cloud","approval_requirements":["ssh","profile-migration","service","promotion"],"external_approval_gates":["computer_history_path_adaptation"]}

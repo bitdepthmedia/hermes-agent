@@ -1,0 +1,32 @@
+{
+  "schema_id": "ik.hermes.local-prerequisite-implementation-approval.v1",
+  "status": "DECISION_REQUIRED",
+  "source_thread_id": "01a02498-1468-72e1-b76b-9d8b33d4dc94",
+  "candidate_id": "1e79082041b08781ca40",
+  "target_tag": "v2026.8.18",
+  "target_commit_sha": "e624e9fde561e1add9388384012b295fde669ade",
+  "candidate_execution_plan_sha256": "2b656af94ad6d2bdfe866143f05b5432876bbab9848bfda8c50cf240ea285ab5",
+  "candidate_execution_plan_file_sha256": "62f78c106e58106d9e3a5afe8fd0b756f052f51dcdb0ab2603045d0a840ed849",
+  "commands_sha256": "bd9253cf6b332aff96c95d46019e1de7c35de104097980bbf03abb7686bcf224",
+  "hook_inventory_sha256": "6eb96636c7af719cc1dbac40702cf9a7432fd0274795f83064d352bc6e4afaef",
+  "requested_decision": "Authorize the local code-only prerequisite implementation phase before any candidate build or test command runs.",
+  "authorized_if_approved": [
+    "implement the declared Hermes extension overlay and focused Tasks 3 through 10 contracts with tests first",
+    "add a deterministic composed-source assembly step bound to the replay manifest and overlay tree digest",
+    "refactor immutable release sealing to bind source, overlay, runtime environment and built asset digests",
+    "move real rollback release/profile pointer proof to the promotion gate while retaining a sealed rollback-bundle prerequisite",
+    "add a local network-denial execution adapter and receipt contract for future build/test batches",
+    "add synthetic-only migration, routing, privacy, offline-Ernie, cell, health and rollback fixtures and validators"
+  ],
+  "not_authorized": [
+    "any dependency or package-manager command",
+    "any lifecycle, build or test command from the candidate execution plan",
+    "real profile, history, config, credential or private-data access",
+    "model changes or downloads",
+    "services, schedules or automation changes",
+    "live Bert or SSH access",
+    "promotion, deployment, restart or push"
+  ],
+  "why_this_precedes_script_approval": "The current immutable source is exact upstream and has no declared customization overlay. The current sealer copies only upstream source, does not bind the runtime environment or built assets, and requires real rollback/profile pointers too early. Running build/tests now would validate an incomplete candidate and create artifacts invalidated by the missing overlay.",
+  "approval_input_sha256": "bfc32502f605f457bafcaf157066385f2caf0f59bde19c8dc87819adb706c471"
+}
