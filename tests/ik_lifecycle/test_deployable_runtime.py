@@ -334,6 +334,52 @@ def test_seal_rejects_source_without_git_provenance(tmp_path: Path) -> None:
         seal_deployable_runtime(inputs, tmp_path / "unproven", running_roots=())
 
 
+def test_exact_source_export_ignores_archive_line_ending_filters(
+    tmp_path: Path,
+) -> None:
+    from ik_lifecycle.source_provenance import (
+        export_committed_source,
+        verify_source_provenance,
+    )
+
+    inputs = _inputs(tmp_path)
+    repo = inputs.provenance.repository
+    (repo / ".gitattributes").write_text("*.ps1 text eol=crlf\n", encoding="utf-8")
+    (repo / "check.ps1").write_bytes(b'Write-Output "fixture"\n')
+    subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo),
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "commit",
+            "-qm",
+            "export fixture",
+        ],
+        check=True,
+    )
+    commit = subprocess.check_output(
+        ["git", "-C", str(repo), "rev-parse", "HEAD"], text=True
+    ).strip()
+    provenance = SourceProvenance(repo, commit)
+    exported = export_committed_source(
+        provenance, tmp_path / "export", (inputs.source,)
+    )
+    assert (exported / "check.ps1").read_bytes() == b'Write-Output "fixture"\n'
+    assert (
+        verify_source_provenance(exported, commit, "fixture", provenance)[
+            "implementation_commit"
+        ]
+        == commit
+    )
+    with pytest.raises(LifecycleBlockedError):
+        export_committed_source(provenance, inputs.source / "unsafe", (inputs.source,))
+
+
 def test_seal_rejects_untracked_source_injection(tmp_path: Path) -> None:
     inputs = _inputs(tmp_path)
     (inputs.source / "injected.py").write_text(

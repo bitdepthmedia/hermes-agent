@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 import hashlib
+import io
 from pathlib import Path
 import re
 import subprocess
@@ -15,6 +16,68 @@ class SourceProvenance:
     repository: Path
     implementation_commit: str
     overlay_manifest: str | None = None
+
+
+def export_committed_source(
+    provenance: SourceProvenance, destination: Path, protected_roots: tuple[Path, ...]
+) -> Path:
+    """Export raw blobs, without checkout/archive EOL or export-attribute filters."""
+    destination = Path(destination)
+    resolved = destination.resolve()
+    if (
+        not protected_roots
+        or destination.exists()
+        or destination.is_symlink()
+        or any(
+            resolved.is_relative_to(Path(root).resolve())
+            or Path(root).resolve().is_relative_to(resolved)
+            for root in protected_roots
+        )
+    ):
+        raise LifecycleBlockedError(
+            "source_export_destination",
+            "source export needs a new isolated destination and protected roots",
+        )
+    tree = _tree(provenance.repository, provenance.implementation_commit)
+    result = subprocess.run(
+        [
+            "git",
+            "--no-replace-objects",
+            "-C",
+            str(provenance.repository),
+            "cat-file",
+            "--batch",
+        ],
+        input="".join(oid + "\n" for _, oid in tree.values()).encode(),
+        capture_output=True,
+        timeout=120,
+        check=True,
+    )
+    stream = io.BytesIO(result.stdout)
+    destination.mkdir(parents=True, mode=0o700)
+    for name, (mode, oid) in tree.items():
+        relative = Path(name)
+        if relative.is_absolute() or ".." in relative.parts or ".git" in relative.parts:
+            raise LifecycleBlockedError(
+                "source_export_path", "source export contains an unsafe path"
+            )
+        actual_oid, kind, size = stream.readline().decode("ascii").strip().split()
+        content = stream.read(int(size))
+        if (
+            actual_oid != oid
+            or kind != "blob"
+            or len(content) != int(size)
+            or stream.read(1) != b"\n"
+        ):
+            raise LifecycleBlockedError(
+                "source_export_blob", "source export blob response is invalid"
+            )
+        path = destination / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("xb") as target:
+            target.write(content)
+        path.chmod(0o755 if mode == "100755" else 0o644)
+    return destination
 
 
 def _git(repository: Path, *args: str) -> bytes:

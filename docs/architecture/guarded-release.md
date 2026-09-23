@@ -12,7 +12,7 @@ Use `scripts/ik-hermes-lifecycle` from the reviewed operator checkout. Read-only
 Neither command promotes. Legacy artifacts without source provenance are
 `UNVERIFIED`, not retroactively certified.
 
-The guarded commands are `seal`, `verify-artifact`, and `promote`. Each requires
+The guarded commands are `export-source`, `seal`, `verify-artifact`, and `promote`. Each requires
 `--plan PATH --approve-sha256 DIGEST`. `plan-digest --plan PATH` calculates the
 digest; calculation alone is not approval. The operator must obtain approval for
 those exact bytes through the existing approval channel. JSON plans contain:
@@ -36,6 +36,11 @@ isolation, not a network or operating-system sandbox. Unknown dependencies and
 lifecycle scripts require their own approval and are never installed here.
 
 ## Seal And Verify
+
+First use `export-source` with `source` (a new isolated destination), nonempty
+`protected_roots`, `target_tag`, `target_commit_sha`, and the common plan fields.
+It exports raw Git blobs and verifies provenance. Ordinary `git archive` and
+checkout can apply line-ending filters; those are not exact-object exports.
 
 `seal` takes `release_root`, nonempty `protected_roots`, and `inputs` containing
 `candidate_id`, `target_tag`, `target_commit_sha`, `source`, `surfaces` (name to

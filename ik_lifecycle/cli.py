@@ -70,7 +70,7 @@ def _parser() -> argparse.ArgumentParser:
     supply_chain.add_argument("--candidate", type=Path, required=True)
     supply_chain.add_argument("--base", type=Path)
     supply_chain.add_argument("--receipt", type=Path)
-    for name in ("seal", "verify-artifact", "promote"):
+    for name in ("export-source", "seal", "verify-artifact", "promote"):
         operation = subparsers.add_parser(
             name, help="execute an exact, separately approved release plan"
         )
@@ -99,9 +99,30 @@ def main(argv: Sequence[str] | None = None) -> int:
                 })
             )
             return 0
-        if args.command in ("seal", "verify-artifact", "promote"):
+        if args.command in ("export-source", "seal", "verify-artifact", "promote"):
             plan = read_approved_plan(args.plan, args.approve_sha256, args.command)
-            if args.command == "seal":
+            if args.command == "export-source":
+                from .source_provenance import (
+                    export_committed_source,
+                    verify_source_provenance,
+                )
+
+                provenance = provenance_from_plan(plan["provenance"])
+                source = export_committed_source(
+                    provenance,
+                    Path(plan["source"]),
+                    tuple(Path(p) for p in plan["protected_roots"]),
+                )
+                result = {
+                    "status": "CLEAR",
+                    "provenance": verify_source_provenance(
+                        source,
+                        plan["target_commit_sha"],
+                        plan["target_tag"],
+                        provenance,
+                    ),
+                }
+            elif args.command == "seal":
                 result = seal_plan(
                     plan, discover_one_behind(GitHubReleaseSource(), LsRemoteGitRefs())
                 )
