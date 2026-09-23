@@ -25,7 +25,9 @@ def test_host_health_rejects_stale_or_wrong_process_evidence(tmp_path):
     package = source / "hermes_cli"
     package.mkdir()
     (package / "__init__.py").touch()
-    (package / "main.py").write_text("import time; time.sleep(30)\n")
+    (package / "main.py").write_text(
+        "import time; from pathlib import Path; Path('ready').touch(); time.sleep(30)\n"
+    )
     process = subprocess.Popen(
         [sys.executable, "-m", "hermes_cli.main", "gateway", "run"],
         cwd=source,
@@ -52,6 +54,13 @@ def test_host_health_rejects_stale_or_wrong_process_evidence(tmp_path):
         )
 
     try:
+        deadline = time.monotonic() + 5
+        while not (source / "ready").exists() and time.monotonic() < deadline:
+            assert process.poll() is None
+            time.sleep(0.01)
+        assert (source / "ready").exists(), (
+            "owned process did not finish interpreter startup"
+        )
         evidence(process.pid)
         assert observe_host(
             source.parent, profile, started, set(), spec, Service()
