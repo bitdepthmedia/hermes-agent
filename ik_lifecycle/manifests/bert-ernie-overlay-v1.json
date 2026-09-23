@@ -6,7 +6,7 @@
     },
     "replay_manifest": "legacy-customization-replay-v1.json",
     "replay_manifest_sha256": "6353761fc90dba784548b5b6ab7c8e92c4487f356b830f3bf597f5a00140d632",
-    "overlay_source_sha256": "c85aef062945026f588576fcdb91d2b20758f1f4b37c43efea969a2e34f9b9b0",
+    "overlay_source_sha256": "96d36f5d84ada8a2a313824a303175261aa0e8d5b389bb91d3ce27b268b94159",
     "supported_edges": [
         "plugin",
         "profile",
@@ -29,6 +29,7 @@
         "docs/architecture"
     ],
     "files": [
+        "contributors/emails/info@bitdepthmedia.com",
         "scripts/ik-cell-service",
         "scripts/ik-bert-cell-service",
         "scripts/ik-bert-runtime-verify",
@@ -48,5 +49,12 @@
         "docs/planning-receipts/2026-08-21-hermes-corrected-composed-execution-plan-v3.json"
     ],
     "core_patch_count": 0,
+    "non_runtime_patches": {
+        ".github/workflows/contributor-check.yml": {
+            "upstream_blob": "b532d3551222540308bfc3a12742337329d984a7",
+            "implementation_blob": "d7085ddde482aa9d5a3d528945ee8d1fa5274a9d",
+            "authority": "Nate approved the exact CI-only attribution and provenance correction on 2026-09-23"
+        }
+    },
     "status": "DECLARED_DEPLOYABLE_OVERLAY"
 }

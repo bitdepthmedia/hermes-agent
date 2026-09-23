@@ -6,6 +6,8 @@ from pathlib import Path
 import shutil
 import stat
 import sys
+import subprocess
+from dataclasses import replace
 from unittest.mock import patch
 
 import pytest
@@ -18,6 +20,7 @@ from ik_lifecycle.deployable_runtime import (
     validate_deployable_runtime,
 )
 from ik_lifecycle.models import LifecycleBlockedError
+from ik_lifecycle.source_provenance import SourceProvenance
 
 
 def _write(path: Path, value: bytes, mode: int = 0o644) -> str:
@@ -27,7 +30,7 @@ def _write(path: Path, value: bytes, mode: int = 0o644) -> str:
     return hashlib.sha256(value).hexdigest()
 
 
-def _inputs(root: Path) -> DeployableRuntimeInputs:
+def _inputs(root: Path, *, artifact_failure: bool = False) -> DeployableRuntimeInputs:
     source = root / "source"
     runtime = root / "runtime"
     assets = root / "assets"
@@ -36,27 +39,78 @@ def _inputs(root: Path) -> DeployableRuntimeInputs:
     model_runtime = root / "model-runtime"
     model = root / "model.json"
     _write(source / "run_agent.py", b"print('hermes')\n")
-    for module in ("agent/__init__.py", "agent/tool_executor.py", "model_tools.py",
-                   "gateway/__init__.py", "gateway/run.py", "hermes_cli/__init__.py",
-                   "hermes_cli/web_server.py"):
+    for module in (
+        "agent/__init__.py",
+        "agent/tool_executor.py",
+        "model_tools.py",
+        "gateway/__init__.py",
+        "gateway/run.py",
+        "hermes_cli/__init__.py",
+        "hermes_cli/web_server.py",
+    ):
         _write(source / module, b"")
+    _write(
+        source / "model_tools.py",
+        b"""import json, pathlib, subprocess
+def get_tool_definitions(**kw):
+    return [{'function': {'name': n}} for n in ('terminal', 'read_file')]
+def handle_function_call(name, args, **kw):
+    value = subprocess.check_output(args['command'].split(), text=True) if name == 'terminal' else pathlib.Path(args['path']).read_text()
+    return json.dumps({'output': value})
+""",
+    )
+    if artifact_failure:
+        _write(
+            source / "run_agent.py",
+            b"from pathlib import Path\nif (Path(__file__).parent.parent / 'runtime-manifest.json').exists(): raise ImportError('artifact-only failure')\n",
+        )
     (runtime / "bin").mkdir(parents=True)
     shutil.copy2(sys.executable, runtime / "bin/python")
     (runtime / "bin/python").chmod(0o755)
-    _write(runtime / "lib/python3.11/site-packages/locked.dist-info/METADATA", b"Name: locked\nVersion: 1.0\n")
+    _write(
+        runtime / "lib/python3.11/site-packages/locked.dist-info/METADATA",
+        b"Name: locked\nVersion: 1.0\n",
+    )
     _write(assets / "ui/index.js", b"built")
     _write(router, b'{"primary":"qwen38-27b-q4km","reasoning":"capability-aware"}\n')
     _write(services / "com.ik.hermes-ernie.plist", b"fixture-service")
-    _write(services / "service-manifest.json", b'{"status":"CLEAR_EXACT_SERVICE_DEFINITIONS"}\n')
+    _write(
+        services / "service-manifest.json",
+        b'{"status":"CLEAR_EXACT_SERVICE_DEFINITIONS"}\n',
+    )
     _write(model_runtime / "ollama", b"#!/bin/sh\nexit 0\n", 0o755)
     _write(model_runtime / "llama-server", b"#!/bin/sh\nexit 0\n", 0o755)
-    uv_lock = source / "uv.lock"; _write(uv_lock, b"version = 1\n")
-    package_lock = source / "package-lock.json"; _write(package_lock, b'{"lockfileVersion":3}\n')
+    uv_lock = source / "uv.lock"
+    _write(uv_lock, b"version = 1\n")
+    package_lock = source / "package-lock.json"
+    _write(package_lock, b'{"lockfileVersion":3}\n')
     _write(model, b'{"model_sha256":"31629f","projector_sha256":"2e968a"}\n')
+    repository = root / "git-objects"
+    shutil.copytree(source, repository)
+    subprocess.run(["git", "init", "-q", str(repository)], check=True)
+    subprocess.run(["git", "-C", str(repository), "add", "."], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repository),
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "commit",
+            "-qm",
+            "upstream fixture",
+        ],
+        check=True,
+    )
+    commit = subprocess.check_output(
+        ["git", "-C", str(repository), "rev-parse", "HEAD"], text=True
+    ).strip()
     return DeployableRuntimeInputs(
         candidate_id="candidate-1",
         target_tag="v2026.8.18",
-        target_commit_sha="e624e9fde561e1add9388384012b295fde669ade",
+        target_commit_sha=commit,
         source=source,
         surfaces=(
             RuntimeSurface("python-runtime", runtime),
@@ -64,19 +118,26 @@ def _inputs(root: Path) -> DeployableRuntimeInputs:
             RuntimeSurface("service-definitions", services),
             RuntimeSurface("model-runtime", model_runtime),
         ),
-        lockfiles=(LockBinding("python-uv", uv_lock), LockBinding("root-npm", package_lock)),
+        lockfiles=(
+            LockBinding("python-uv", uv_lock),
+            LockBinding("root-npm", package_lock),
+        ),
         router_config=router,
         model_manifest=model,
         expected_python=sys.version_info[:2],
+        provenance=SourceProvenance(repository, commit),
     )
 
 
-def test_deployable_seal_binds_runtime_router_services_and_model(tmp_path: Path) -> None:
-    sealed = seal_deployable_runtime(_inputs(tmp_path), tmp_path / "releases", running_roots=())
+def test_deployable_seal_binds_runtime_router_services_and_model(
+    tmp_path: Path,
+) -> None:
+    inputs = _inputs(tmp_path)
+    sealed = seal_deployable_runtime(inputs, tmp_path / "releases", running_roots=())
     document = json.loads(sealed.manifest_path.read_text(encoding="utf-8"))
 
     assert document["status"] == "SEALED_DEPLOYABLE_RUNTIME"
-    assert document["identity"]["target_commit_sha"] == "e624e9fde561e1add9388384012b295fde669ade"
+    assert document["identity"]["target_commit_sha"] == inputs.target_commit_sha
     assert set(document["identity"]["surfaces"]) == {
         "built-assets",
         "python-runtime",
@@ -89,7 +150,12 @@ def test_deployable_seal_binds_runtime_router_services_and_model(tmp_path: Path)
     assert not (sealed.root.stat().st_mode & stat.S_IWUSR)
     assert stat.S_IMODE(sealed.root.stat().st_mode) == 0o555
     assert stat.S_IMODE((sealed.root / "runtime-manifest.json").stat().st_mode) == 0o444
-    assert stat.S_IMODE((sealed.root / "surfaces/python-runtime/bin/python").stat().st_mode) == 0o555
+    assert (
+        stat.S_IMODE(
+            (sealed.root / "surfaces/python-runtime/bin/python").stat().st_mode
+        )
+        == 0o555
+    )
     assert validate_deployable_runtime(sealed.root).status == "CLEAR"
 
 
@@ -107,24 +173,33 @@ def test_runtime_seal_is_idempotent_and_tamper_fails_closed(tmp_path: Path) -> N
         validate_deployable_runtime(first.root)
 
 
-def test_runtime_validation_rejects_owner_only_release_permissions(tmp_path: Path) -> None:
-    sealed = seal_deployable_runtime(_inputs(tmp_path), tmp_path / "releases", running_roots=())
+def test_runtime_validation_rejects_owner_only_release_permissions(
+    tmp_path: Path,
+) -> None:
+    sealed = seal_deployable_runtime(
+        _inputs(tmp_path), tmp_path / "releases", running_roots=()
+    )
     sealed.root.chmod(0o500)
 
     with pytest.raises(LifecycleBlockedError, match="service-readable"):
         validate_deployable_runtime(sealed.root)
 
 
-def test_runtime_seal_rejects_running_root_symlink_and_non_executable_python(tmp_path: Path) -> None:
+def test_runtime_seal_rejects_running_root_symlink_and_non_executable_python(
+    tmp_path: Path,
+) -> None:
     inputs = _inputs(tmp_path)
     with pytest.raises(LifecycleBlockedError, match="running"):
-        seal_deployable_runtime(inputs, tmp_path / "source/releases", running_roots=(tmp_path / "source",))
+        seal_deployable_runtime(
+            inputs, tmp_path / "source/releases", running_roots=(tmp_path / "source",)
+        )
 
     link = tmp_path / "runtime-link"
     link.symlink_to(inputs.surfaces[0].path, target_is_directory=True)
-    linked = DeployableRuntimeInputs(
-        **{**inputs.__dict__, "surfaces": (RuntimeSurface("python-runtime", link), *inputs.surfaces[1:])}
-    )
+    linked = DeployableRuntimeInputs(**{
+        **inputs.__dict__,
+        "surfaces": (RuntimeSurface("python-runtime", link), *inputs.surfaces[1:]),
+    })
     with pytest.raises(LifecycleBlockedError, match="symlink"):
         seal_deployable_runtime(linked, tmp_path / "linked-releases", running_roots=())
 
@@ -134,7 +209,9 @@ def test_runtime_seal_rejects_running_root_symlink_and_non_executable_python(tmp
         seal_deployable_runtime(inputs, tmp_path / "bad-releases", running_roots=())
 
 
-def test_runtime_seal_materializes_safe_inner_executable_symlink(tmp_path: Path) -> None:
+def test_runtime_seal_materializes_safe_inner_executable_symlink(
+    tmp_path: Path,
+) -> None:
     inputs = _inputs(tmp_path)
     runtime = inputs.surfaces[0].path
     target = runtime / "bin/python3.11"
@@ -149,15 +226,20 @@ def test_runtime_seal_materializes_safe_inner_executable_symlink(tmp_path: Path)
     assert validate_deployable_runtime(sealed.root).status == "CLEAR"
 
 
-def test_runtime_seal_requires_every_deployment_surface_and_committed_lock(tmp_path: Path) -> None:
+def test_runtime_seal_requires_every_deployment_surface_and_committed_lock(
+    tmp_path: Path,
+) -> None:
     inputs = _inputs(tmp_path)
-    missing = DeployableRuntimeInputs(**{**inputs.__dict__, "surfaces": inputs.surfaces[:-1]})
+    missing = DeployableRuntimeInputs(**{
+        **inputs.__dict__,
+        "surfaces": inputs.surfaces[:-1],
+    })
     with pytest.raises(LifecycleBlockedError, match="surface"):
         seal_deployable_runtime(missing, tmp_path / "missing-surface", running_roots=())
 
     bad_lock = inputs.lockfiles[0].path
     bad_lock.unlink()
-    with pytest.raises(LifecycleBlockedError, match="lock"):
+    with pytest.raises(LifecycleBlockedError, match="committed implementation"):
         seal_deployable_runtime(inputs, tmp_path / "missing-lock", running_roots=())
 
 
@@ -165,16 +247,26 @@ def test_runtime_seal_requires_model_server_companion(tmp_path: Path) -> None:
     inputs = _inputs(tmp_path)
     (inputs.surfaces[-1].path / "llama-server").unlink()
     with pytest.raises(LifecycleBlockedError, match="model runtime"):
-        seal_deployable_runtime(inputs, tmp_path / "missing-model-server", running_roots=())
+        seal_deployable_runtime(
+            inputs, tmp_path / "missing-model-server", running_roots=()
+        )
 
 
-def test_runtime_seal_accepts_explicit_external_model_worker_cell(tmp_path: Path) -> None:
+def test_runtime_seal_accepts_explicit_external_model_worker_cell(
+    tmp_path: Path,
+) -> None:
     inputs = _inputs(tmp_path)
     model_runtime = inputs.surfaces[-1].path
     shutil.rmtree(model_runtime)
-    _write(model_runtime / "EXTERNAL_MODEL_ONLY", b"BERT_EXTERNAL_MODEL_WORKER_ONLY\n", 0o444)
+    _write(
+        model_runtime / "EXTERNAL_MODEL_ONLY",
+        b"BERT_EXTERNAL_MODEL_WORKER_ONLY\n",
+        0o444,
+    )
 
-    sealed = seal_deployable_runtime(inputs, tmp_path / "external-model-releases", running_roots=())
+    sealed = seal_deployable_runtime(
+        inputs, tmp_path / "external-model-releases", running_roots=()
+    )
     document = json.loads(sealed.manifest_path.read_text(encoding="utf-8"))
 
     assert document["identity"]["model_runtime"] == {"mode": "external-profile-managed"}
@@ -188,13 +280,23 @@ def test_runtime_seal_rejects_unreviewed_external_model_marker(tmp_path: Path) -
     _write(model_runtime / "EXTERNAL_MODEL_ONLY", b"external\n", 0o444)
 
     with pytest.raises(LifecycleBlockedError, match="model runtime"):
-        seal_deployable_runtime(inputs, tmp_path / "bad-external-model", running_roots=())
+        seal_deployable_runtime(
+            inputs, tmp_path / "bad-external-model", running_roots=()
+        )
 
 
-def test_casefold_collision_requires_case_sensitive_release_store(tmp_path: Path) -> None:
+def test_casefold_collision_requires_case_sensitive_release_store(
+    tmp_path: Path,
+) -> None:
     inputs = _inputs(tmp_path)
-    with patch("ik_lifecycle.deployable_runtime._casefold_collisions", return_value=("x",)), patch(
-        "ik_lifecycle.deployable_runtime._filesystem_case_sensitive", return_value=False
+    with (
+        patch(
+            "ik_lifecycle.deployable_runtime._casefold_collisions", return_value=("x",)
+        ),
+        patch(
+            "ik_lifecycle.deployable_runtime._filesystem_case_sensitive",
+            return_value=False,
+        ),
     ):
         with pytest.raises(LifecycleBlockedError, match="case-sensitive"):
             seal_deployable_runtime(inputs, tmp_path / "releases", running_roots=())
@@ -216,9 +318,116 @@ def test_failed_seal_retains_staging_evidence(tmp_path: Path) -> None:
             raise OSError("injected copy failure")
         return original(source, destination, **kwargs)
 
-    with patch("ik_lifecycle.deployable_runtime._copytree_for_release", side_effect=fail_second):
+    with patch(
+        "ik_lifecycle.deployable_runtime._copytree_for_release", side_effect=fail_second
+    ):
         with pytest.raises(OSError, match="injected"):
             seal_deployable_runtime(inputs, tmp_path / "releases", running_roots=())
     failures = tuple((tmp_path / "releases").glob("*.failed"))
     assert len(failures) == 1
     assert (failures[0] / "FAILURE").is_file()
+
+
+def test_seal_rejects_source_without_git_provenance(tmp_path: Path) -> None:
+    inputs = replace(_inputs(tmp_path), provenance=None)
+    with pytest.raises(LifecycleBlockedError, match="provenance"):
+        seal_deployable_runtime(inputs, tmp_path / "unproven", running_roots=())
+
+
+def test_exact_source_export_ignores_archive_line_ending_filters(
+    tmp_path: Path,
+) -> None:
+    from ik_lifecycle.source_provenance import (
+        export_committed_source,
+        verify_source_provenance,
+    )
+
+    inputs = _inputs(tmp_path)
+    repo = inputs.provenance.repository
+    (repo / ".gitattributes").write_text("*.ps1 text eol=crlf\n", encoding="utf-8")
+    (repo / "check.ps1").write_bytes(b'Write-Output "fixture"\n')
+    subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo),
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "commit",
+            "-qm",
+            "export fixture",
+        ],
+        check=True,
+    )
+    commit = subprocess.check_output(
+        ["git", "-C", str(repo), "rev-parse", "HEAD"], text=True
+    ).strip()
+    provenance = SourceProvenance(repo, commit)
+    exported = export_committed_source(
+        provenance, tmp_path / "export", (inputs.source,)
+    )
+    assert (exported / "check.ps1").read_bytes() == b'Write-Output "fixture"\n'
+    assert (
+        verify_source_provenance(exported, commit, "fixture", provenance)[
+            "implementation_commit"
+        ]
+        == commit
+    )
+    with pytest.raises(LifecycleBlockedError):
+        export_committed_source(provenance, inputs.source / "unsafe", (inputs.source,))
+
+
+def test_seal_rejects_untracked_source_injection(tmp_path: Path) -> None:
+    inputs = _inputs(tmp_path)
+    (inputs.source / "injected.py").write_text(
+        "raise RuntimeError('must not execute')\n", encoding="utf-8"
+    )
+    with pytest.raises(LifecycleBlockedError, match="committed implementation"):
+        seal_deployable_runtime(inputs, tmp_path / "releases", running_roots=())
+    assert not (tmp_path / "releases").exists()
+
+
+def test_seal_checks_imports_at_final_artifact_path(tmp_path: Path) -> None:
+    inputs = _inputs(tmp_path, artifact_failure=True)
+    with pytest.raises(LifecycleBlockedError, match="runtime import"):
+        seal_deployable_runtime(inputs, tmp_path / "releases", running_roots=())
+    assert list((tmp_path / "releases").glob("*.failed"))
+    assert not [
+        p for p in (tmp_path / "releases").iterdir() if not p.name.endswith(".failed")
+    ]
+
+
+def test_seal_rejects_mixed_core_even_when_committed(tmp_path: Path) -> None:
+    inputs = _inputs(tmp_path)
+    content = b"# legacy display module substituted into the new core\n"
+    (inputs.source / "agent/tool_executor.py").write_bytes(content)
+    repo = inputs.provenance.repository
+    (repo / "agent/tool_executor.py").write_bytes(content)
+    subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repo),
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.invalid",
+            "commit",
+            "-qm",
+            "mixed release",
+        ],
+        check=True,
+    )
+    commit = subprocess.check_output(
+        ["git", "-C", str(repo), "rev-parse", "HEAD"], text=True
+    ).strip()
+    with pytest.raises(LifecycleBlockedError, match="core replacement"):
+        seal_deployable_runtime(
+            replace(inputs, provenance=SourceProvenance(repo, commit)),
+            tmp_path / "releases",
+            running_roots=(),
+        )

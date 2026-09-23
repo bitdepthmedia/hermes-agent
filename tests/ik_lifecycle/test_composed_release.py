@@ -32,6 +32,7 @@ class ComposedReleaseTests(unittest.TestCase):
             "docs/architecture/",
         )
         exact_files = {
+            "contributors/emails/info@bitdepthmedia.com",
             "ik_lifecycle/manifests/bert-ernie-overlay-v1.json",
             "scripts/ik-hermes-lifecycle",
             "scripts/ik-bert-runtime-canary",
